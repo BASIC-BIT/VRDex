@@ -36,6 +36,12 @@ export const seriesRepeatValidator = v.object({
 export type SeriesRule = Infer<typeof eventSeriesRuleValidator>;
 export type SeriesRepeat = Infer<typeof seriesRepeatValidator>;
 
+/** The monthly `ordinal` a YYYY-MM-DD date gives a series; days 29 and later count as the last weekday. */
+export function monthlyOrdinalOf(date: string): 1 | 2 | 3 | 4 | -1 {
+  const day = Number(date.slice(8, 10));
+  return day >= 29 ? -1 : (Math.ceil(day / 7) as 1 | 2 | 3 | 4);
+}
+
 export const SERIES_HORIZON_DAYS = 60;
 
 export const SERIES_OWNED_EVENT_FIELDS = [

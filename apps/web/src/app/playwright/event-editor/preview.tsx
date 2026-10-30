@@ -1,8 +1,10 @@
 "use client";
 
 import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { useState } from "react";
 
 import { EventEditorPage } from "../../events/event-editor-page";
+import { EventSeriesNote } from "../../events/event-series-controls";
 import type { EditableEvent } from "../../events/event-editor-form";
 
 const previewClient = new ConvexReactClient("https://playwright-preview.convex.cloud");
@@ -94,6 +96,33 @@ function previewDiscordTimestamps() {
   };
 }
 
+const previewSeriesEvent: EditableEvent = {
+  ...previewEvent,
+  series: {
+    id: "series-editor-preview",
+    title: "Afterglow Harbor Sessions",
+    summary: "An evening of music at the harbor.",
+    timezone: "America/Indiana/Indianapolis",
+    rule: { frequency: "weekly", weekday: 6, startTime: "18:00" },
+    startsOn: "2026-09-12",
+    state: "active",
+  },
+  overrides: ["summary"],
+};
+
+const serverRefusal = "Field is not overridden on this night.";
+
+/** Stands in for Convex on the series editor: records each save, and refuses them under `?fail=1`. */
+function seriesEditorClient(fail: boolean) {
+  return {
+    async mutation(_mutation: unknown, args: unknown) {
+      const page = window as unknown as { seriesUpdates?: unknown[] };
+      page.seriesUpdates = [...(page.seriesUpdates ?? []), args];
+      if (fail) throw new Error(serverRefusal);
+    },
+  } as unknown as ConvexReactClient;
+}
+
 export function EventEditorPreview() {
   return (
     <ConvexProvider client={previewClient}>
@@ -102,15 +131,21 @@ export function EventEditorPreview() {
   );
 }
 
-export function EventEditorEditPreview() {
+export function EventEditorEditPreview({ fail = false, scope, series = false }: { fail?: boolean; scope?: string; series?: boolean }) {
+  const seriesEditor = series && scope === "series";
+  const [client] = useState(() => seriesEditor ? seriesEditorClient(fail) : previewClient);
+  if (series && fail && !seriesEditor) {
+    return <EventSeriesNote communitySlug="afterglow" eventSlug={previewEvent.slug!} overrides={["summary"]} onReset={() => Promise.reject(new Error(serverRefusal))} />;
+  }
   return (
-    <ConvexProvider client={previewClient}>
+    <ConvexProvider client={client}>
       <EventEditorPage
         communityName="Afterglow"
         communitySlug="afterglow"
-        demoMode
+        demoMode={!seriesEditor}
         discordPostText="Afterglow Harbor Sessions\nhttps://vrdex.net/afterglow/events/harbor-sessions-7k2m4q"
-        event={previewEvent}
+        event={series ? previewSeriesEvent : previewEvent}
+        scope={scope}
       />
     </ConvexProvider>
   );

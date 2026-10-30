@@ -27,7 +27,7 @@ function requestOrigin(requestHeaders: Headers): string | undefined {
   }
 }
 
-export async function EventEditPage({ communitySlug, eventSlug }: { communitySlug: string; eventSlug: string }) {
+export async function EventEditPage({ communitySlug, eventSlug, scope }: { communitySlug: string; eventSlug: string; scope?: string }) {
   const result = await fetchEditableEventBySlug(eventSlug);
 
   if (result.kind === "missing-url" || result.kind === "error") {
@@ -52,6 +52,7 @@ export async function EventEditPage({ communitySlug, eventSlug }: { communitySlu
         communitySlug={communitySlug}
         discordPostText={discordPostText}
         event={result.event}
+        scope={scope}
       />
     </div>
   );

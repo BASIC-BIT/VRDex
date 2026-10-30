@@ -201,3 +201,25 @@ it("rejects a non-manager, a reset of a field that is not overridden, and a disa
   await assert.rejects(t.withIdentity(owner.identity).mutation(api.eventSeries.resetOverride, { eventId: n13._id, field: "summary" }), /Recurring events are not enabled\./);
   assert.equal((await t.run(ctx => ctx.db.get(seriesId)))!.summary, "Weekly");
 });
+
+it("the editor read carries the night's series and overrides", async (test) => {
+  const { t, owner, seriesId, n13 } = await setup(test);
+  await t.run(ctx => ctx.db.patch(n13._id, { overrides: ["summary"] }));
+  const editable = await t.withIdentity(owner.identity).query(api.events.getEditableBySlug, { slug: n13.slug! });
+  assert.deepEqual(editable?.overrides, ["summary"]);
+  assert.equal(editable?.series?.id, seriesId);
+  assert.equal(editable?.series?.title, "Harbor Night");
+  assert.equal(editable?.series?.rule.startTime, "20:00");
+  assert.equal(editable?.series?.state, "active");
+  assert.equal(editable?.id, n13._id);
+});
+
+it("the editor read of a one-off event has no series", async (test) => {
+  const { t, owner } = await setup(test);
+  const event = await t.withIdentity(owner.identity).mutation(api.events.createCommunityEvent, {
+    title: "One Off", timezone: "America/New_York", communitySlug: "faceless", published: true, startAt: Date.parse("2026-11-08T01:00:00Z"),
+  } as never);
+  const editable = await t.withIdentity(owner.identity).query(api.events.getEditableBySlug, { slug: event.slug });
+  assert.equal(editable?.series, null);
+  assert.deepEqual(editable?.overrides, []);
+});

@@ -13,6 +13,7 @@ import {
   getPlaywrightDiscoveryFixture,
   getPlaywrightProfileLookupFixture,
   getPlaywrightPublicEventFixture,
+  getPlaywrightPublicEventSeriesFixture,
   getPlaywrightPublicProfileFixture,
   getPlaywrightPublicShortLinkFixture,
   getPlaywrightPublicWorldFixture,
@@ -247,6 +248,12 @@ export async function fetchPublicEventBySlug(slug: string) {
 }
 
 export async function fetchPublicEventSeries(seriesId: string) {
+  const fixtureSeries = getPlaywrightPublicEventSeriesFixture(seriesId);
+
+  if (fixtureSeries !== null) {
+    return { kind: "live" as const, series: fixtureSeries };
+  }
+
   if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
     return { kind: "missing-url" as const };
   }

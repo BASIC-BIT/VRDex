@@ -35,7 +35,9 @@ import { applyStaffLineupTimings, changeStaffSlotOffset, readStaffLineupTimings,
 import { changeLineupDuration, generateLineupTimings, getLineupEndAt, getLineupEndConflict, insertLineupSlot, removeLineupSlot, shiftLineupStart, type LineupEditResult, type LineupTimingRow } from "@/lib/calendar/event-lineup-timing";
 import { EventSlotRemove, EventLineupSetup, EventLineupInsert, EventSlotDuration, EventLineupReset, EventLineupConflict } from "./event-lineup-controls";
 import { resolveAuthoredEventEndAt } from "@/lib/calendar/event-end-time";
-import { EventEditorSteps, type EventEditorStep } from "./event-editor-steps";
+import { EditorSection, EventEditorSteps, type EventEditorStep } from "./event-editor-steps";
+import { EventSeriesNote, RepeatControl, type RepeatValue } from "./event-series-controls";
+import type { EditableSeries } from "@/lib/event-series-editor";
 import { EventLocationField } from "./event-location-field";
 import type { EventIdentityOption } from "@/lib/event-editor-identity";
 import { EventEditorPreview, EventCommunitySummary, useEventCommunity } from "./event-editor-preview";
@@ -78,6 +80,8 @@ export type EditableEvent = Omit<PublicEvent, "slots" | "lineup"> & {
   preservedWorldAssociationIds: Id<"eventWorlds">[];
   editableWorldAssociation?: { associationId: Id<"eventWorlds">; worldSlug: string };
   publicationState?: "draft_private" | "published";
+  series?: EditableSeries | null;
+  overrides?: string[];
 };
 
 type EventAssociationSnapshot = Pick<
@@ -383,15 +387,6 @@ function chooseVisibleWorkerSession<Session extends { status: string; updatedAt:
   return sessions.find((session) => ["starting", "live", "hold", "fallback", "stopping"].includes(session.status)) ?? sessions[0];
 }
 
-function EditorSection({ children, title }: { children: ReactNode; title: string }) {
-  return (
-    <section className="grid gap-5 border-b border-border pb-8">
-      <h2 className="text-2xl font-semibold tracking-[-0.03em]">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
 function EditorDisclosure({ children, title }: { children: ReactNode; title: string }) {
   return (
     <details className="group border-b border-border pb-6">
@@ -473,6 +468,11 @@ function ConnectedEventEditorForm({
   const authoredInput = (key: keyof typeof authored) => ({ value: authored[key], onChange: (change: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { const value = change.currentTarget.value; setAuthored(current => ({ ...current, [key]: value })); } });
   const [eventDate, setEventDate] = useState(event?.eventDate ?? formatZonedDateTimeInput(event?.startAt, event?.timezone).slice(0, 10));
   const [timeTba, setTimeTba] = useState(event?.scheduleKind === "date_only");
+  const [repeat, setRepeat] = useState<RepeatValue>({ frequency: "none", endsOn: "" });
+  const recurringEnabled = useQuery(api.eventSeries.isEnabled, demoMode ? "skip" : {});
+  const repeatAvailable = !event?.series && !timeTba && (demoMode || recurringEnabled === true);
+  const createSeries = useMutation(api.eventSeries.create);
+  const resetOverride = useMutation(api.eventSeries.resetOverride);
   const performers = useEventPerformerEditor([...(event?.slots.flatMap(row => row.performer ? [row.performer] : []) ?? []), ...(event?.participants ?? []), ...(event?.lineup?.flatMap(row => row.performer ? [row.performer] : []) ?? [])].map(person => ({ kind: "person", slug: person.slug, title: person.displayName, href: `/${person.slug}`, imageUrl: person.imageUrl, imageKind: "profile", trustLabel: person.trustLabel })));
   const [untimedRows, setUntimedRows] = useState<UntimedFormRow[]>(() => (event?.lineup ?? []).filter(row => row.startAt === undefined).map(row => ({
     clientKey: row.key, position: row.position, performerLabel: row.displayLabel, personSlug: row.performer?.slug ?? "", roleLabel: row.roleLabel ?? "", broadcastInput: row.broadcastInput, broadcastInputChoices: row.broadcastInputChoices,
@@ -543,7 +543,7 @@ function ConnectedEventEditorForm({
   });
   const [, startTransition] = useTransition();
   const pendingInputs = useEventEditorPending();
-  const snapshot = authoredSnapshot({ ...authored, location, timeTba, eventDate, startLocal, occurrence, endLocal, endOccurrence, startInstantOverride, endAtOverride, doorsAtOverride, doorsOpenMinutes, timezone, watchSurfaceEnabled, watchMode, mediaLinksText,
+  const snapshot = authoredSnapshot({ ...authored, repeat, location, timeTba, eventDate, startLocal, occurrence, endLocal, endOccurrence, startInstantOverride, endAtOverride, doorsAtOverride, doorsOpenMinutes, timezone, watchSurfaceEnabled, watchMode, mediaLinksText,
     slots: slotRows.map(row => ({ position: row.position, offsetMinutes: row.offsetMinutes, durationMinutes: row.durationMinutes, startAtOverride: row.startAtOverride, offsetMsOverride: row.offsetMsOverride, endAtOverride: row.endAtOverride, durationMsOverride: row.durationMsOverride, personSlug: row.personSlug, displayLabel: row.displayLabel, roleLabel: row.roleLabel, selectedStreamId: row.selectedStreamId, broadcastInput: row.broadcastInput })), untimed: untimedRows.map(row => ({ position: row.position, performerLabel: row.performerLabel, personSlug: row.personSlug, roleLabel: row.roleLabel, broadcastInput: row.broadcastInput })) });
   const [persisted, setPersisted] = useState(snapshot);
   const dirty = hasUnsavedEventChanges({ current: snapshot, persisted, pendingInput: pendingInputs.pending })
@@ -799,6 +799,9 @@ function ConnectedEventEditorForm({
         savedLineupRevision.current = submittedLineupRevision;
         savedLineupStartAt.current = startAt;
       }
+      if (intent === "publish" && repeatAvailable && repeat.frequency !== "none" && !demoMode) {
+        await createSeries({ eventSlug: result.slug, repeat: { frequency: repeat.frequency, ...(repeat.endsOn ? { endsOn: repeat.endsOn } : {}) } });
+      }
       setPersisted(submittedSnapshot);
       if (intent === "publish") setReturnPath(result.eventPath ?? `/${communitySlug}/events/${result.slug}`);
       startTransition(() =>
@@ -832,6 +835,12 @@ function ConnectedEventEditorForm({
           : undefined,
       }));
     }
+  }
+
+  // A reset remounts this form with the night's new values (EventEditorPage keys it on overrides), so it counts as leaving.
+  async function onResetOverride(fields: string[]) {
+    if (!requestLeave(() => {}) || demoMode) return;
+    for (const field of fields) await resetOverride({ eventId: event!.id as Id<"events">, field });
   }
 
   async function onSetCancelled(cancelled: boolean) {
@@ -1044,6 +1053,7 @@ function ConnectedEventEditorForm({
     <form ref={formRef} data-event-dirty={dirty} className="grid gap-8" noValidate onSubmit={onSubmit}>
       <EventEditorSteps heading={heading} steps={["Details", "Lineup", "Review"]} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview editingTimezone={editingTimezone} fields={previewFields} artwork={preview.artwork || undefined} community={community} world={world} />}>
       <div hidden={activeStep !== "Details"} data-editor-step="Details" className="space-y-8">
+      {event?.series ? <EventSeriesNote communitySlug={communitySlug} eventSlug={currentSlug!} overrides={event.overrides ?? []} onReset={onResetOverride} /> : null}
       <EditorSection title="Details">
         <Field>
           Event title
@@ -1086,6 +1096,7 @@ function ConnectedEventEditorForm({
             </details>
           </div> : null}
         </div>
+        {repeatAvailable ? <RepeatControl value={repeat} onChange={setRepeat} /> : null}
       </EditorSection>
 
       <EditorDisclosure title="Source">

@@ -3,6 +3,15 @@ import type { ReactNode } from "react";
 import { CalendarDays, Music2, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+export function EditorSection({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <section className="grid gap-5 border-b border-border pb-8">
+      <h2 className="text-2xl font-semibold tracking-[-0.03em]">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
 export type EventEditorStep = "Details" | "Lineup" | "Review";
 const icons = { Details: CalendarDays, Lineup: Music2, Review: ClipboardCheck };
 export function EventEditorSteps({ steps, activeStep, onSelect, children, preview, heading, actions }: {

@@ -858,6 +858,7 @@ export async function getEventForEditor(
     ...(record?.lineupEntries?.flatMap(row => row.entry.personProfileId ? [row.entry.personProfileId] : []) ?? []),
     ...(record?.participants.map(row => row.profile._id) ?? []),
   ]);
+  const series = event.seriesId === undefined ? null : await db.get(event.seriesId);
   const retainedLineupAssociations = {
     participantIds: participantAssociations.filter(row => !representedPersonIds.has(row.personProfileId)).map(row => row._id),
     slotIds: slotAssociations.filter(row => !projected?.slots.some(slot => slot.playbackKey === row._id)).map(row => row._id),
@@ -903,6 +904,23 @@ export async function getEventForEditor(
         ...(editableWorldAssociation === undefined ? {} : { editableWorldAssociation }),
         preservedCommunityProfileId: event.communityProfileId,
         publicationState: event.publicationState,
+        series: series === null ? null : {
+          id: series._id as string,
+          title: series.title,
+          ...optionalField("summary", series.summary),
+          timezone: series.timezone,
+          ...optionalField("venueLabel", series.venueLabel),
+          ...optionalField("worldSlug", series.worldSlug),
+          ...optionalField("sourceUrl", series.sourceUrl),
+          ...optionalField("bannerImageUrl", series.bannerImageUrl),
+          ...optionalField("thumbnailImageUrl", series.thumbnailImageUrl),
+          rule: series.rule,
+          startsOn: series.startsOn,
+          ...optionalField("endsOn", series.endsOn),
+          ...optionalField("count", series.count),
+          state: series.state,
+        },
+        overrides: event.overrides ?? [],
       };
 }
 

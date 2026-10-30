@@ -11,6 +11,7 @@ import {
   requireRecurringEventsEnabled,
   type SeriesOwnedEventField,
   type SeriesRepeat,
+  monthlyOrdinalOf,
   type SeriesRule,
 } from "./_eventSeriesModel";
 import { enqueueEventSync } from "./_eventSync";
@@ -375,8 +376,7 @@ type RepeatSource = { startAt: number; endAt?: number; doorsOpenAt?: number; tim
 export function seriesRuleFor(source: RepeatSource, repeat: SeriesRepeat): { rule: SeriesRule; startsOn: string } {
   const { startAt, timezone } = source;
   const startsOn = source.eventDate ?? eventDateForInstant(startAt, timezone);
-  const day = Number(startsOn.slice(8, 10));
-  const ordinal = repeat.frequency === "monthly_weekday" ? repeat.ordinal ?? (day >= 29 ? -1 : (Math.ceil(day / 7) as 1 | 2 | 3 | 4)) : repeat.ordinal;
+  const ordinal = repeat.frequency === "monthly_weekday" ? repeat.ordinal ?? monthlyOrdinalOf(startsOn) : repeat.ordinal;
   const rule: SeriesRule = {
     frequency: repeat.frequency,
     weekday: repeat.weekday ?? weekdayOf(toDay(startsOn)),
