@@ -293,7 +293,7 @@ A series owns the schedule of a repeating night. Each night is an ordinary `even
 | --- | --- |
 | Locked decision | A series owns schedule, title, world or venue, and community. A night owns lineup, poster, and any one-off override. |
 | Locked decision | Editing a night changes only that night and records what changed as overrides. Editing the series changes every upcoming night that has not overridden that field. |
-| Locked decision | Connector exports create a real series on Google Calendar and Discord, and VRChat gets occurrences. Not built: `eventSyncLinks` has no series fields yet, so connectors see each night as a plain event. |
+| Locked decision | Connector exports create a real series on Google Calendar and Discord, and VRChat gets occurrences. Not built: `eventSyncLinks` has no `seriesId` yet, so VRDex series are not linked and connectors see each night as a plain event. |
 | Current recommendation | Nights are real `events` rows materialised sixty days ahead. |
 | Current recommendation | Rules are a fixed set (weekly, every two weeks, monthly on the nth or last weekday), not free RRULE. |
 | Current recommendation | A night whose merged times would not fit keeps its times for that edit, with no override recorded. |
@@ -305,7 +305,7 @@ A series owns the schedule of a repeating night. Each night is an ordinary `even
 
 - `communityProfileId`, `title`, `summary`, `timezone`, `venueLabel`, `worldSlug`, `mediaLinks`, `watchMode`, `watchSurfaceEnabled`, `bannerImageUrl`, `thumbnailImageUrl`, and `sourceUrl`, with the same shapes as on `events`
 - `rule`: `frequency` (`weekly`, `biweekly`, `monthly_weekday`), `weekday` (`0` to `6`, `0` is Sunday), `ordinal` (monthly only: `1` to `4`, or `-1` for the last weekday), and `startTime`, optional `endTime`, and optional `doorsTime` as `HH:MM` wall-clock times in the series `timezone`
-- `startsOn`, optional `endsOn` (inclusive), and optional `count` (`1` to `520`, counted from `startsOn`); when both bounds are set, the first one reached ends generation
+- `startsOn`, optional `endsOn` (inclusive), and optional `count` (`1` to `520`, counted from `startsOn`); when both bounds are set, the first one reached ends generation; `endsOn` may not precede `startsOn` when set, and the `Ends` date enforces this with a native `min` (the event date in the form, `startsOn` in the series editor). The exception: `eventSeries.end` can leave `endsOn` before `startsOn` on a series that has not started yet, and `seriesUpdatePatch` validates only the changed bounds
 - `horizonDays`: `60` on every new series, stored so it can vary per series later without a migration
 - `authorityUserId`, `state` (`active`, `ended`, `removed`), `createdAt`, and `updatedAt`
 
@@ -401,7 +401,7 @@ An edit to an active series retires by the same rule, but only the nights the ne
 
 ### Stream programmes
 
-A created night copies the programme of the latest occurrence that has one: media settings, broadcast policy, public and fallback links, and authorized outputs, with the programme in `draft` and `active` outputs as `ready`. Sources, scenes, sessions, and commands stay with the night. Adopted nights copy nothing.
+A created night copies the programme of the latest occurrence that has one: media settings, broadcast policy, public and fallback links, and authorized outputs, with the programme in `draft`, or `ready` when its current output copies as `ready`, and `active` outputs as `ready`. Sources, scenes, sessions, and commands stay with the night. Adopted nights copy nothing.
 
 Current recommendation: the copy happens once, at creation. Changing a programme affects only nights created from it later. This is a deliberate ceiling; fanning programme config into existing nights is a later change if weekly re-setup turns out to be common.
 
