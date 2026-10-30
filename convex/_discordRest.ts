@@ -7,7 +7,8 @@ export const DISCORD_BOT_PERMISSIONS = 17600776072192;
 
 /** Calls the Discord REST API as the bot. Errors are short codes; they never carry the token or a response body. */
 export async function discordRequest(request: { method: string; path: string; body?: unknown; token?: string }): Promise<Response> {
-  const token = request.token ?? process.env.DISCORD_BOT_TOKEN;
+  // Dev's DISCORD_BOT_TOKEN is the hosted stub's token, so REST calls can carry their own real one.
+  const token = request.token ?? (process.env.DISCORD_REST_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN);
   if (!token) throw new Error("DISCORD_BOT_TOKEN_MISSING");
   const init: RequestInit = {
     method: request.method,
