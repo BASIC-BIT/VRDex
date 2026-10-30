@@ -440,14 +440,52 @@ describe("vrchat calendar import", () => {
 
   it("skips items whose times do not parse without failing the job", async () => {
     const t = convexTest({ schema, modules });
-    const { connectorId } = await seedVrchatConnector(t, { direction: "import", mode: "hold" });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "import", mode: "hold" });
     for (const bad of [{ startsAt: "soon" }, { updatedAt: "lately" }]) {
       assert.equal(await t.mutation(internal.vrchatCalendarConnector.applyImport, { connectorId: connectorId!, item: vrchatItem(bad) }), "skipped");
     }
+    // A malformed entry is still in the list, so its link is not flagged deleted.
+    const linkTo = async (slug: string, date: string, externalId: string) => {
+      const eventId = await seedEvent(t, communityProfileId, { slug, ...at(date) });
+      return t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: connectorId!, eventId, externalId, lastExportedAt: NOW - 3_600_000, state: "linked", createdAt: NOW - 3_600_000, updatedAt: NOW }));
+    };
+    const links = [await linkTo("bad-start", "2026-11-10", CAL_1), await linkTo("bad-updated", "2026-11-11", calId(2))];
     const job = await runSyncJob(t, { connectorId: connectorId!, kind: "import_poll" });
     await workerSettle(t, { status: "succeeded", result: { calendarEvents: [vrchatItem({ startsAt: "soon" }), vrchatItem({ id: calId(2), updatedAt: "lately" })] } });
     assert.equal((await rerunJob(t, job._id)).state, "done");
     assert.deepEqual(await importIds(t), []);
+    for (const linkId of links) assert.equal((await t.run((ctx) => ctx.db.get(linkId)))!.state, "linked");
+  });
+
+  it("a VRChat edit behind a pending draft is not marked seen, so a later poll retries it", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, authorityUserId } = await seedVrchatConnector(t, { direction: "import", mode: "hold" });
+    const draftId = await t.run((ctx) => ctx.db.insert("eventIntakeDrafts", { actorUserId: authorityUserId, version: 1, fields: {}, provenance: [], connectorId: connectorId!, createdAt: NOW, updatedAt: NOW, expiresAt: NOW + 86_400_000 }));
+    const before = Date.parse("2026-11-01T00:00:00.000Z");
+    const linkId = await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: connectorId!, draftId, externalId: CAL_1, externalUpdatedAt: before, lastImportedAt: before, state: "linked", createdAt: NOW, updatedAt: NOW }));
+    assert.equal(await t.mutation(internal.vrchatCalendarConnector.applyImport, { connectorId: connectorId!, item: vrchatItem() }), "skipped_pending_draft");
+    const link = (await t.run((ctx) => ctx.db.get(linkId)))!;
+    assert.deepEqual([link.externalUpdatedAt, link.lastImportedAt], [before, before]);
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "import_poll" });
+    await workerSettle(t, { status: "succeeded", result: { calendarEvents: [vrchatItem()] } });
+    await rerunJob(t, job._id);
+    assert.deepEqual(await importIds(t), [CAL_1]);
+  });
+
+  it("never matches a draft, cancelled, or moderation-removed twin", async () => {
+    for (const hidden of [{ publicationState: "draft_private" }, { eventStatus: "cancelled" }, { moderationRemovedAt: NOW }] as Partial<Doc<"events">>[]) {
+      const t = convexTest({ schema, modules });
+      const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "bidirectional", mode: "hold" });
+      const twin = await seedEvent(t, communityProfileId, hidden);
+      const job = await runSyncJob(t, { connectorId: connectorId!, kind: "reconcile" });
+      await workerSettle(t, { status: "succeeded", result: { calendarEvents: [vrchatItem()] } });
+      await rerunJob(t, job._id);
+      assert.equal((await t.run((ctx) => ctx.db.query("eventSyncLinks").collect())).length, 0);
+      assert.deepEqual(await importIds(t), [CAL_1]);
+      assert.equal(await t.mutation(internal.vrchatCalendarConnector.applyImport, { connectorId: connectorId!, item: vrchatItem() }), "draft");
+      const [link] = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
+      assert.notEqual(link.eventId, twin);
+    }
   });
 
   it("reconcile links by date and title without creating", async () => {
@@ -490,6 +528,18 @@ describe("vrchat calendar import", () => {
     // With the flag off nothing is enqueued, even once the earlier poll finished.
     process.env.VRDEX_CONNECTOR_VRCHAT_CALENDAR_ENABLED = "false";
     await t.run((ctx) => ctx.db.patch(polls[0]._id, { state: "done" }));
+    await t.mutation(internal.vrchatCalendarConnector.enqueuePolls, {});
+    assert.equal((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((j) => j.kind === "import_poll").length, 1);
+  });
+
+  it("enqueuePolls still sees a queued poll behind a backlog of import jobs", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedVrchatConnector(t, { direction: "import" });
+    await t.run(async (ctx) => {
+      const job = { connectorId: connectorId!, dueAt: NOW, attempts: 0, state: "pending" as const, createdAt: NOW, updatedAt: NOW };
+      for (let index = 0; index < 150; index++) await ctx.db.insert("eventSyncJobs", { ...job, kind: "import_item", payload: { item: vrchatItem({ id: calId(index) }) } });
+      await ctx.db.insert("eventSyncJobs", { ...job, kind: "import_poll", payload: null });
+    });
     await t.mutation(internal.vrchatCalendarConnector.enqueuePolls, {});
     assert.equal((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((j) => j.kind === "import_poll").length, 1);
   });

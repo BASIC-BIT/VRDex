@@ -3,7 +3,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { calendarEventItem, type OperationPayload, type VrchatCalendarItem } from "./_clubOperations";
 import { applyEventCandidate, candidateFromConnectorFields } from "./_eventCandidateApply";
-import { enqueueSyncJob } from "./_eventSync";
+import { enqueueSyncJob, eventIsSyncable } from "./_eventSync";
 import { eventPathForRecord } from "./_eventPaths";
 import { getPublicEventBySlug } from "./_eventPublic";
 import { eventDateForInstant } from "./_eventSchedule";
@@ -199,13 +199,15 @@ const readable = (item: VrchatCalendarItem) => Number.isFinite(Date.parse(item.s
 const linkByExternalId = (ctx: MutationCtx, connectorId: Id<"eventConnectors">, externalId: string) =>
   ctx.db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connectorId).eq("externalId", externalId)).unique();
 
-// A community event on the item's local date whose title matches, in full or as VRChat's truncated copy.
-// An event this connector already links to another entry never matches.
+// A syncable community event on the item's local date whose title matches, in full or as VRChat's truncated copy.
+// A hidden twin never matches: a later upsert on it would turn into an export_delete of the organiser's entry.
+// Nor does an event this connector already links to another entry.
 async function matchEvent(ctx: MutationCtx, connector: Connector, item: VrchatCalendarItem) {
   const eventDate = eventDateForInstant(Date.parse(item.startsAt), connector.target.timezone ?? "UTC");
   const title = item.title.trim().toLowerCase();
   const events = await ctx.db.query("events").withIndex("by_communityProfileId_eventDate", q => q.eq("communityProfileId", connector.communityProfileId).eq("eventDate", eventDate)).take(50);
   for (const event of events) {
+    if (!eventIsSyncable(event)) continue;
     if (event.title.trim().toLowerCase() !== title && truncateTitle(event.title).trim().toLowerCase() !== title) continue;
     if (!await linkFor(ctx, connector._id, event._id)) return event;
   }
@@ -235,7 +237,8 @@ export const advanceList = internalMutation({
     const operation = current;
     if (operation.state !== "succeeded" || operation.payload.kind !== "list_calendar_events") return await retry(ctx, job, payload, operation.code ?? operation.state);
     const { from, to } = operation.payload;
-    const items = (operation.result?.calendarEvents ?? []).filter(readable);
+    const entries = operation.result?.calendarEvents ?? [];
+    const items = entries.filter(readable);
     const importItem = (item: VrchatCalendarItem) => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: connector._id, kind: "import_item", payload: { item } });
     for (const item of items) {
       const link = await linkByExternalId(ctx, connector._id, item.id);
@@ -250,7 +253,8 @@ export const advanceList = internalMutation({
     }
     // A truncated list cannot prove an entry is gone, and a link exported after the list was read is newer than it.
     if (purpose === "poll" && operation.result?.calendarEventsTruncated !== true) {
-      const listed = new Set(items.map(item => item.id));
+      // Every listed entry counts, parseable or not: a malformed one is skipped, not gone.
+      const listed = new Set(entries.map(item => item.id));
       const readAt = operation.submittedAt ?? 0;
       const [start, end] = [Date.parse(from), Date.parse(to)];
       const events = await ctx.db.query("events").withIndex("by_communityProfileId_sortAt", q => q.eq("communityProfileId", connector.communityProfileId).gte("sortAt", start).lt("sortAt", end)).take(500);
@@ -290,19 +294,23 @@ export const applyImport = internalMutation({
       actorUserId: connector.authorityUserId, link: link ?? undefined, externalId: item.id, externalUpdatedAt: updatedMs,
       expectedUpdatedAt: event?.updatedAt, idempotencyKey: `vrchat_calendar:${connectorId}:${item.id}:${updatedMs}`,
     });
-    // Every outcome records the item as seen, so an echo or a stale item is not re-enqueued by the next poll.
-    const seen = await linkByExternalId(ctx, connectorId, item.id);
+    // Recording the item as seen stops an echo or a stale item being re-enqueued by the next poll.
+    // An edit waiting behind a draft stays unseen, so the poll retries it once the draft resolves.
+    const seen = outcome === "skipped_pending_draft" ? null : await linkByExternalId(ctx, connectorId, item.id);
     if (seen) await ctx.db.patch(seen._id, { lastImportedAt: Date.now(), externalUpdatedAt: updatedMs, updatedAt: Date.now() });
     return outcome;
   },
 });
 
-// A poll already queued or running for a connector covers the next one. Connector-level jobs are few, so the scan stays small.
+// A poll already queued or running for a connector covers the next one.
+// ponytail: a poll can queue hundreds of import_item jobs beside it, so read only the newest. A poll buried deeper
+// than the bound gets a harmless duplicate (applyImport answers "unchanged"); add a kind index if that gets common.
+const POLL_SCAN_LIMIT = 100;
 async function pollInFlight(ctx: MutationCtx, connectorId: Id<"eventConnectors">) {
   for (const state of ["pending", "running"] as const) {
-    for await (const job of ctx.db.query("eventSyncJobs").withIndex("by_connectorId_eventId_state", q => q.eq("connectorId", connectorId).eq("eventId", undefined).eq("state", state))) {
-      if (job.kind === "import_poll") return true;
-    }
+    const jobs = await ctx.db.query("eventSyncJobs").withIndex("by_connectorId_eventId_state", q => q.eq("connectorId", connectorId).eq("eventId", undefined).eq("state", state))
+      .order("desc").take(POLL_SCAN_LIMIT);
+    if (jobs.some(job => job.kind === "import_poll")) return true;
   }
   return false;
 }

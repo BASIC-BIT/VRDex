@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, type DatabaseReader, type MutationCtx } from "./_generated/server";
 import { carriedFieldsHash, connectorsEnabled, pendingLinkDraft, userHasCommunityPermission } from "./_eventConnectors";
-import { cancelPendingSchedule, enqueueSyncJob, eventIsPublic, failureAlertKey } from "./_eventSync";
+import { cancelPendingSchedule, enqueueSyncJob, eventIsPublic, eventIsSyncable, failureAlertKey } from "./_eventSync";
 import { notifyOps, resolveOps } from "./_opsAlerts";
 import { enqueueProductAnalytics } from "./_productAnalytics";
 import { correctionFields } from "./eventCorrections";
@@ -94,7 +94,7 @@ async function enqueueUnlinkedExports(ctx: MutationCtx, connector: Connector, no
   const events = await ctx.db.query("events").withIndex("by_communityProfileId_sortAt", q => q.eq("communityProfileId", connector.communityProfileId).gte("sortAt", now - DAY_MS).lte("sortAt", now + 90 * DAY_MS)).take(200);
   let index = 0;
   for (const event of events) {
-    if (event.publicationState !== "published" || event.moderationRemovedAt !== undefined || event.eventStatus !== "scheduled") continue;
+    if (!eventIsSyncable(event)) continue;
     if (await linkFor(ctx.db, connector._id, event._id)) continue;
     await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: connector._id, eventId: event._id, kind: "export_upsert", dueAt: now + index++ * RECONCILE_STAGGER_MS });
   }
