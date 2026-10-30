@@ -56,6 +56,8 @@ env:
   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
   TERRAFORM_POSTHOG_PUBLIC_KEY: ${{ secrets.TERRAFORM_POSTHOG_PUBLIC_KEY }}
   TERRAFORM_TEMPORAL_INPUT_HASH_KEY: ${{ secrets.TERRAFORM_TEMPORAL_INPUT_HASH_KEY }}
+  TERRAFORM_GOOGLE_CONNECTOR_CLIENT_ID: ${{ secrets.TERRAFORM_GOOGLE_CONNECTOR_CLIENT_ID }}
+  TERRAFORM_GOOGLE_CONNECTOR_CLIENT_SECRET: ${{ secrets.TERRAFORM_GOOGLE_CONNECTOR_CLIENT_SECRET }}
   TERRAFORM_SES_DOMAIN_NAME: ${{ vars.TERRAFORM_SES_DOMAIN_NAME }}
   TERRAFORM_SES_FROM_EMAIL: ${{ vars.TERRAFORM_SES_FROM_EMAIL }}
   TERRAFORM_ROUTE53_ZONE_ID: ${{ vars.TERRAFORM_ROUTE53_ZONE_ID }}
@@ -484,6 +486,13 @@ jobs:
               if [ -n "$TERRAFORM_PROFILE_ASSETS_STAGING_ALLOWED_ORIGINS" ]; then args+=("-var=staging_direct_upload_allowed_origins=$TERRAFORM_PROFILE_ASSETS_STAGING_ALLOWED_ORIGINS"); fi
               if [ -n "$TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS" ]; then args+=("-var=staging_custom_environment_ids=$TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS"); fi
               if [ -n "$TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_NAMES" ]; then args+=("-var=staging_custom_environment_names=$TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_NAMES"); fi
+              ;;
+            vercel)
+              # An empty TF_VAR is a set value, not null, so a fork without these secrets must not export them.
+              if [ -n "$TERRAFORM_GOOGLE_CONNECTOR_CLIENT_ID" ] && [ -n "$TERRAFORM_GOOGLE_CONNECTOR_CLIENT_SECRET" ]; then
+                export TF_VAR_google_connector_client_id="$TERRAFORM_GOOGLE_CONNECTOR_CLIENT_ID"
+                export TF_VAR_google_connector_client_secret="$TERRAFORM_GOOGLE_CONNECTOR_CLIENT_SECRET"
+              fi
               ;;
             rate-limit-redis)
               if [ -n "$TERRAFORM_RATE_LIMIT_STAGING_CUSTOM_ENVIRONMENT_IDS" ]; then args+=("-var=staging_custom_environment_ids=$TERRAFORM_RATE_LIMIT_STAGING_CUSTOM_ENVIRONMENT_IDS"); fi

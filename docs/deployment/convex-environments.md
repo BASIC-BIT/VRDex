@@ -155,24 +155,39 @@ Google until the organiser removes it there.
 VRDex's Google OAuth client. Scope: both the Convex deployment (token refresh)
 and the web app (the code exchange in `/api/connectors/google/callback`). Owner:
 BASIC, who owns the OAuth client in Google Cloud. Set them on Convex with
-`npx convex env set`, and on Vercel through `google_connector_client_id` and
-`google_connector_client_secret` in `infra/terraform/vercel`.
+`npx convex env set`, on both the production and the shared development
+deployment, and on Vercel through the `TERRAFORM_GOOGLE_CONNECTOR_CLIENT_ID`
+and `TERRAFORM_GOOGLE_CONNECTOR_CLIENT_SECRET` GitHub secrets, which the
+Terraform workflow passes to `infra/terraform/vercel`.
 
 Rotation: add a new client secret to the OAuth client in the Google Cloud
-console, set it on Convex and apply it to the web app through Terraform, then
-delete the old secret in the console. The client ID does not change, so stored
+console, set it on Convex, update the GitHub secret and run the Terraform
+workflow for the `vercel` stack, redeploy the web app, then delete the old
+secret in the console. The client ID does not change, so stored
 refresh tokens keep working.
+
+The client lives in the `vrdex-production` Google Cloud project, under the
+`basicbit.net` organization and the `basic@basicbit.net` identity. It is
+`VRDex Calendar Connector`, separate from the project's existing
+`VRDex Production` client, and was created on 2026-10-30. Its ID and secret are
+set on both Convex deployments and in GitHub. Enabling the flag and
+verification are not done.
+
+The project's consent screen is External and already published, so no test users
+are needed and Testing's seven-day refresh token expiry does not apply. Until
+Google verifies `calendar.events`, a sensitive scope, connecting shows an
+unverified app warning and at most 100 users can ever grant it across the
+project's lifetime. That cap cannot be reset, so keep connecting limited to
+BASIC's own community until verification passes. Verification needs the home page
+and privacy policy links on the Branding page, a scope justification on Data
+Access, and a demo video recorded against staging.
 
 Bootstrap, once per Google Cloud project:
 
 1. Create or choose a Google Cloud project and enable the Google Calendar API.
-2. Configure the OAuth consent screen as External with exactly two scopes,
-   `https://www.googleapis.com/auth/calendar.calendarlist.readonly` and
-   `https://www.googleapis.com/auth/calendar.events`. While the app is in
-   Testing, add each organiser who will connect as a test user; Google expires
-   Testing refresh tokens after seven days, so those connectors ask for Reconnect
-   weekly. `calendar.events` is a sensitive scope: complete Google's
-   sensitive-scope verification before publishing the app beyond test users.
+2. Configure the OAuth consent screen as External and declare exactly two scopes
+   on Data Access, `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
+   and `https://www.googleapis.com/auth/calendar.events`.
 3. Create an OAuth client of type Web application and register one authorized
    redirect URI per web origin: the origin followed by
    `/api/connectors/google/callback`. Production is
@@ -180,8 +195,8 @@ Bootstrap, once per Google Cloud project:
    `https://staging.vrdex.net/api/connectors/google/callback`, and local
    development is `http://localhost:3000/api/connectors/google/callback`.
    Vercel preview URLs are not registered, so connecting fails there.
-4. Set the client ID and secret on the Convex deployment and through Terraform
-   for the web app, as above, then set `VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED`.
+4. Set the client ID and secret on Convex and in GitHub, as above, then set
+   `VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED`.
 
 ### Ops alerts
 
