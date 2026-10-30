@@ -25,7 +25,7 @@
     }
   },
   "gateway": {
-    "sha256": "9782383d29ecdde652e0640ab466f990e9d0f289e60fb2fd492fba808e6b2d81",
+    "sha256": "76b1ad086dc15c163dbd82b21206acd1c16c27fca14ed9fbd94dcdcfc7dbdd52",
     "repositorySources": {
       "packages/media-relay/src/policy.ts": "a057179f68ab4dd141720b9ea777b3be353cb157ff1586a5529a279dc8bc4b29",
       "packages/media-relay/src/contracts.ts": "87ec8a52dcb28623a39f544ec32cf424b6afbb25405858ebc24e2a86b3ba2985",
@@ -38,13 +38,13 @@
       "packages/media-relay/src/providers/aws-demand.ts": "96e74b92c46642d4216571288f237fa9d4e6252a99b6657ab7f02f4074a2c8e3",
       "packages/media-relay/src/gateway/demand.ts": "116608ddfb4efdfc260dd3b2ce0c41016e9cc1a63554fe3d2d2ce01fadc2784e",
       "packages/media-relay/src/gateway/playlist.ts": "5ca01aedae2bc886a79f83cb084638244193fb16dbffd1a72ba4793c1abb8058",
-      "packages/media-relay/src/gateway/handler.ts": "1d8e9dd599b1bae22d034f85522f152c6142b1c5dedf9ccc2ab1afe9d1d3d5d6",
+      "packages/media-relay/src/gateway/handler.ts": "5fbeac4f9be4c1f6ee74413eae1e1e43cd728080f1d54e6b7cf63c2da64a5021",
       "packages/media-relay/src/gateway/signing.ts": "57d715fde66a2477caa3d4697ae2c93ba77bf0cc48531ac858835795202c8a0b",
       "packages/media-relay/src/gateway/entrypoint.ts": "6e28c2e33018c446b02e640b13b646de0c9b979ed22c56706ceb47f854ab7ba8"
     }
   },
   "gatewayZip": {
-    "sha256": "RwNehWi+tXjKELVxRzAw76Lr+LX9rwuRy7FK4/Np1sQ="
+    "sha256": "FokViZ80PqgbrzzDOEzXSQozj2GzWhmbgP4GAwfL2FA="
   },
   "imageId": "sha256:c5a07f0c3b88d23c4501fd0ca2e5fab007fffa3c82bdceaf1f6217281467b8b7",
   "smoke": {

@@ -1333,3 +1333,29 @@ it("premature ready, undersized sibling, expired lease and old epoch cannot expo
   await h.t.run(async ctx=>{const row=await ctx.db.query("mediaRelaySources").first();assert(row);await ctx.db.patch(row._id,readySource(row.streamKey));});
   assert.equal((await h.t.query(get,{grantId})).kind,"ready");
 });
+
+it("bounded grant cleanup preserves rate history, active authority, and source continuity", async (test) => {
+  const { t } = await fixture();
+  const now = Date.now();
+  test.mock.method(Date, "now", () => now);
+  const data = await t.run(async ctx => {
+    await ctx.db.insert("mediaRelaySources", {streamKey:"vrcdn/Alpha/1",streamId:"Alpha",inputFormat:"vrcdn_fmp4",packagingVersion:1,state:"stopped",epoch:8,createdAt:1,updatedAt:now});
+    const existing = await ctx.db.query('profiles').first();
+    assert.ok(existing);
+    const base = {streamKey:'vrcdn/Alpha/1',context:{kind:'profile' as const,profileId:existing._id,linkId:'Alpha'},contextRevision:1};
+    for (let i=0;i<205;i++) await ctx.db.insert('mediaRelayGrants',{...base,grantId:`old${i}`,issuedAt:now-120000,expiresAt:now-60001});
+    await ctx.db.insert('mediaRelayGrants',{...base,grantId:'released-old',issuedAt:now-120000,expiresAt:now+100000,releasedAt:now-60001});
+    await ctx.db.insert('mediaRelayGrants',{...base,grantId:'released-recent',issuedAt:now-1000,expiresAt:now+100000,releasedAt:now-1000});
+    await ctx.db.insert('mediaRelayGrants',{...base,grantId:'active',issuedAt:now-120000,expiresAt:now+100000});
+    await ctx.db.insert('mediaRelayGrants',{...base,grantId:'expiry-boundary',issuedAt:now-120000,expiresAt:now-60000});
+    await ctx.db.insert('mediaRelayGrants',{...base,grantId:'release-boundary',issuedAt:now-120000,expiresAt:now+100000,releasedAt:now-60000});
+    return await ctx.db.query('mediaRelaySources').collect();
+  });
+  const cleanup = makeFunctionReference<'mutation'>('mediaRelayPlayback:cleanupGrants');
+  assert.equal(await t.mutation(cleanup,{}),200);
+  assert.equal(await t.mutation(cleanup,{}),6);
+  await t.run(async ctx => {
+    assert.deepEqual((await ctx.db.query('mediaRelayGrants').collect()).map(g=>g.grantId).sort(),['active','expiry-boundary','release-boundary','released-recent']);
+    assert.deepEqual(await ctx.db.query('mediaRelaySources').collect(),data);
+  });
+});

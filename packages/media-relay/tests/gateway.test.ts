@@ -363,3 +363,36 @@ test("premature ready does not expose a window below three target durations", as
   assert.equal((await h.request()).status, 503);
   assert.equal(h.demands, 1, "admitted native requests still retain startup demand");
 });
+
+test("watermarks reclaim sequential sources after freshness retirement", async () => {
+  const h = fixture();
+  const handler = createManifestHandler({ ...h.options, maxSources: 1 });
+  for (let i = 0; i < 8; i++) {
+    const now = 100000 + i * 61000;
+    const key = `vrcdn/Source${i}/1`;
+    const s = { ...snapshot(), streamKey: key, generatedAt: now, segments: snapshot().segments.map(segment => ({ ...segment, programDateTime: now, objectKey: segment.objectKey.replace(grant.streamKey, key) })) };
+    h.setNow(now); h.setSnapshot(s);
+    h.setAuth({ kind: "active", grant: { ...grant, streamKey: key }, state: "ready", epoch: 1, leaseExpiresAt: now + 30000, snapshot: s });
+    assert.equal((await handler(new Request("https://play.example/p/capability/video/index.m3u8"))).status, 200);
+  }
+});
+
+test("delayed old read pins retirement until physically settled, then return uses current authority", async () => {
+  const h = fixture(); let release!: (value: unknown) => void;
+  let delayed = false;
+  const handler = createManifestHandler({ ...h.options, maxSources: 1, readSnapshot: async () => delayed ? new Promise(resolve => { release = resolve; delayed = false; }) : h.options.readSnapshot() });
+  const request = () => handler(new Request('https://play.example/p/capability/video/index.m3u8'));
+  assert.equal((await request()).status,200);
+  delayed = true; const older = request();
+  while (!release) await Promise.resolve();
+  const select = (id: string, now: number, sequence = 0) => {
+    const key = `vrcdn/${id}/1`, s = { ...snapshot(1,sequence),streamKey:key,generatedAt:now,segments:snapshot(1,sequence).segments.map(segment=>({...segment,programDateTime:now,objectKey:segment.objectKey.replace(grant.streamKey,key)})) };
+    h.setNow(now); h.setSnapshot(s); h.setAuth({kind:'active',grant:{...grant,streamKey:key},state:'ready',epoch:1,leaseExpiresAt:now+30000,snapshot:s});
+  };
+  select('Beta',161000); assert.equal((await request()).status,200);
+  select('Gamma',161000); assert.equal((await request()).status,503); // Alpha remains pinned by physical old read.
+  release(snapshot()); assert.equal((await older).status,503);
+  select('Gamma',161001); assert.equal((await request()).status,200);
+  select('Alpha',222002,30); assert.equal((await request()).status,200);
+  select('Alpha',222002,20); assert.equal((await request()).status,503);
+});

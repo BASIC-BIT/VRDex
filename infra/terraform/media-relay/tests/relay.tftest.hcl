@@ -47,7 +47,7 @@ variables {
   "warm_min": 2,
   "warm_max": 2,
   "origins": [
-    "https://app.invalid"
+    "https://app.invalid", "https://preview.invalid"
   ],
   "workers": [
     {
@@ -104,6 +104,15 @@ run "enabled_private_scoped" {
 
   command = plan
   variables { enabled = true }
+  assert {
+    condition     = length(aws_cloudfront_distribution.media[0].default_cache_behavior[0].trusted_key_groups) == 1 && aws_cloudfront_cache_policy.media[0].parameters_in_cache_key_and_forwarded_to_origin[0].headers_config[0].header_behavior == "none"
+    error_message = "Signed segments require CORS policy without viewer-specific cache keys."
+  }
+  assert {
+    condition     = toset(aws_cloudfront_response_headers_policy.media[0].cors_config[0].access_control_allow_origins[0].items) == toset(var.release.origins) && toset(aws_cloudfront_response_headers_policy.media[0].cors_config[0].access_control_allow_methods[0].items) == toset(["GET", "HEAD"]) && !aws_cloudfront_response_headers_policy.media[0].cors_config[0].access_control_allow_credentials && aws_cloudfront_response_headers_policy.media[0].cors_config[0].origin_override
+    error_message = "CORS must use only reviewed origins, GET/HEAD, and no credential sharing."
+  }
+
   assert {
     condition     = output.compute_count == 3 && output.private_media
     error_message = "Two fixed shared workers and private signed media required."

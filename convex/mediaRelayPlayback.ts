@@ -1,9 +1,11 @@
+import { internal } from "./_generated/api";
 import { relayEnabled } from "./_mediaRelayOperations";
 import { v } from "convex/values";
 import {
   mutation,
   query,
   internalQuery,
+  internalMutation,
   type DatabaseReader,
 } from "./_generated/server";
 import { relayContextValidator } from "./_mediaRelayTables";
@@ -374,5 +376,27 @@ export const rebindPlayback = mutation({
     if (!row) return denied;
     await ctx.db.patch(row._id, { context: target, contextRevision: authorized.contextRevision });
     return { kind: "rebound", grant: { ...resolved.grant, context: target, contextRevision: authorized.contextRevision }, metadata: authorized.metadata };
+  },
+});
+
+/** Keep the rolling admission minute after authority ends; source epochs are never swept. */
+export const cleanupGrants = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - 60_000;
+    const expired = await ctx.db.query("mediaRelayGrants")
+      .withIndex("by_expiresAt", q => q.lt("expiresAt", cutoff)).take(200);
+    for (const row of expired) await ctx.db.delete(row._id);
+    if (expired.length === 200) {
+      await ctx.scheduler.runAfter(0, internal.mediaRelayPlayback.cleanupGrants, {});
+      return 200;
+    }
+    const released = await ctx.db.query("mediaRelayGrants")
+      .withIndex("by_releasedAt_expiresAt", q => q.gt("releasedAt", 0).lt("releasedAt", cutoff))
+      .take(200 - expired.length);
+    for (const row of released) await ctx.db.delete(row._id);
+    const removed = expired.length + released.length;
+    if (removed === 200) await ctx.scheduler.runAfter(0, internal.mediaRelayPlayback.cleanupGrants, {});
+    return removed;
   },
 });

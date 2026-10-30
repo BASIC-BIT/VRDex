@@ -54,7 +54,10 @@ export function createManifestHandler(
     }),
   );
   // One bounded continuity watermark per source/rendition, never per capability/viewer.
-  const seen = new Map<string, RenditionSnapshot>();
+  const seen = new Map<string, { snapshot: RenditionSnapshot; observedAt: number }>();
+  // Physical requests (including timed-out adapters) pin overlapping observations.
+  const inFlight = new Set<{ startedAt: number }>();
+  const watermarkIdleMs = 60_000;
   let busy = 0;
   return async (request) => {
     const headers = new Headers({
@@ -86,6 +89,8 @@ export function createManifestHandler(
     busy++;
     const abort = new AbortController();
     const startedAt = options.clock();
+    const flight = { startedAt };
+    inFlight.add(flight);
     const withinBudget = () =>
       options.clock() >= startedAt && options.clock() - startedAt < timeoutMs;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -129,8 +134,13 @@ export function createManifestHandler(
       abort.signal.throwIfAborted();
       if (!fresh() || JSON.stringify(snapshot) !== JSON.stringify(pointer))
         return unavailable();
+      for (const [key, entry] of seen) {
+        if (options.clock() - entry.observedAt >= watermarkIdleMs &&
+          ![...inFlight].some(request => request.startedAt <= entry.observedAt))
+          seen.delete(key);
+      }
       const key = `${snapshot.streamKey}/${rendition}`,
-        prior = seen.get(key);
+        prior = seen.get(key)?.snapshot;
       if (prior) {
         const next = continuityAfter(prior);
         if (
@@ -147,7 +157,7 @@ export function createManifestHandler(
         )
           return unavailable();
       } else if (seen.size >= maxSources * 2) return unavailable();
-      seen.set(key, snapshot);
+      seen.set(key, { snapshot, observedAt: options.clock() });
       const body = renderPlaylist(
         snapshot,
         options.signSegment,
@@ -162,6 +172,7 @@ export function createManifestHandler(
       .catch(() => unavailable())
       .finally(() => {
         busy--;
+        inFlight.delete(flight);
         if (timer) clearTimeout(timer);
       });
     const timeout = new Promise<Response>((resolve) => {

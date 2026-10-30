@@ -136,10 +136,21 @@ No configuration in this implementation enables production admission.
 
 Limits use bounded indexed reads and Convex transaction conflict detection,
 matching existing backend quota conventions. Release returns grant capacity but
-retains admission history for the rolling rate limit. Source idle lifecycle and
-grant cleanup belong to the following relay lifecycle work. Public page reads
+retains admission history for the rolling rate limit. An internal minute cron
+cleans grants only after expiry or release is more than 60,000 ms old. Each indexed
+transaction removes at most 200 rows, using the expiry and release indexes; a full
+batch schedules another bounded pass to drain bursts. Exact retention boundaries,
+recently released rate history and all still-active grants survive. There is no
+additional grant audit-retention requirement; operational evidence lives separately.
+Source epoch/continuity rows are never deleted by this cleanup. Public page reads
 and grant polling never renew source activity; native playlist requests sustain
 an admitted source in the delivery layer.
+
+Relay selection accepts the existing canonical live-reference requests. Published
+direct-video URLs (including explicit `.live.mp4` references) retain the existing
+video adapter when rollout is enabled. Audio only rejects these inputs without
+creating a media element or downloading full video; selecting Video remains the
+explicit supported path. Worker URL authorization is unchanged.
 
 A source in `ready` state returns capability URLs under
 `<origin>/p/<grantId>/video/index.m3u8` and `/p/<grantId>/audio/index.m3u8`. Missing delivery origin

@@ -73,9 +73,24 @@ Defaults bound physically outstanding requests to 32 and continuity watermarks
 to 2000 source/rendition pairs (`maxSources * 2`). A timeout responds unavailable
 and aborts the signal but holds its capacity until actual adapter settlement.
 The watermark rejects decreasing sequences/epochs and invalid takeover
-continuity; it is not a per-viewer cache. It conservatively refuses new pairs
-once full until process recycling rather than forgetting continuity silently.
-A process restart relies on the transactional monotonic control pointer.
+continuity; it is not a per-viewer cache. A watermark retires after 60 seconds
+without a successful observation, only when no physically outstanding request
+started at or before that observation. Timed-out adapters still pin retirement
+until they settle. This conservative global overlap fence also covers requests
+awaiting authorization whose source is not yet known. The in-flight set is bounded
+by `maxConcurrent`; the watermark map remains bounded by `maxSources * 2`.
+A fresh returning request after safe retirement (or process restart) relies on the
+transactional monotonic authoritative pointer. A full map can temporarily refuse
+new pairs while fresh or physically pinned entries remain, but normal idle source
+turnover reclaims it without process recycling.
+
+Signed CloudFront segments attach a response-headers policy with the same reviewed
+application/preview origin allowlist as the gateway, GET/HEAD, no credentials, and
+exposed range/length headers. Origin, cookies and signed query identity remain out
+of the object cache key; trusted signing keys and private S3 OAC remain required.
+The local TLS Chromium check consumes the emitted production-module policy and
+proves cross-origin GET/HEAD readability and denied unsigned/unreviewed-origin
+reads. Hosted CloudFront cross-origin playback remains a release gate.
 
 Do not log incoming capability paths, raw events, query arguments or signed
 URLs. This code emits no such logs. Task 7 must also configure access logging and

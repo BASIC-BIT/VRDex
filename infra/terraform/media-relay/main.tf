@@ -80,6 +80,18 @@ resource "aws_cloudfront_cache_policy" "media" {
     query_strings_config { query_string_behavior = "none" }
   }
 }
+resource "aws_cloudfront_response_headers_policy" "media" {
+  count = local.count
+  name  = "${var.name}-cors"
+  cors_config {
+    access_control_allow_credentials = false
+    access_control_allow_headers { items = ["Range"] }
+    access_control_allow_methods { items = ["GET", "HEAD"] }
+    access_control_allow_origins { items = var.release.origins }
+    access_control_expose_headers { items = ["Accept-Ranges", "Content-Length", "Content-Range"] }
+    origin_override = true
+  }
+}
 resource "aws_cloudfront_distribution" "media" {
   count       = local.count
   enabled     = true
@@ -90,13 +102,14 @@ resource "aws_cloudfront_distribution" "media" {
     origin_access_control_id = aws_cloudfront_origin_access_control.media[0].id
   }
   default_cache_behavior {
-    target_origin_id       = "private-media"
-    viewer_protocol_policy = "https-only"
-    allowed_methods        = ["GET", "HEAD"]
-    cached_methods         = ["GET", "HEAD"]
-    trusted_key_groups     = [aws_cloudfront_key_group.media[0].id]
-    cache_policy_id        = aws_cloudfront_cache_policy.media[0].id
-    compress               = false
+    target_origin_id           = "private-media"
+    viewer_protocol_policy     = "https-only"
+    allowed_methods            = ["GET", "HEAD"]
+    cached_methods             = ["GET", "HEAD"]
+    trusted_key_groups         = [aws_cloudfront_key_group.media[0].id]
+    cache_policy_id            = aws_cloudfront_cache_policy.media[0].id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.media[0].id
+    compress                   = false
   }
   restrictions {
     geo_restriction { restriction_type = "none" }

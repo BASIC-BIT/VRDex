@@ -1,0 +1,14 @@
+{
+  "workers": 2,
+  "substitutions": [
+    "gateway.bucket",
+    "gateway.distributionOrigin",
+    "gateway.signingKeyId",
+    "workers.0.bucket",
+    "workers.0.distributionOrigin",
+    "workers.0.signingKeyId",
+    "workers.1.bucket",
+    "workers.1.distributionOrigin",
+    "workers.1.signingKeyId"
+  ]
+}
