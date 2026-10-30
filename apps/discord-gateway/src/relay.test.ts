@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
 import type { ConnectorSummary } from "./connectorCache";
-import { failureDetail, fetchConnectors, relay, relayConnected, toMessagePayload } from "./relay";
+import { failureDetail, fetchConnectors, logRejections, relay, relayBulkDelete, relayConnected, sendHeartbeat, toMessagePayload } from "./relay";
 import { flyer, message, notes } from "./testMessages";
 
 const guildId = "100000000000000001";
@@ -46,6 +46,16 @@ describe("failureDetail", () => {
   });
 });
 
+describe("logRejections", () => {
+  it("logs one JSON line when an async listener rejects", async (t) => {
+    const lines: string[] = [];
+    t.mock.method(console, "error", (line: string) => { lines.push(line); });
+    logRejections("discord_gateway_interaction_failed", async (_interaction: string) => { throw Object.assign(new Error("Unknown interaction"), { code: 10062 }); })("interaction");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(lines.map(line => JSON.parse(line) as unknown), [{ event: "discord_gateway_interaction_failed", code: 10062 }]);
+  });
+});
+
 describe("Convex intake calls", () => {
   let calls: Array<{ url: string; init: RequestInit }>;
   let response: () => Response;
@@ -85,6 +95,21 @@ describe("Convex intake calls", () => {
   it("rejects when the connector listing fails, so nothing is cached", async () => {
     response = () => new Response("{}", { status: 503 });
     await assert.rejects(fetchConnectors());
+  });
+
+  it("beats only while the client is ready", async () => {
+    await sendHeartbeat({ isReady: () => false }, "instance");
+    assert.equal(calls.length, 0);
+    await sendHeartbeat({ isReady: () => true }, "instance");
+    assert.equal(calls[0].url, "https://example.convex.site/discord-intake/heartbeat");
+  });
+
+  it("relays each message of a bulk delete through the connected-channel gate", async () => {
+    const posts = ["300000000000000001", "300000000000000002"].map(id => ({ id, guildId, channelId }));
+    await relayBulkDelete(async () => [], posts);
+    assert.equal(calls.length, 0);
+    await relayBulkDelete(async () => [connector()], posts);
+    assert.deepEqual(calls.map(call => JSON.parse(String(call.init.body)) as unknown), posts.map(({ id }) => ({ kind: "message", action: "delete", guildId, channelId, payload: { messageId: id } })));
   });
 
   describe("relayConnected", () => {

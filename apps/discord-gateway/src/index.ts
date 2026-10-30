@@ -6,7 +6,7 @@ import { catchUpMissedMessages } from "./catchUp";
 import { handleVrdexInteraction } from "./commands";
 import { createConnectorCache } from "./connectorCache";
 import { routeMediaInteraction, type DiscordMediaInteractionRoute } from "./mediaControlRouting";
-import { fetchConnectors, logFailure, postIntake, relay, relayConnected, requireOk, toMessagePayload } from "./relay";
+import { fetchConnectors, logFailure, logRejections, relay, relayBulkDelete, relayConnected, sendHeartbeat, toMessagePayload } from "./relay";
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
 
@@ -39,8 +39,10 @@ client.on(Events.MessageCreate, message => relayConnected(connectors.get, "creat
 client.on(Events.MessageUpdate, (_previous, message) =>
   relayConnected(connectors.get, "update", message, async () => toMessagePayload(message.partial ? await message.fetch() : message)));
 client.on(Events.MessageDelete, message => relayConnected(connectors.get, "delete", message, () => ({ messageId: message.id })));
+client.on(Events.MessageBulkDelete, messages => relayBulkDelete(connectors.get, messages.values()));
+client.on(Events.Error, error => logFailure("discord_gateway_client_error", error));
 
-client.on(Events.InteractionCreate, async (interaction) => {
+client.on(Events.InteractionCreate, logRejections("discord_gateway_interaction_failed", async (interaction: Interaction) => {
   if ((interaction.isChatInputCommand() || interaction.isAutocomplete()) && interaction.commandName === "vrdex") {
     await handleVrdexInteraction(interaction);
     return;
@@ -49,21 +51,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
   const route = routeDiscordInteraction(interaction);
 
   await acknowledgeInteraction(interaction, route);
-});
+}));
 
 await client.login(token);
 
 const instanceId = randomUUID();
-void sendHeartbeat();
-setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
-
-async function sendHeartbeat(): Promise<void> {
-  try {
-    requireOk(await postIntake("/discord-intake/heartbeat", { instanceId, at: Date.now() }));
-  } catch (error) {
-    logFailure("discord_gateway_heartbeat_failed", error);
-  }
-}
+const beat = () => sendHeartbeat(client, instanceId);
+void beat();
+setInterval(beat, HEARTBEAT_INTERVAL_MS);
 
 async function fetchMessagesAfter(channelId: string, afterId: string) {
   const channel = await client.channels.fetch(channelId);

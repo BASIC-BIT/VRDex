@@ -84,6 +84,20 @@ export async function fetchConnectors(query?: { guildId: string; channelId?: str
   return ((await response.json()) as { connectors: ConnectorSummary[] }).connectors;
 }
 
+/** Posts one heartbeat while the client holds a live session; a beat from a dropped session would hide the outage. */
+export async function sendHeartbeat(client: { isReady(): boolean }, instanceId: string): Promise<void> {
+  if (!client.isReady()) return;
+  try {
+    requireOk(await postIntake("/discord-intake/heartbeat", { instanceId, at: Date.now() }));
+  } catch (error) {
+    logFailure("discord_gateway_heartbeat_failed", error);
+  }
+}
+
+/** An event listener whose rejection logs one line; unhandled, it would end the process. */
+export const logRejections = <Args extends unknown[]>(event: string, listener: (...args: Args) => Promise<void>) =>
+  (...args: Args): void => void listener(...args).catch((error: unknown) => logFailure(event, error));
+
 /** Relays one gateway message event when its channel is connected. Failures log one line and never reach the event handler. */
 export async function relayConnected(
   getConnectors: (query: { guildId: string; channelId: string }) => Promise<ConnectorSummary[]>,
@@ -100,4 +114,11 @@ export async function relayConnected(
   } catch (error) {
     logFailure("discord_gateway_relay_failed", error, { messageId: id });
   }
+}
+
+export async function relayBulkDelete(
+  getConnectors: (query: { guildId: string; channelId: string }) => Promise<ConnectorSummary[]>,
+  messages: Iterable<{ id: string; guildId: string | null; channelId: string }>,
+): Promise<void> {
+  await Promise.all(Array.from(messages, message => relayConnected(getConnectors, "delete", message, () => ({ messageId: message.id }))));
 }
