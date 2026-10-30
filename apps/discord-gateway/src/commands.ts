@@ -8,7 +8,7 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 
-import { postIntake } from "./relay";
+import { logFailure, postIntake, requireOk } from "./relay";
 
 const AUTOCOMPLETE_CHOICE_LIMIT = 25;
 
@@ -67,18 +67,18 @@ async function postCommand<T>(
     memberPermissions: memberPermissions?.bitfield.toString() ?? "0",
     options,
   }));
-  if (!response.ok) throw new Error(`Discord intake command answered ${response.status}.`);
+  requireOk(response);
   return await response.json() as T;
 }
 
-const logCommandFailure = () => console.error(JSON.stringify({ event: "discord_gateway_command_failed" }));
+const logCommandFailure = (error: unknown) => logFailure("discord_gateway_command_failed", error);
 
 export async function handleVrdexInteraction(interaction: ChatInputCommandInteraction | AutocompleteInteraction): Promise<void> {
   try {
     if (interaction.isAutocomplete()) {
       const choices = await postCommand<{ choices: Array<{ name: string; value: string }> }>(interaction, "autocomplete", { query: interaction.options.getFocused() })
         .then(body => body.choices.slice(0, AUTOCOMPLETE_CHOICE_LIMIT))
-        .catch(() => { logCommandFailure(); return []; });
+        .catch((error: unknown) => { logCommandFailure(error); return []; });
       await interaction.respond(choices);
       return;
     }
@@ -92,7 +92,7 @@ export async function handleVrdexInteraction(interaction: ChatInputCommandIntera
       await interaction.deleteReply();
       throw error;
     }
-  } catch {
-    logCommandFailure();
+  } catch (error) {
+    logCommandFailure(error);
   }
 }

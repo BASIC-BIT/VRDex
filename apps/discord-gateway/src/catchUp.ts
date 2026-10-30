@@ -1,5 +1,5 @@
 import type { ConnectorSummary } from "./connectorCache";
-import { toMessagePayload, type RelayableMessage } from "./relay";
+import { logFailure, toMessagePayload, type RelayableMessage } from "./relay";
 
 /** Replays posts made while the gateway was down. `recordMessage` upserts, so repeating a replay is safe. */
 export async function catchUpMissedMessages({ fetchConnectors, fetchMessagesAfter, relay }: {
@@ -8,7 +8,7 @@ export async function catchUpMissedMessages({ fetchConnectors, fetchMessagesAfte
   relay: typeof import("./relay").relay;
 }): Promise<number> {
   let relayed = 0;
-  for (const { kind, guildId, channelId, lastMessageId } of await fetchConnectors()) {
+  for (const { connectorId, kind, guildId, channelId, lastMessageId } of await fetchConnectors()) {
     if (kind !== "discord_announcements" || channelId === undefined || lastMessageId === undefined) continue;
     try {
       const messages = await fetchMessagesAfter(channelId, lastMessageId);
@@ -19,8 +19,8 @@ export async function catchUpMissedMessages({ fetchConnectors, fetchMessagesAfte
         await relay("message", "create", guildId, channelId, payload);
         relayed += 1;
       }
-    } catch {
-      console.error(JSON.stringify({ event: "discord_gateway_catch_up_failed" }));
+    } catch (error) {
+      logFailure("discord_gateway_catch_up_failed", error, { connectorId });
     }
   }
   return relayed;

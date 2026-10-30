@@ -9,6 +9,10 @@ type T = Awaited<ReturnType<typeof seedDiscordIntake>>["t"];
 beforeEach(test => test.mock.timers.enable({ apis: ["setTimeout"] }));
 const runs = (t: T) => t.run(ctx => ctx.db.query("discordIntakeRuns").collect());
 const jobs = (t: T) => t.run(ctx => ctx.db.system.query("_scheduled_functions").collect());
+const finishRuns = (t: T) => t.run(async ctx => {
+  for (const run of await ctx.db.query("discordIntakeRuns").collect()) await ctx.db.patch(run._id, { state: "done", finishedAt: Date.now() });
+});
+const flyer = (url = "https://cdn.discordapp.com/attachments/1/2/flyer.png?ex=1&is=2&hm=3") => ({ url, contentType: "image/png", byteLength: 1_000 });
 
 it("debounces one author's posts into one pending run and reschedules the quiet window", async () => {
   const { t } = await seedDiscordIntake();
@@ -101,4 +105,71 @@ it("truncates stored content to 12,000 characters", async () => {
   await record(t, "create", message(M1, { content: "a".repeat(12_500) }));
   const [row] = await t.run(ctx => ctx.db.query("discordIntakeMessages").collect());
   assert.equal(row.content.length, 12_000);
+});
+
+it("starts no run for an identical update or redelivered create after a run finished", async () => {
+  const { t } = await seedDiscordIntake();
+  const post = message(M1, { attachments: [flyer()] });
+  await record(t, "create", post);
+  await finishRuns(t);
+  const [row] = await t.run(ctx => ctx.db.query("discordIntakeMessages").collect());
+  const scheduled = (await jobs(t)).length;
+  await record(t, "update", post);
+  await record(t, "create", post);
+  assert.equal((await runs(t)).length, 1);
+  assert.equal((await jobs(t)).length, scheduled);
+  assert.deepEqual(await t.run(ctx => ctx.db.query("discordIntakeMessages").collect()), [row]);
+});
+
+it("does not extend a pending quiet window for an unfurl or a pin", async () => {
+  const { t } = await seedDiscordIntake();
+  await record(t, "create", message(M1));
+  const scheduled = await jobs(t);
+  await record(t, "update", message(M1));
+  assert.deepEqual(await jobs(t), scheduled);
+});
+
+it("compares what the row stored, not the raw payload", async () => {
+  const { t } = await seedDiscordIntake();
+  const offCdn = { url: "https://evil.example/a.png", contentType: "image/png", byteLength: 10 };
+  const long = "x".repeat(12_000);
+  await record(t, "create", message(M1, { content: long, attachments: [flyer()] }));
+  await finishRuns(t);
+  await record(t, "update", message(M1, { content: `${long}more`, attachments: [flyer(), offCdn] }));
+  assert.equal((await runs(t)).length, 1);
+});
+
+it("treats a re-signed CDN link to the same attachment as unchanged", async () => {
+  const { t } = await seedDiscordIntake();
+  await record(t, "create", message(M1, { attachments: [flyer()] }));
+  await finishRuns(t);
+  await record(t, "update", message(M1, { attachments: [flyer("https://cdn.discordapp.com/attachments/1/2/flyer.png?ex=4&is=5&hm=6")] }));
+  assert.equal((await runs(t)).length, 1);
+});
+
+it("starts a new run when content or attachments changed after a run finished", async () => {
+  const { t } = await seedDiscordIntake();
+  await record(t, "create", message(M1, { attachments: [flyer()] }));
+  await finishRuns(t);
+  await record(t, "update", message(M1, { content: "moved to 10pm", attachments: [flyer()] }));
+  assert.equal((await runs(t)).length, 2);
+  await finishRuns(t);
+  await record(t, "update", message(M1, { content: "moved to 10pm", attachments: [flyer("https://cdn.discordapp.com/attachments/1/3/new.png")] }));
+  assert.equal((await runs(t)).length, 3);
+  await finishRuns(t);
+  await record(t, "update", message(M1, { content: "moved to 10pm", attachments: [] }));
+  assert.equal((await runs(t)).length, 4);
+});
+
+it("schedules nothing for a repeat delete", async () => {
+  const { t } = await seedDiscordIntake();
+  await record(t, "create", message(M1));
+  await record(t, "delete", { messageId: M1 });
+  await finishRuns(t);
+  const scheduled = (await jobs(t)).length;
+  const [row] = await t.run(ctx => ctx.db.query("discordIntakeMessages").collect());
+  await record(t, "delete", { messageId: M1 });
+  assert.equal((await runs(t)).length, 1);
+  assert.equal((await jobs(t)).length, scheduled);
+  assert.deepEqual(await t.run(ctx => ctx.db.query("discordIntakeMessages").collect()), [row]);
 });

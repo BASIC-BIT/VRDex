@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
 import type { ConnectorSummary } from "./connectorCache";
-import { fetchConnectors, relay, relayConnected, toMessagePayload } from "./relay";
+import { failureDetail, fetchConnectors, relay, relayConnected, toMessagePayload } from "./relay";
 import { flyer, message, notes } from "./testMessages";
 
 const guildId = "100000000000000001";
@@ -31,6 +31,18 @@ describe("toMessagePayload", () => {
     assert.equal(toMessagePayload(message({ member: null }))?.authorDisplayName, "Ari");
     assert.equal(toMessagePayload(message({ member: null, author: { id: "200000000000000001", bot: false, username: "ari", globalName: null } }))?.authorDisplayName, "ari");
     assert.equal(toMessagePayload(message({ editedTimestamp: 1_700_000_000_001 }))?.editedAt, 1_700_000_000_001);
+  });
+});
+
+describe("failureDetail", () => {
+  it("keeps numeric status and Discord code, and nothing else an error carries", () => {
+    const discordError = Object.assign(new Error("Missing Access"), {
+      status: 403, code: 50001, url: "https://discord.com/api/v10/channels/1/messages?token=secret", requestBody: { json: { content: "Friday 9pm" } },
+    });
+    assert.deepEqual(failureDetail(discordError), { status: 403, code: 50001 });
+    assert.deepEqual(failureDetail(Object.assign(new Error("fetch failed"), { code: "ECONNRESET" })), {});
+    assert.deepEqual(failureDetail("nope"), {});
+    assert.deepEqual(failureDetail(null), {});
   });
 });
 
@@ -94,16 +106,28 @@ describe("Convex intake calls", () => {
       assert.equal(calls.length, 0);
     });
 
-    it("logs one JSON line with the message ID and never throws", async (t) => {
+    it("logs one JSON line with the message ID and status, and never throws", async (t) => {
       const lines: string[] = [];
       t.mock.method(console, "error", (line: string) => { lines.push(line); });
       await relayConnected(async () => { throw new Error("lookup failed with https://cdn.discordapp.com/signed"); }, "create", post, () => null);
-      response = () => new Response("{}", { status: 500 });
-      await relayConnected(async () => [connector()], "create", post, () => ({ content: "Friday 9pm" }));
+      for (const status of [401, 503, 500]) {
+        response = () => new Response("{}", { status });
+        await relayConnected(async () => [connector()], "create", post, () => ({ content: "Friday 9pm" }));
+      }
       assert.deepEqual(lines.map(line => JSON.parse(line) as unknown), [
         { event: "discord_gateway_relay_failed", messageId: post.id },
-        { event: "discord_gateway_relay_failed", messageId: post.id },
+        { event: "discord_gateway_relay_failed", messageId: post.id, status: 401 },
+        { event: "discord_gateway_relay_failed", messageId: post.id, status: 503 },
+        { event: "discord_gateway_relay_failed", messageId: post.id, status: 500 },
       ]);
+    });
+
+    it("rejects with the listing status so a failed lookup logs it", async (t) => {
+      const lines: string[] = [];
+      t.mock.method(console, "error", (line: string) => { lines.push(line); });
+      response = () => new Response("{}", { status: 503 });
+      await relayConnected(() => fetchConnectors({ guildId, channelId }), "create", post, () => null);
+      assert.deepEqual(JSON.parse(lines[0]), { event: "discord_gateway_relay_failed", messageId: post.id, status: 503 });
     });
   });
 });

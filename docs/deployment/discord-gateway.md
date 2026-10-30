@@ -18,13 +18,13 @@ The runtime entrypoint acknowledges interactions quickly and keeps provider muta
 
 ## Announcement Intake
 
-- Posts are relayed only from channels with an active `discord_announcements` connector, looked up per channel and cached for 60 seconds. Creates, edits, and deletes all follow this path.
+- Posts are relayed only from channels with an active `discord_announcements` connector, looked up per channel and cached for 60 seconds. Creates, edits, and deletes all follow this path. Convex ignores a create or update whose content and attachments match the stored row, and a repeat delete, so link unfurls, pins, and redelivery start no run.
 - Bot posts, system messages, and posts with neither text nor an image are dropped. Image attachments are the only attachments relayed.
 - At startup the runtime replays up to 100 posts per connected channel made while it was down, starting from the newest stored post. Channels with no stored post are skipped. Replays are safe to repeat because Convex upserts by message ID.
 - A relay failure logs one JSON line with the message ID and is not retried. The post is recovered only if a later restart's replay still reaches it.
 - `/vrdex connect`, `/vrdex disconnect`, and `/vrdex status` need Manage Server by default. `pnpm --filter @vrdex/discord-gateway register-commands` registers them globally through `DISCORD_APPLICATION_ID` and `DISCORD_BOT_TOKEN`. Rerun it when the command tree changes.
 - The runtime posts a heartbeat to Convex at startup and every minute. Heartbeat failures log one JSON line and never stop the process.
-- Logs never carry the bot token, the intake secret, or message content.
+- Each failure logs one JSON line. It may carry a message ID, a connector ID, an HTTP status, and a Discord numeric error code. Logs never carry the bot token, the intake secret, URLs, or message content.
 
 Plan 05 owns deployment and the heartbeat alarm.
 

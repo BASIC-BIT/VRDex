@@ -40,6 +40,20 @@ export function toMessagePayload(message: RelayableMessage): MessagePayload | nu
   };
 }
 
+/** Rejects a non-2xx intake answer with its status, so the failure log can tell 401, 503, and 500 apart. */
+export function requireOk({ ok, status }: Response): void {
+  if (!ok) throw Object.assign(new Error(`Discord intake answered ${status}.`), { status });
+}
+
+/** The loggable part of a failure. Discord API errors also hold request URLs and bodies, so only the numeric fields leave. */
+export function failureDetail(error: unknown): { status?: number; code?: number } {
+  const { status, code } = Object(error) as { status?: unknown; code?: unknown };
+  return { ...(typeof status === "number" ? { status } : {}), ...(typeof code === "number" ? { code } : {}) };
+}
+
+export const logFailure = (event: string, error: unknown, fields: Record<string, string> = {}) =>
+  console.error(JSON.stringify({ event, ...fields, ...failureDetail(error) }));
+
 const intakeUrl = (path: string) => `${process.env.CONVEX_SITE_URL}${path}`;
 const intakeAuthorization = () => `Bearer ${process.env.DISCORD_INTAKE_SECRET}`;
 
@@ -58,8 +72,7 @@ export async function relay(
   channelId: string | undefined,
   payload: unknown,
 ): Promise<void> {
-  const response = await postIntake("/discord-intake/relay", { kind, action, guildId, channelId, payload });
-  if (!response.ok) throw new Error(`Discord intake relay answered ${response.status}.`);
+  requireOk(await postIntake("/discord-intake/relay", { kind, action, guildId, channelId, payload }));
 }
 
 export async function fetchConnectors(query?: { guildId: string; channelId?: string }): Promise<ConnectorSummary[]> {
@@ -67,7 +80,7 @@ export async function fetchConnectors(query?: { guildId: string; channelId?: str
   if (query) url.searchParams.set("guildId", query.guildId);
   if (query?.channelId) url.searchParams.set("channelId", query.channelId);
   const response = await fetch(url, { headers: { authorization: intakeAuthorization() } });
-  if (!response.ok) throw new Error(`Discord intake connectors answered ${response.status}.`);
+  requireOk(response);
   return ((await response.json()) as { connectors: ConnectorSummary[] }).connectors;
 }
 
@@ -84,7 +97,7 @@ export async function relayConnected(
     if (!connectors.some(row => row.kind === "discord_announcements" && row.state === "active")) return;
     const payload = await buildPayload();
     if (payload !== null) await relay("message", action, guildId, channelId, payload);
-  } catch {
-    console.error(JSON.stringify({ event: "discord_gateway_relay_failed", messageId: id }));
+  } catch (error) {
+    logFailure("discord_gateway_relay_failed", error, { messageId: id });
   }
 }

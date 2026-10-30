@@ -111,7 +111,7 @@ describe("handleVrdexInteraction", () => {
     const thrown = chatInput();
     await handleVrdexInteraction(thrown.interaction);
     assert.deepEqual(thrown.calls.at(-1), ["deleteReply"]);
-    assert.deepEqual(lines.map(line => JSON.parse(line) as unknown), [{ event: "discord_gateway_command_failed" }, { event: "discord_gateway_command_failed" }]);
+    assert.deepEqual(lines.map(line => JSON.parse(line) as unknown), [{ event: "discord_gateway_command_failed", status: 500 }, { event: "discord_gateway_command_failed" }]);
   });
 
   it("never throws when Discord itself refuses", async (t) => {
@@ -132,11 +132,13 @@ describe("handleVrdexInteraction", () => {
     assert.deepEqual(responded, [choices.slice(0, 25)]);
   });
 
-  it("answers autocomplete with nothing on failure", async (t) => {
-    t.mock.method(console, "error", () => {});
-    response = () => new Response("{}", { status: 500 });
+  it("answers autocomplete with nothing on failure and logs the status", async (t) => {
+    const lines: string[] = [];
+    t.mock.method(console, "error", (line: string) => { lines.push(line); });
+    response = () => new Response("{}", { status: 503 });
     const { responded, interaction } = autocomplete();
     await handleVrdexInteraction(interaction);
     assert.deepEqual(responded, [[]]);
+    assert.deepEqual(lines.map(line => JSON.parse(line) as unknown), [{ event: "discord_gateway_command_failed", status: 503 }]);
   });
 });

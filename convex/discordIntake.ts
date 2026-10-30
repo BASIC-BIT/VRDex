@@ -64,7 +64,15 @@ export const recordHeartbeat = internalMutation({
   },
 });
 
-/** Records one relayed channel message on every live connector for the channel, then restarts that author's quiet window. */
+type StoredAttachments = Doc<"discordIntakeMessages">["attachments"];
+// Discord re-signs CDN links in the query string, so the link without it identifies an attachment.
+const attachmentKey = ({ url, contentType, byteLength }: StoredAttachments[number]) => `${url.split("?")[0]}|${contentType}|${byteLength}`;
+const sameAttachments = (a: StoredAttachments, b: StoredAttachments) => a.length === b.length && a.every((item, index) => attachmentKey(item) === attachmentKey(b[index]));
+
+/**
+ * Records one relayed channel message on every live connector for the channel, then restarts that author's quiet window.
+ * A create or update matching the stored row, and a repeat delete, change nothing: unfurls, pins, and redelivery must not start a run.
+ */
 export const recordMessage = internalMutation({
   args: {
     guildId: v.string(), channelId: v.string(),
@@ -82,16 +90,17 @@ export const recordMessage = internalMutation({
       const existing = await ctx.db.query("discordIntakeMessages").withIndex("by_connectorId_messageId", q => q.eq("connectorId", connector._id).eq("messageId", payload.messageId)).unique();
       let authorId: string;
       if (action === "delete") {
-        if (!existing) continue;
-        await ctx.db.patch(existing._id, { deletedAt: existing.deletedAt ?? Date.now(), updatedAt: Date.now() });
+        if (!existing || existing.deletedAt !== undefined) continue;
+        await ctx.db.patch(existing._id, { deletedAt: Date.now(), updatedAt: Date.now() });
         authorId = existing.authorId;
       } else {
         const { authorId: author, authorDisplayName, content, createdAt, attachments } = payload;
         if (author === undefined || authorDisplayName === undefined || content === undefined || createdAt === undefined || attachments === undefined) throw new ConvexError({ code: "DISCORD_INTAKE_INVALID" });
         if (!existing && createdAt < connector.createdAt) continue;
+        const stored = { content: content.slice(0, MAX_CONTENT), attachments: attachments.filter(item => isDiscordCdnUrl(item.url)) };
+        if (existing?.content === stored.content && sameAttachments(existing.attachments, stored.attachments)) continue;
         const fields = {
-          authorId: author, authorDisplayName, content: content.slice(0, MAX_CONTENT), editedAt: payload.editedAt,
-          attachments: attachments.filter(item => isDiscordCdnUrl(item.url)),
+          authorId: author, authorDisplayName, ...stored, editedAt: payload.editedAt,
           authorUserId: (await resolveDiscordUserId(ctx, author)) ?? undefined, updatedAt: Date.now(),
         };
         if (existing) await ctx.db.patch(existing._id, fields);

@@ -6,7 +6,7 @@ import { catchUpMissedMessages } from "./catchUp";
 import { handleVrdexInteraction } from "./commands";
 import { createConnectorCache } from "./connectorCache";
 import { routeMediaInteraction, type DiscordMediaInteractionRoute } from "./mediaControlRouting";
-import { fetchConnectors, postIntake, relay, relayConnected, toMessagePayload } from "./relay";
+import { fetchConnectors, logFailure, postIntake, relay, relayConnected, requireOk, toMessagePayload } from "./relay";
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
 
@@ -32,7 +32,7 @@ client.once(Events.ClientReady, (readyClient) => {
   console.log(JSON.stringify({ event: "discord_gateway_ready", userId: readyClient.user.id }));
   catchUpMissedMessages({ fetchConnectors, fetchMessagesAfter, relay })
     .then(relayed => console.log(JSON.stringify({ event: "discord_gateway_catch_up_complete", relayed })))
-    .catch(() => console.error(JSON.stringify({ event: "discord_gateway_catch_up_failed" })));
+    .catch((error: unknown) => logFailure("discord_gateway_catch_up_failed", error));
 });
 
 client.on(Events.MessageCreate, message => relayConnected(connectors.get, "create", message, () => toMessagePayload(message)));
@@ -59,10 +59,9 @@ setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
 
 async function sendHeartbeat(): Promise<void> {
   try {
-    const response = await postIntake("/discord-intake/heartbeat", { instanceId, at: Date.now() });
-    if (!response.ok) throw new Error(`Discord intake heartbeat answered ${response.status}.`);
-  } catch {
-    console.error(JSON.stringify({ event: "discord_gateway_heartbeat_failed" }));
+    requireOk(await postIntake("/discord-intake/heartbeat", { instanceId, at: Date.now() }));
+  } catch (error) {
+    logFailure("discord_gateway_heartbeat_failed", error);
   }
 }
 

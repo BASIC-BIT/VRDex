@@ -42,12 +42,12 @@ describe("startup catch-up", () => {
     const count = await catchUpMissedMessages({
       fetchConnectors: async () => connectors,
       fetchMessagesAfter: async (channelId) => {
-        if (channelId === "100000000000000002") throw new Error("Missing Access");
+        if (channelId === "100000000000000002") throw Object.assign(new Error("Missing Access"), { status: 403, code: 50001 });
         return [message({ id: "300000000000000002" })];
       },
       relay: async () => {},
     });
     assert.equal(count, 1);
-    assert.deepEqual(lines.map(line => JSON.parse(line) as unknown), [{ event: "discord_gateway_catch_up_failed" }]);
+    assert.deepEqual(lines.map(line => JSON.parse(line) as unknown), [{ event: "discord_gateway_catch_up_failed", connectorId: "c1", status: 403, code: 50001 }]);
   });
 });
