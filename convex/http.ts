@@ -411,9 +411,17 @@ http.route({ path: "/discord-intake/relay", method: "POST", handler: httpAction(
   }
 }) });
 
-http.route({ path: "/discord-intake/command", method: "POST", handler: httpAction(async (_ctx, request) => {
-  // Task 5 routes this to internal.discordIntake.handleCommand.
-  return discordIntakeGate(request) ?? json({ error: "not_implemented" }, 501);
+http.route({ path: "/discord-intake/command", method: "POST", handler: httpAction(async (ctx, request) => {
+  const denied = discordIntakeGate(request);
+  if (denied) return denied;
+  const body = await readJson(request);
+  const { command, guildId, channelId, invokerDiscordUserId, invokerHasManageGuild, options } = body ?? {};
+  if ((command !== "connect" && command !== "disconnect" && command !== "status" && command !== "autocomplete")
+    || !isSnowflake(guildId) || !isSnowflake(channelId) || !isSnowflake(invokerDiscordUserId)
+    || typeof invokerHasManageGuild !== "boolean" || typeof options !== "object" || options === null) {
+    return json({ error: "invalid_request" }, 400);
+  }
+  return json(await ctx.runAction(internal.discordIntake.handleCommand, { command, guildId, channelId, invokerDiscordUserId, invokerHasManageGuild, options: options as never }));
 }) });
 
 http.route({ path: "/discord-intake/heartbeat", method: "POST", handler: httpAction(async (ctx, request) => {

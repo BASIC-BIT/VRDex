@@ -30,7 +30,6 @@ it("validates kind, direction, Discord IDs, and uniqueness", async () => {
   await assert.rejects(create({ kind: "notion" }), /CONNECTOR_KIND_RESERVED/);
   const channel = { guildId: "123456789012345678", channelId: "223456789012345678" };
   await assert.rejects(create({ kind: "discord_board", direction: "import", target: channel }), /CONNECTOR_DIRECTION_INVALID/);
-  await assert.rejects(create({ kind: "discord_announcements", direction: "export", target: channel }), /CONNECTOR_DIRECTION_INVALID/);
   await assert.rejects(create({ kind: "discord_board", direction: "export", target: { ...channel, guildId: "123" } }), /CONNECTOR_TARGET/);
   await create({});
   await assert.rejects(create({ target: { calendarId: "club@example.com", calendarName: "Renamed" } }), /CONNECTOR_EXISTS/);
@@ -46,7 +45,7 @@ it("each kind takes exactly its own target IDs", async () => {
   await assert.rejects(create("google_calendar", "export", { calendarId: "club@example.com", guildId: guild }), /CONNECTOR_TARGET/);
   await assert.rejects(create("google_calendar", "export", { calendarId: "x".repeat(257) }), /CONNECTOR_TARGET/);
   await assert.rejects(create("discord_board", "export", { guildId: guild }), /CONNECTOR_TARGET/);
-  await assert.rejects(create("discord_announcements", "import", { guildId: guild, channelId: channel, calendarId: "c" }), /CONNECTOR_TARGET/);
+  await assert.rejects(create("discord_board", "export", { guildId: guild, channelId: channel, calendarId: "c" }), /CONNECTOR_TARGET/);
   await assert.rejects(create("discord_scheduled_events", "export", { guildId: guild, channelId: channel }), /CONNECTOR_TARGET/);
   await assert.rejects(create("vrchat_calendar", "export", { calendarId: "cal" }), /CONNECTOR_TARGET/);
   await assert.rejects(create("vrchat_calendar", "export", { groupId: "g".repeat(257) }), /CONNECTOR_TARGET/);
@@ -94,7 +93,7 @@ it("update enforces the kind's allowed directions", async () => {
   const as = f.as("integrator");
   const board = await as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, kind: "discord_board", direction: "export", mode: "hold", target: { guildId: "123456789012345678", channelId: "223456789012345678" } });
   await assert.rejects(as.mutation(api.eventConnectors.update, { connectorId: board, direction: "bidirectional" }), /CONNECTOR_DIRECTION_INVALID/);
-  const intake = await as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, kind: "discord_announcements", direction: "import", mode: "hold", target: { guildId: "123456789012345678", channelId: "323456789012345678" } });
+  const intake = await f.insertConnector({ kind: "discord_announcements", direction: "import", mode: "hold", target: { guildId: "123456789012345678", channelId: "323456789012345678" } });
   await assert.rejects(as.mutation(api.eventConnectors.update, { connectorId: intake, direction: "export" }), /CONNECTOR_DIRECTION_INVALID/);
   await as.mutation(api.eventConnectors.update, { connectorId: intake, direction: "off" });
 });

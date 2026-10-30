@@ -1,7 +1,8 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, MutationCtx, QueryCtx } from "./_generated/server";
-import { DISCORD_ID } from "./_eventConnectors";
+import { connectorsEnabled, DISCORD_ID, requireConnectorAuthority } from "./_eventConnectors";
+import { getActiveProfileLinks, linkProfileToAsset } from "./_externalControl";
 import { getLinkedProviderAccount } from "./accounts";
 import { EVENT_POSTER_MAX_BYTES, EventPosterDeclarationSchema } from "../packages/api-contracts/src/event-intake";
 
@@ -23,10 +24,23 @@ export const discordMessagePayloadValidator = v.object({
   attachments: v.optional(v.array(discordAttachmentValidator)),
 });
 
+export const clampQuietWindowSeconds = (seconds: number) => Math.min(600, Math.max(30, seconds));
+
 /** Default 120 s, clamped to 30..600 s. */
 export function quietWindowMs(connector: Doc<"eventConnectors">): number {
-  return Math.min(600, Math.max(30, connector.quietWindowSeconds ?? 120)) * 1000;
+  return clampQuietWindowSeconds(connector.quietWindowSeconds ?? 120) * 1000;
 }
+
+/** The exact `/vrdex` command replies. */
+export const discordCommandReplies = {
+  connected: (channel: string, community: string, mode: "hold" | "autopublish") =>
+    `Connected #${channel} to ${community}. ${mode === "hold" ? "Hold for review" : "Publish automatically"}.`,
+  disconnected: (channel: string) => `Disconnected #${channel}.`,
+  notLinked: (siteUrl: string) => `Link your Discord account on VRDex first: ${new URL("/account/connections", siteUrl)}`,
+  noPermission: "You need to manage integrations for that community.",
+  pausedSuffix: " Paused.",
+  notConnected: "Not connected.",
+} as const;
 
 /** The VRDex user behind a Discord ID, only when exactly one user completed verification of it and it is still their current Discord identity. */
 export async function resolveDiscordUserId(ctx: QueryCtx | MutationCtx, discordUserId: string): Promise<Id<"users"> | null> {
@@ -34,6 +48,38 @@ export async function resolveDiscordUserId(ctx: QueryCtx | MutationCtx, discordU
   const users = [...new Set(watermarks.filter(row => row.appliedAt !== undefined || row.appliedGeneration > 0).map(row => row.userId))];
   if (users.length !== 1) return null;
   return (await getLinkedProviderAccount(ctx, users[0], "discord"))?.providerAccountId === discordUserId ? users[0] : null;
+}
+
+/** Every announcements connector on a channel that is not removed. */
+export async function liveChannelConnectors(db: DatabaseReader, channelId: string) {
+  const rows = await db.query("eventConnectors").withIndex("by_kind_target_channelId", q => q.eq("kind", "discord_announcements").eq("target.channelId", channelId)).collect();
+  return rows.filter(row => row.state !== "removed");
+}
+
+/** Connects a channel for the slash command and the site flow, which each prove guild control first. A channel belongs to one community. */
+export async function connectDiscordAnnouncements(ctx: MutationCtx, args: {
+  userId: Id<"users">; communityProfileId: Id<"profiles">; guildId: string; guildName: string; channelId: string; channelName: string;
+  mode: "hold" | "autopublish"; quietWindowSeconds?: number;
+}): Promise<Id<"eventConnectors">> {
+  const { userId, communityProfileId, guildId, guildName, channelId, channelName, mode, quietWindowSeconds } = args;
+  if (!connectorsEnabled()) throw new ConvexError({ code: "CONNECTORS_DISABLED" });
+  // An owner or super admin passes the authority check on any profile, so the type is checked separately.
+  if ((await ctx.db.get(communityProfileId))?.profileType !== "community") throw new ConvexError({ code: "CONNECTOR_FORBIDDEN" });
+  await requireConnectorAuthority(ctx, communityProfileId, userId);
+  const existing = await liveChannelConnectors(ctx.db, channelId);
+  if (existing.some(row => row.communityProfileId !== communityProfileId)) throw new ConvexError({ code: "CHANNEL_TAKEN" });
+  const now = Date.now();
+  const target = { guildId, guildName, channelId, channelName };
+  const shared = { target, mode, direction: "import" as const, authorityUserId: userId, state: "active" as const, updatedAt: now };
+  // Reconnecting resumes: the connector leaves any pause under the reconnecting user's authority.
+  let connectorId = existing[0]?._id;
+  if (connectorId) await ctx.db.patch(connectorId, { ...shared, lastError: undefined, ...(quietWindowSeconds === undefined ? {} : { quietWindowSeconds }) });
+  else connectorId = await ctx.db.insert("eventConnectors", { ...shared, communityProfileId, kind: "discord_announcements", quietWindowSeconds: quietWindowSeconds ?? 120, createdAt: now });
+  const links = await getActiveProfileLinks(ctx.db, communityProfileId, "discord_guild");
+  if (!links.some(link => link.assetExternalId === guildId)) {
+    await linkProfileToAsset(ctx, { profileId: communityProfileId, assetType: "discord_guild", assetExternalId: guildId, linkRole: "secondary", linkedByUserId: userId, now });
+  }
+  return connectorId;
 }
 
 const SOURCE_TEXT_MAX = 12_000;

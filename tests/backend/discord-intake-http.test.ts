@@ -83,6 +83,19 @@ it("relays a message into recordMessage and rejects malformed IDs", async () => 
   assert.equal((await t.run(ctx => ctx.db.query("discordIntakeMessages").collect())).length, 1);
 });
 
+it("routes a command to handleCommand and rejects a malformed one", async () => {
+  const { t } = await seedDiscordIntake();
+  enable();
+  process.env.SITE_URL = "https://vrdex.test";
+  const response = await call(t, routes[2]);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { reply: "Link your Discord account on VRDex first: https://vrdex.test/account/connections" });
+  const body = routes[2][2];
+  for (const bad of [{ command: "nope" }, { guildId: "12" }, { invokerDiscordUserId: "12" }, { invokerHasManageGuild: "yes" }, { options: null }]) {
+    assert.equal((await call(t, ["POST", "/discord-intake/command", { ...body, ...bad }])).status, 400);
+  }
+});
+
 it("upserts one heartbeat row per instance", async () => {
   const { t } = await seedDiscordIntake();
   enable();

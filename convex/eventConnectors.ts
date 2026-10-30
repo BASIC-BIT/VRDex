@@ -24,16 +24,16 @@ function requireDirection(kind: ConnectorKind, direction: ConnectorDirection) {
 }
 
 type TargetId = (typeof TARGET_IDS)[number];
+type CreatableKind = Exclude<ConnectorKind, "notion" | "discord_announcements">;
 // Each kind names its target with exactly these IDs: required first, then optional. Notion is reserved and never reaches this.
-const KIND_TARGET_IDS: Record<Exclude<ConnectorKind, "notion">, { required: TargetId[]; optional?: TargetId[] }> = {
-  discord_announcements: { required: ["guildId", "channelId"] },
+const KIND_TARGET_IDS: Record<CreatableKind, { required: TargetId[]; optional?: TargetId[] }> = {
   discord_board: { required: ["guildId", "channelId"] },
   discord_scheduled_events: { required: ["guildId"] },
   google_calendar: { required: ["calendarId"] },
   vrchat_calendar: { required: ["groupId"], optional: ["calendarId"] },
 };
 
-function requireTarget(kind: Exclude<ConnectorKind, "notion">, target: ConnectorTarget) {
+function requireTarget(kind: CreatableKind, target: ConnectorTarget) {
   const { required, optional = [] } = KIND_TARGET_IDS[kind];
   for (const key of TARGET_IDS) {
     const value = target[key];
@@ -80,7 +80,8 @@ export const create = mutation({
     requireEnabled();
     if ((await ctx.db.get(args.communityProfileId))?.profileType !== "community") fail("CONNECTOR_FORBIDDEN");
     await requireConnectorAuthority(ctx, args.communityProfileId, userId);
-    if (args.kind === "notion") return fail("CONNECTOR_KIND_RESERVED");
+    // Discord announcements connect only through the slash command or the site flow, which prove guild control.
+    if (args.kind === "notion" || args.kind === "discord_announcements") return fail("CONNECTOR_KIND_RESERVED");
     requireDirection(args.kind, args.direction);
     requireTarget(args.kind, args.target);
     if (args.credentialId) {
@@ -94,7 +95,6 @@ export const create = mutation({
     const connectorId = await ctx.db.insert("eventConnectors", {
       communityProfileId: args.communityProfileId, kind: args.kind, direction: args.direction, mode: args.mode,
       authorityUserId: userId, credentialId: args.credentialId, target: args.target,
-      quietWindowSeconds: args.kind === "discord_announcements" ? 120 : undefined,
       state: "active", createdAt: now, updatedAt: now,
     });
     if (args.direction !== "off") await reconcile(ctx, connectorId);

@@ -1,15 +1,19 @@
 import { ConvexError, v } from "convex/values";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalMutation, internalQuery, type DatabaseReader, type MutationCtx } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, type DatabaseReader, type MutationCtx } from "./_generated/server";
+import { getAccountFeatureAccess } from "./_accountFeatures";
 import {
-  buildSourceText, discordAttachmentValidator, DISCORD_SNOWFLAKE, discordMessagePayloadValidator, findRunLink, isDiscordCdnUrl,
-  pickPosterAttachments, quietWindowMs, resolveDiscordUserId,
+  buildSourceText, clampQuietWindowSeconds, connectDiscordAnnouncements, discordAttachmentValidator, discordCommandReplies, DISCORD_SNOWFLAKE,
+  discordMessagePayloadValidator, findRunLink, isDiscordCdnUrl, liveChannelConnectors, pickPosterAttachments, quietWindowMs, resolveDiscordUserId,
 } from "./_discordIntake";
 import { applyEventCandidate } from "./_eventCandidateApply";
-import { connectorDirection, connectorKind, connectorMode, connectorState, connectorsEnabled, requireConnectorAuthority } from "./_eventConnectors";
+import {
+  connectorDirection, connectorKind, connectorMode, connectorState, connectorsEnabled, requireConnectorAuthority, userAuthSubject, userHasCommunityPermission,
+} from "./_eventConnectors";
 import { saveIntakeDraft } from "./_eventIntake";
 import { getEventBySlug } from "./_eventSlugs";
+import { getProfileBySlug } from "./_globalSlugs";
 import { cancelPendingSchedule } from "./_eventSync";
 import { notifyOps, resolveOps } from "./_opsAlerts";
 import { correctionFields } from "./eventCorrections";
@@ -67,8 +71,7 @@ export const recordMessage = internalMutation({
     const ids = [guildId, channelId, payload.messageId, ...(action === "delete" ? [] : [payload.authorId])];
     if (!ids.every(id => id !== undefined && DISCORD_SNOWFLAKE.test(id))) throw new ConvexError({ code: "DISCORD_INTAKE_INVALID" });
     if (payload.isBot) return { recorded: 0 };
-    const connectors = (await ctx.db.query("eventConnectors").withIndex("by_kind_target_channelId", q => q.eq("kind", "discord_announcements").eq("target.channelId", channelId)).collect())
-      .filter(connector => connector.target.guildId === guildId && connector.state !== "removed");
+    const connectors = (await liveChannelConnectors(ctx.db, channelId)).filter(connector => connector.target.guildId === guildId);
     let recorded = 0;
     for (const connector of connectors) {
       const existing = await ctx.db.query("discordIntakeMessages").withIndex("by_connectorId_messageId", q => q.eq("connectorId", connector._id).eq("messageId", payload.messageId)).unique();
@@ -346,5 +349,110 @@ export const getEventForAgent = internalQuery({
     const all = await correctionFields(ctx.db, event);
     const fields = Object.fromEntries(PUBLIC_EVENT_FIELDS.flatMap(key => all[key] === undefined ? [] : [[key, all[key]]])) as EventIntakeFields;
     return { fields, updatedAt: event.updatedAt };
+  },
+});
+
+const COMMAND_CHOICE_LIMIT = 25;
+const commandOptions = v.object({
+  community: v.optional(v.string()), mode: v.optional(connectorMode), quiet_window: v.optional(v.number()),
+  channelName: v.optional(v.string()), guildName: v.optional(v.string()), query: v.optional(v.string()),
+});
+const channelCommand = v.union(v.literal("connect"), v.literal("disconnect"), v.literal("status"));
+
+export const resolveDiscordInvoker = internalQuery({
+  args: { discordUserId: v.string() },
+  returns: v.union(v.null(), v.object({ userId: v.id("users") })),
+  handler: async (ctx, { discordUserId }) => {
+    const userId = await resolveDiscordUserId(ctx, discordUserId);
+    return userId ? { userId } : null;
+  },
+});
+
+export const invokerIsSuperAdmin = internalQuery({
+  args: { userId: v.id("users") },
+  returns: v.boolean(),
+  handler: async (ctx, { userId }) => (await getAccountFeatureAccess(ctx.db, userId)).superAdmin,
+});
+
+/** Communities the user owns or staffs and may manage integrations for, matched on name or slug. */
+export const manageableCommunities = internalQuery({
+  args: { userId: v.id("users"), query: v.string() },
+  returns: v.array(v.object({ slug: v.string(), displayName: v.string() })),
+  handler: async (ctx, { userId, query }) => {
+    const owned = await ctx.db.query("profileOwners").withIndex("by_userId_state", q => q.eq("userId", userId).eq("state", "active")).collect();
+    const subject = await userAuthSubject(ctx.db, userId);
+    const staffed = subject
+      ? await ctx.db.query("communityAuthorities").withIndex("by_subjectTokenIdentifier_state", q => q.eq("subjectTokenIdentifier", subject.tokenIdentifier).eq("state", "active")).collect()
+      : [];
+    const needle = query.trim().toLowerCase();
+    const communities = [];
+    for (const profileId of new Set([...owned.map(row => row.profileId), ...staffed.map(row => row.communityProfileId)])) {
+      if (communities.length === COMMAND_CHOICE_LIMIT) break;
+      const profile = await ctx.db.get(profileId);
+      if (profile?.profileType !== "community" || !`${profile.displayName} ${profile.slug}`.toLowerCase().includes(needle)) continue;
+      if (await userHasCommunityPermission(ctx.db, profileId, userId, ["manage_integrations"])) communities.push({ slug: profile.slug, displayName: profile.displayName });
+    }
+    return communities;
+  },
+});
+
+/** Runs a channel command for a resolved invoker. Every refusal, including a channel another community holds, reads the same. */
+export const applyCommand = internalMutation({
+  args: { userId: v.id("users"), command: channelCommand, guildId: v.string(), channelId: v.string(), invokerHasManageGuild: v.boolean(), options: commandOptions },
+  returns: v.object({ reply: v.string() }),
+  handler: async (ctx, { userId, command, guildId, channelId, invokerHasManageGuild, options }) => {
+    const { connected, disconnected, noPermission, notConnected, pausedSuffix } = discordCommandReplies;
+    if (!invokerHasManageGuild) return { reply: noPermission };
+    const connector = (await liveChannelConnectors(ctx.db, channelId)).find(row => row.target.guildId === guildId);
+    const channel = options.channelName ?? connector?.target.channelName ?? channelId;
+    try {
+      if (command === "connect") {
+        const community = options.community === undefined ? null : await getProfileBySlug(ctx.db, options.community);
+        if (!community) return { reply: noPermission };
+        const mode = options.mode ?? "hold";
+        await connectDiscordAnnouncements(ctx, {
+          userId, communityProfileId: community._id, guildId, guildName: options.guildName ?? guildId, channelId, channelName: channel, mode,
+          quietWindowSeconds: options.quiet_window === undefined ? undefined : clampQuietWindowSeconds(options.quiet_window),
+        });
+        return { reply: connected(channel, community.displayName, mode) };
+      }
+      if (!connector) return { reply: notConnected };
+      if (command === "status") {
+        const community = await ctx.db.get(connector.communityProfileId);
+        if (!community) return { reply: notConnected };
+        return { reply: connected(channel, community.displayName, connector.mode) + (connector.state === "paused" ? pausedSuffix : "") };
+      }
+      await requireConnectorAuthority(ctx, connector.communityProfileId, userId);
+      await ctx.db.patch(connector._id, { state: "removed", updatedAt: Date.now() });
+      // A removed connector cannot recover, so close any open failure alert for it.
+      await resolveOps(ctx, opsKey(connector._id));
+      return { reply: disconnected(channel) };
+    } catch (error) {
+      const code = error instanceof ConvexError ? (error.data as { code?: unknown } | null)?.code : undefined;
+      if (code === "CONNECTOR_FORBIDDEN" || code === "CHANNEL_TAKEN") return { reply: noPermission };
+      throw error;
+    }
+  },
+});
+
+/** The gateway's `/vrdex` entry point: resolves the invoker, then answers autocomplete or runs the channel command. */
+export const handleCommand = internalAction({
+  args: {
+    command: v.union(channelCommand, v.literal("autocomplete")), guildId: v.string(), channelId: v.string(),
+    invokerDiscordUserId: v.string(), invokerHasManageGuild: v.boolean(), options: commandOptions,
+  },
+  returns: v.union(v.object({ reply: v.string() }), v.object({ choices: v.array(v.object({ name: v.string(), value: v.string() })) })),
+  handler: async (ctx, { command, invokerDiscordUserId, ...rest }): Promise<{ reply: string } | { choices: Array<{ name: string; value: string }> }> => {
+    const invoker: { userId: Id<"users"> } | null = await ctx.runQuery(internal.discordIntake.resolveDiscordInvoker, { discordUserId: invokerDiscordUserId });
+    if (command !== "autocomplete") {
+      if (!invoker) return { reply: discordCommandReplies.notLinked(process.env.SITE_URL!) };
+      return ctx.runMutation(internal.discordIntake.applyCommand, { ...invoker, command, ...rest });
+    }
+    if (!invoker) return { choices: [] };
+    const query = rest.options.query ?? "";
+    const communities: Array<{ slug: string; displayName: string }> = await ctx.runQuery(internal.discordIntake.invokerIsSuperAdmin, invoker)
+      ? (await ctx.runQuery(api.search.searchUniversal, { query, entityType: "profile", profileType: "community", limit: COMMAND_CHOICE_LIMIT })).map(row => ({ slug: row.slug, displayName: row.title }))
+      : await ctx.runQuery(internal.discordIntake.manageableCommunities, { ...invoker, query });
+    return { choices: communities.map(row => ({ name: row.displayName.slice(0, 100), value: row.slug })) };
   },
 });
