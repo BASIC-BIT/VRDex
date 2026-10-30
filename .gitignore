@@ -65,3 +65,6 @@ __pycache__/
 # Private CI migration ownership and explicit safe proof output
 /.migration-local-owner/
 /artifacts/event-broadcast-migration-local/
+
+# Durable nonsecret local fixture ownership, retained until verified cleanup
+.playwright-fixtures/

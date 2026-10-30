@@ -324,3 +324,44 @@ it("disposed selected read never publishes its delayed successful metadata", asy
   assert.equal(publications, 1);
   assert.equal("row" in selected.getSnapshot(), false);
 });
+
+it("compact inspector preserves authored names and meaningful roles while omitting generic DJ", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { resolve } = await import("node:path");
+  const markup = execFileSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "-e",
+      `
+    import { createRequire } from "node:module";
+    const require = createRequire(import.meta.url);
+    require.extensions[".css"] = module => { module.exports = {}; };
+    const { createElement } = require("react");
+    const { renderToStaticMarkup } = require("react-dom/server");
+    const { EventDetailContent } = require("./src/app/_components/timeline/event-detail-content.tsx");
+    process.stdout.write(renderToStaticMarkup(createElement(EventDetailContent, {
+      event: ${JSON.stringify(event("night"))}, timeZone: "UTC",
+      preferences: { version: 1, plan: [], favoriteProfileIds: [] }, onPreferenceAction() {},
+      rows: [
+        { kind: "slot", key: "dj", position: 0, displayLabel: "Authored guest", roleLabel: "DJ", startAt: 1 },
+        { kind: "lineup", key: "host", position: 1, displayLabel: "Manual host", roleLabel: "Host" },
+      ],
+    })));
+  `,
+    ],
+    {
+      cwd: resolve("apps/web"),
+      encoding: "utf8",
+      env: { ...process.env, TSX_TSCONFIG_PATH: "tsconfig.json" },
+    },
+  );
+  assert.match(markup, />Authored guest</);
+  assert.match(markup, />Manual host</);
+  assert.match(markup, />Host</);
+  assert.doesNotMatch(markup, />DJ</);
+  assert.match(markup, /aria-label="Interested: Authored guest"/);
+  assert.doesNotMatch(markup, /aria-label="Favorite:/);
+});

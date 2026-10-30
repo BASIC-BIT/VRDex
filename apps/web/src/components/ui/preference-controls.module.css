@@ -1,0 +1,81 @@
+.control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.compact {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 2px;
+}
+.control:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.favorite {
+  --control-color: #f2c56b;
+  color: var(--muted);
+}
+.favorite[aria-pressed="true"] {
+  color: var(--control-color);
+}
+.interest {
+  --control-color: #bfa0ec;
+  color: var(--control-color);
+}
+.control:hover:not(:disabled),
+.control:focus-visible:not(:disabled) {
+  background: color-mix(in srgb, var(--control-color) 14%, transparent);
+}
+.control:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+.icon {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.favorite[aria-pressed="true"] .icon {
+  fill: currentColor;
+}
+.plus, .check, .remove {
+  transition: opacity 140ms ease;
+}
+.check, .remove,
+.interest[aria-pressed="true"] .plus {
+  opacity: 0;
+}
+.interest[aria-pressed="true"] .check {
+  opacity: 1;
+}
+.interest[data-state="saved"]:is(:hover, :focus-visible) .check {
+  opacity: 0;
+}
+.interest[data-state="saved"]:is(:hover, :focus-visible) .remove {
+  opacity: 1;
+}
+.pop {
+  animation: selection-pop 220ms ease-out;
+}
+@keyframes selection-pop {
+  0%, 100% { transform: scale(1); }
+  45% { transform: scale(1.2); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .control, .plus, .check, .remove { transition: none; }
+  .pop { animation: none; }
+}

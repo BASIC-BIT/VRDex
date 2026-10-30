@@ -15,13 +15,13 @@ import {
   timelineNavigationHref,
   type TimelineNavigation,
 } from "@/lib/timeline/navigation";
+import { localDayBands } from "@/lib/timeline/geometry";
 import { togglePlanAction } from "@/lib/timeline/plan-actions";
 import { HOUR, inRange } from "@/lib/timeline/window-cache";
 import { useTimelinePreferences } from "./use-timeline-preferences";
 import { useTimelineData } from "./use-timeline-data";
 import { TimelineToolbar } from "./timeline-toolbar";
 import { TimelineChart } from "./timeline-chart";
-import { TimelineAgenda } from "./timeline-agenda";
 import { TimelineNight } from "./timeline-night";
 import { type TimelineActions } from "./timeline-event-bar";
 import styles from "./timeline.module.css";
@@ -73,9 +73,16 @@ function HomeScheduleContent({
           className={styles.schedule}
           aria-label="Schedule"
         >
-          <h2>Schedule</h2>
-          <div className={styles.loading} role="status">
-            Loading events
+          <TimelineToolbar navigation={{ anchor: null, timeZone: null, favoritesOnly: false }}
+            date="" timeZone="" hour12 disabled onNavigate={() => {}} onDate={() => {}} onPan={() => {}} onNow={() => {}}>
+            <div className={styles.status} role="status">Loading events</div>
+          </TimelineToolbar>
+          <div aria-hidden="true" inert className={styles.scroller}>
+            <div className={styles.canvas} style={{ width: 14400 }}>
+              <div className={styles.dayAxis} />
+              <div className={styles.hourAxis} />
+              <div className={styles.lanes} style={{ height: 376 }} />
+            </div>
           </div>
         </section>
       )}
@@ -236,6 +243,16 @@ function ScheduleContent({
     if (next !== undefined) navigate({ anchor: next });
   };
   const visible = data.records.filter((event) => inRange(event, range));
+  const nextEvent = visible.length === 0 ? data.records.flatMap((event) => {
+    const schedule = event.schedule;
+    if (schedule.kind === "date_only") {
+      const nominal = Date.parse(schedule.eventDate);
+      const day = localDayBands({ startAt: nominal - 36 * HOUR, endAt: nominal + 36 * HOUR, timeZone })
+        .find((day) => formatZonedDateTimeInput(day.startAt, timeZone).slice(0, 10) === schedule.eventDate);
+      return day && day.startAt >= range.endAt ? [day.startAt] : [];
+    }
+    return schedule.startAt >= range.endAt ? [schedule.startAt] : [];
+  }).sort((a, b) => a - b)[0] : undefined;
   return (
     <section
       data-home-schedule
@@ -263,76 +280,72 @@ function ScheduleContent({
         }}
         onPan={(hours) => navigate({ anchor: anchor + hours * HOUR })}
         onNow={() => navigate({ anchor: Date.now() - HOUR })}
-      />
+      >
+        <div
+          className={styles.status}
+          role="status"
+          aria-label="Schedule data state"
+          data-state={data.kind}
+        >
+          {data.kind === "loading" && "Loading events"}
+          {data.kind === "error" && (
+            <>
+              Events unavailable{" "}
+              <Button size="sm" onClick={() => void data.retry()}>
+                Retry
+              </Button>
+            </>
+          )}
+          {data.kind === "partial" && (
+            <>
+              More events available{" "}
+              <Button size="sm" onClick={() => void data.loadMore()}>
+                More
+              </Button>
+            </>
+          )}
+          {data.kind === "ready" &&
+            visible.length === 0 &&
+            (navigation.favoritesOnly
+              ? "No favorites in this range"
+              : "No events in this range")}
+          {nextEvent !== undefined && (
+            <Button size="sm" onClick={() => navigate({ anchor: nextEvent })}>Next event</Button>
+          )}
+          {preference.persistence === "session" && <span>Not saved</span>}
+          {data.savedState === "loading" && <span>Loading events</span>}
+          {data.savedState === "error" && (
+            <>
+              <span>Events unavailable</span>
+              <Button size="sm" onClick={() => void data.retry()}>
+                Retry
+              </Button>
+            </>
+          )}
+        </div>
+      </TimelineToolbar>
       {preference.preferences.plan.length > 0 && (
         <TimelineNight
           saved={data.saved}
           range={range}
           onNext={nextSaved}
-          onSelect={onSelect}
-          onSave={onSave}
-        />
-      )}
-      {navigation.view === "timeline" ? (
-        <TimelineChart
           records={data.records}
-          lanes={data.eventLanes}
-          saved={data.saved}
-          range={range}
           now={now}
-          slotCoverage={data.slotCoverage}
-          onPan={(instant) => navigate({ anchor: instant }, false)}
-          onWidth={setWidth}
-          onNext={nextSaved}
-          {...actions}
-        />
-      ) : (
-        <TimelineAgenda
-          records={visible}
-          timeZone={timeZone}
-          slotCoverage={data.slotCoverage}
           {...actions}
         />
       )}
-      <div
-        className={styles.status}
-        role="status"
-        aria-label="Schedule data state"
-        data-state={data.kind}
-      >
-        {data.kind === "loading" && "Loading events"}
-        {data.kind === "error" && (
-          <>
-            Events unavailable{" "}
-            <Button size="sm" onClick={() => void data.retry()}>
-              Retry
-            </Button>
-          </>
-        )}
-        {data.kind === "partial" && (
-          <>
-            More events available{" "}
-            <Button size="sm" onClick={() => void data.loadMore()}>
-              More
-            </Button>
-          </>
-        )}
-        {data.kind === "ready" &&
-          visible.length === 0 &&
-          (navigation.favoritesOnly
-            ? "No favorites in this range"
-            : "No events in this range")}
-        {preference.persistence === "session" && <span>Not saved</span>}
-        {data.savedState === "loading" && <span>Loading events</span>}
-        {data.savedState === "error" && (
-          <>
-            <span>Events unavailable</span>
-            <Button size="sm" onClick={() => void data.retry()}>
-              Retry
-            </Button>
-          </>
-        )}
-      </div>
+      <TimelineChart
+        records={data.records}
+        lanes={data.eventLanes}
+        saved={data.saved}
+        range={range}
+        now={now}
+        slotCoverage={data.slotCoverage}
+        onPan={(instant) => navigate({ anchor: instant }, false)}
+        onWidth={setWidth}
+        onNext={nextSaved}
+        {...actions}
+      />
     </section>
   );
 }

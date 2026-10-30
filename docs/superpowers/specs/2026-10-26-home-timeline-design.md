@@ -3,6 +3,12 @@
 Status: approved by BASIC on October 26, 2026. Implementation planning follows
 this design; implementation begins after review of that plan.
 
+The approved [October 29 Home polish](2026-10-29-home-polish-design.md) supersedes
+this document's Agenda, control, personal-lane, loading and discovery presentation
+details where they differ. Its complete selected-card favorite membership and
+stable refresh rules replace prefix-based labels. Public visibility, authored
+times and bounded recommendation sampling still apply.
+
 ## Intent and existing decisions
 
 Home should help someone find a DJ, see what is happening, and plan where to

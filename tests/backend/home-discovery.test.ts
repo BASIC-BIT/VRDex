@@ -274,3 +274,89 @@ it("acceptsOnlyConfirmedExplicitDjParticipantEvidence", async () => {
   assert.deepEqual(result.items[0]?.performers.map(item => item.id), [ids.dj]);
   assert.equal(result.items[0]?.coverage, "complete");
 });
+
+it("findsFavoriteBeyondOldPrefix", async () => {
+  const t = setup();
+  const ids = await t.run(async ({ db }) => {
+    const host = await db.insert("profiles", club);
+    const eventId = await db.insert("events", { ...event, communityProfileId: host });
+    const lateFavoriteId = await db.insert("profiles", person);
+    for (let i = 0; i <= 80; i++) {
+      await db.insert("eventSlots", { ...slot, eventId, position: i, startAt: now + day + i,
+        ...(i === 80 ? { personProfileId: lateFavoriteId } : {}) });
+    }
+    return { eventId, lateFavoriteId };
+  });
+  const result = await t.query(api.homeDiscovery.favoriteLineup, { eventIds: [ids.eventId], favoriteProfileIds: [ids.lateFavoriteId] });
+  assert.deepEqual(result.items[0]?.performers.map(person => person.id), [ids.lateFavoriteId]);
+  assert.deepEqual(Object.keys(result.items[0]!.performers[0]!).sort(), ["displayName", "id", "slug"]);
+});
+
+it("deduplicatesRosterSources", async () => {
+  const t = setup();
+  const ids = await t.run(async ({ db }) => {
+    const host = await db.insert("profiles", club);
+    const eventId = await db.insert("events", { ...event, communityProfileId: host });
+    const favorite = await db.insert("profiles", person);
+    const photographer = await db.insert("profiles", { ...person, slug: "photographer" });
+    const unconfirmed = await db.insert("profiles", { ...person, slug: "unconfirmed" });
+    await db.insert("eventSlots", { ...slot, eventId, personProfileId: favorite });
+    await db.insert("eventLineupEntries", { eventId, clientKey: "favorite", position: 0, performerLabel: "Guest", personProfileId: favorite, updatedAt: 1 });
+    for (const [personProfileId, confirmationState] of [[favorite, "confirmed"], [photographer, "confirmed"], [unconfirmed, "unconfirmed"]] as const) {
+      await db.insert("eventParticipants", { eventId, personProfileId, eventPublicationState: "published", eventStatus: "scheduled", confirmationState, roleLabel: "Photographer", sourceType: "community", sourceLabel: "Fixture", updatedAt: 1 });
+    }
+    return { eventId, favorite, photographer, unconfirmed };
+  });
+  const result = await t.query(api.homeDiscovery.favoriteLineup, { eventIds: [ids.eventId, ids.eventId], favoriteProfileIds: [ids.favorite, ids.favorite, ids.photographer, ids.unconfirmed] });
+  assert.equal(result.items.length, 1);
+  assert.deepEqual(result.items[0]?.performers.map(person => person.id), [ids.favorite, ids.photographer]);
+});
+
+it("omitsPrivatePeopleAndEvents", async () => {
+  const t = setup();
+  const ids = await t.run(async ({ db }) => {
+    const host = await db.insert("profiles", club);
+    const eventId = await db.insert("events", { ...event, communityProfileId: host });
+    const privateEvent = await db.insert("events", { ...event, communityProfileId: host, publicationState: "draft_private" });
+    const favorite = await db.insert("profiles", person);
+    const hidden = await db.insert("profiles", { ...person, publicSurfacingState: "suppressed", displayName: "SECRET" });
+    const privatePerson = await db.insert("profiles", { ...person, publicationState: "draft_private", displayName: "SECRET" });
+    for (const e of [eventId, privateEvent]) for (const personProfileId of [favorite, hidden, privatePerson, host]) {
+      await db.insert("eventSlots", { ...slot, eventId: e, personProfileId });
+    }
+    return { host, eventId, privateEvent, favorite, hidden, privatePerson };
+  });
+  const args = { eventIds: [ids.eventId, ids.privateEvent], favoriteProfileIds: [ids.favorite, ids.hidden, ids.privatePerson, ids.host, "invalid"] };
+  const result = await t.query(api.homeDiscovery.favoriteLineup, args);
+  assert.deepEqual(result.items.map(item => [item.eventId, item.performers.map(person => person.id)]), [[ids.eventId, [ids.favorite]]]);
+  assert.ok(!JSON.stringify(result).includes("SECRET"));
+  await t.run(({ db }) => db.patch(ids.favorite, { publicSurfacingState: "opted_out" }));
+  assert.deepEqual((await t.query(api.homeDiscovery.favoriteLineup, args)).items[0]?.performers, []);
+  await t.run(({ db }) => db.patch(ids.host, { publicSurfacingState: "suppressed" }));
+  assert.deepEqual(await t.query(api.homeDiscovery.favoriteLineup, args), { items: [] });
+  assert.deepEqual(await t.query(api.homeDiscovery.favoriteLineup, { ...args, eventIds: ["invalid"] }), { items: [] });
+});
+
+it("dateOnlyMatchesPublicRosterSemantics", async () => {
+  const t = setup();
+  const ids = await t.run(async ({ db }) => {
+    const host = await db.insert("profiles", club);
+    const eventId = await db.insert("events", { ...event, communityProfileId: host, startAt: undefined, scheduleKind: "date_only", eventDate: "2026-10-30" });
+    const slotPerson = await db.insert("profiles", person);
+    const lineupPerson = await db.insert("profiles", { ...person, slug: "lineup" });
+    const participant = await db.insert("profiles", { ...person, slug: "participant" });
+    await db.insert("eventSlots", { ...slot, eventId, personProfileId: slotPerson });
+    await db.insert("eventLineupEntries", { eventId, clientKey: "lineup", position: 0, performerLabel: "Host", roleLabel: "Host", personProfileId: lineupPerson, updatedAt: 1 });
+    await db.insert("eventParticipants", { eventId, personProfileId: participant, eventPublicationState: "published", eventStatus: "scheduled", confirmationState: "confirmed", roleLabel: "Host", sourceType: "community", sourceLabel: "Fixture", updatedAt: 1 });
+    return { eventId, slotPerson, lineupPerson, participant };
+  });
+  const args = { eventIds: [ids.eventId], favoriteProfileIds: [ids.slotPerson, ids.lineupPerson, ids.participant] };
+  assert.deepEqual((await t.query(api.homeDiscovery.favoriteLineup, args)).items[0]?.performers.map(person => person.id), [ids.lineupPerson, ids.participant]);
+});
+
+it("rejectsOversizedFavoriteMembershipBatches", async () => {
+  const t = setup();
+  await assert.rejects(t.query(api.homeDiscovery.favoriteLineup, { eventIds: Array(3).fill("same"), favoriteProfileIds: [] }), /many|maximum|limit/i);
+  await assert.rejects(t.query(api.homeDiscovery.favoriteLineup, { eventIds: [], favoriteProfileIds: Array(26).fill("same") }), /many|maximum|limit/i);
+  assert.deepEqual(await t.query(api.homeDiscovery.favoriteLineup, { eventIds: ["invalid", "invalid"], favoriteProfileIds: Array(25).fill("invalid") }), { items: [] });
+});

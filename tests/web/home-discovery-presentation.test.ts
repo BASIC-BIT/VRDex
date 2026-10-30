@@ -26,17 +26,16 @@ test("static discovery cards preserve attribution, sparse evidence and canonical
     const person = (id, name, genres = []) => ({ id, slug: id, displayName: name, profileType: 'person', genres });
     const genre = { slug: 'liquid', displayName: 'Liquid DnB', displayLabel: '  Deep liquid  ' };
     const signal = { eventId: 'event', performers: [person('first', 'First'), person('favorite', 'Aurora', [genre]), person('third', 'Third'), person('fourth', 'Fourth')], manualLabels: ['Manual'], coverage: 'partial' };
-    const props = { event, signal, preferences, timeZone: 'Pacific/Honolulu', hour12: true, onSelect() {}, onSave() {} };
+    const matchingPeople = Array.from({ length: 12 }, (_, i) => person('favorite-' + i, 'Favorite ' + i));
+    const props = { event, matchingPeople, preferences, timeZone: 'Pacific/Honolulu', hour12: true, onSelect() {}, onSave() {} };
     const markup = renderToStaticMarkup(React.createElement(DiscoveryEventCard, props));
     assert.match(markup, /href="\\/club\\/events\\/event"/);
     assert.match(markup, /2026-12-05/);
-    assert.match(markup.replace(/<[^>]+>/g, ""), /Aurora: Deep liquid/);
-    assert.ok(markup.indexOf('>Aurora<') < markup.indexOf('>First<'));
-    assert.ok(!markup.includes('>Fourth<'));
-    assert.ok(!markup.includes('Manual'));
-    const absent = renderToStaticMarkup(React.createElement(DiscoveryEventCard, { ...props, signal: undefined }));
-    assert.ok(!absent.includes('Lineup genres'));
-    assert.ok(!absent.includes('Liquid DnB'));
+    for (let i = 0; i < 12; i++) assert.ok(markup.includes('>Favorite ' + i + '<'));
+    assert.ok(!/First|Third|Fourth|Deep liquid|Liquid DnB|Manual/.test(markup));
+    assert.match(markup, /Full lineup/);
+    const absent = renderToStaticMarkup(React.createElement(DiscoveryEventCard, { ...props, matchingPeople: undefined }));
+    assert.ok(!absent.includes('Favorite 0'));
     const club = { id: 'club', slug: 'club', displayName: 'Prism', profileType: 'community', genres: [], logoImageUrl: 'https://example.invalid/logo.png' };
     const clubMarkup = renderToStaticMarkup(React.createElement(DiscoveryClubCard, { club, preferences, onFavorite() {} }));
     assert.match(clubMarkup, /href="\\/club"/);
@@ -44,11 +43,13 @@ test("static discovery cards preserve attribution, sparse evidence and canonical
     assert.match(clubMarkup, /contained/);
     assert.ok(!clubMarkup.includes('Liquid DnB'));
     assert.ok(!/upcoming|next event/i.test(clubMarkup));
+    const fallback = renderToStaticMarkup(React.createElement(DiscoveryClubCard, { club: { ...club, logoImageUrl: undefined, displayName: 'Long / punctuation-heavy: Club Collective' }, preferences, onFavorite() {} }));
+    assert.ok(fallback.includes('clubTypography')); assert.ok(fallback.includes('>Long / punctuation-heavy: Club Collective<'));
     const customClub = renderToStaticMarkup(React.createElement(DiscoveryClubCard, { club: { ...club, genres: [genre] }, preferences, onFavorite() {} }));
     assert.match(customClub, /Deep liquid/);
     assert.ok(!customClub.includes('Liquid DnB'));
     const coverage = { events: [{ complete: false }], clubs: [{ complete: false }], signals: [], candidateCount: 0, favoriteCount: 0 };
-    const base = { snapshot: { kind: 'available', events: [], clubs: [], eventSignals: [], favoriteProfiles: [], coverage, refreshing: false }, preferences, timeZone: 'UTC', hour12: false, onSelect() {}, onSave() {}, onFavorite() {}, retry() {} };
+    const base = { snapshot: { kind: 'available', events: [], clubs: [], eventSignals: [], favoriteProfiles: [], eligibleEventIds: [], eligibleClubIds: [], coverage, refreshing: false }, preferences, timeZone: 'UTC', hour12: false, onSelect() {}, onSave() {}, onFavorite() {}, retry() {} };
     const partial = renderToStaticMarkup(React.createElement(HomeDiscoveryView, base));
     assert.match(partial, /href="\\/discovery"/);
     assert.ok(!/No events|No clubs/.test(partial));
@@ -58,6 +59,7 @@ test("static discovery cards preserve attribution, sparse evidence and canonical
       const state = renderToStaticMarkup(React.createElement(HomeDiscoveryView, { ...base, snapshot }));
       assert.match(state, /href="\\/discovery"/);
       assert.ok(!/No events|No clubs|secret/.test(state));
+      if (snapshot.kind === 'loading') { assert.match(state, /aria-busy="true"/); assert.equal((state.match(/data-testid="discovery-placeholder"/g) ?? []).length, 4); }
     }
   `,
     ],

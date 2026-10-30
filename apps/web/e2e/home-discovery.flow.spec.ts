@@ -1,4 +1,6 @@
 import { expect } from "@playwright/test";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../convex/_generated/api";
 import {
   test,
   TIMELINE_NOW,
@@ -21,6 +23,109 @@ test.describe("Home discovery @flow @fixture", () => {
       "ready",
       { timeout: 20000 },
     );
+  });
+  test("favoriteChangeKeepsCandidatesAndCards", async ({ page }, info) => {
+    const queries = observeDiscoveryQueries(page);
+    await page.reload();
+    const discover = await usableDiscovery(page);
+    const card = discover.getByTestId("discovery-club-card").filter({ has: page.getByRole("link", { name: "Tidal Society", exact: true }) });
+    const button = card.getByRole("button");
+    await button.scrollIntoViewIfNeeded();
+    await button.focus();
+    await expect.poll(() => queries.result().pending).toBe(0);
+    const beforeBounds = await card.boundingBox();
+    const beforeScroll = await page.evaluate(() => window.scrollY);
+    const before = queries.result();
+    await discover.evaluate(element => {
+      const state = { minimumCards: element.querySelectorAll('[data-testid="discovery-club-card"]').length };
+      Object.assign(window, { discoveryRetention: state });
+      new MutationObserver(() => { state.minimumCards = Math.min(state.minimumCards, element.querySelectorAll('[data-testid="discovery-club-card"]').length); }).observe(element, { childList: true, subtree: true });
+    });
+    await button.click();
+    await expect.poll(() => queries.result().counts["homeDiscovery:profileSignals"] ?? 0).toBeGreaterThan(before.counts["homeDiscovery:profileSignals"] ?? 0);
+    await expect.poll(() => queries.result().pending).toBe(0);
+    const after = queries.result();
+    const afterBounds = await card.count() ? await card.boundingBox() : null;
+    const afterScroll = await page.evaluate(() => window.scrollY);
+    const minimumCards = await page.evaluate(() => (window as unknown as { discoveryRetention: { minimumCards: number } }).discoveryRetention.minimumCards);
+    await info.attach("favorite-retention.json", { body: JSON.stringify({ beforeBounds, afterBounds, beforeScroll, afterScroll, before, after, minimumCards }, null, 2), contentType: "application/json" });
+    await page.screenshot({ path: info.outputPath("favorite-retention.png"), fullPage: true });
+    expect(after.favoriteLineupBounds.maxEvents).toBe(2);
+    expect(after.favoriteLineupBounds.maxFavorites).toBeLessThanOrEqual(25);
+    expect(after.favoriteLineupBounds.emptyRequests).toBe(0);
+    expect(minimumCards).toBe(2);
+    expect(afterBounds).toEqual(beforeBounds);
+    expect(afterScroll).toBe(beforeScroll);
+    for (const method of ["listEvents", "listClubs", "eventSignals"]) expect(after.counts[`homeDiscovery:${method}`]).toBe(before.counts[`homeDiscovery:${method}`]);
+    await expect(button).toBeFocused();
+  });
+  test("no favorite IDs register no favorite reads", async ({ page }, info) => {
+    await page.evaluate(() => localStorage.setItem("vrdex.timeline.preferences.v1", JSON.stringify({ version: 1, plan: [], favoriteProfileIds: [] })));
+    const queries = observeDiscoveryQueries(page);
+    await page.reload();
+    const discover = await usableDiscovery(page);
+    await expect.poll(() => queries.result().pending).toBe(0);
+    expect(queries.result().counts["homeDiscovery:profileSignals"] ?? 0).toBe(0);
+    expect(queries.result().counts["homeDiscovery:favoriteLineup"] ?? 0).toBe(0);
+    await expect(discover.getByLabel("Favorite people")).toHaveCount(0);
+    await info.attach("no-favorite-reads.json", { body: JSON.stringify(queries.result(), null, 2), contentType: "application/json" });
+  });
+  test("revocationClearsRetainedContent even with a focused favorite card", async ({ page, request, timelineFixture }) => {
+    const discover = await usableDiscovery(page);
+    const card = discover.getByTestId("discovery-club-card").filter({ has: page.getByRole("link", { name: "Tidal Society", exact: true }) });
+    await card.getByRole("button").click();
+    await expect(card.getByRole("button")).toBeFocused();
+    await changeTimelineFixture(request, timelineFixture, 1, "suppress-host");
+    await expect(card).toHaveCount(0);
+    await expect(discover.getByRole("link", { name: "Open Low Tide", exact: true })).toHaveCount(0);
+  });
+  test("slowHomeKeepsItsFootprint", async ({ page, isMobile }, info) => {
+    if (!isMobile) await page.setViewportSize({ width: 1280, height: 800 });
+    let held = true;
+    const messages: (() => void)[] = [];
+    await page.routeWebSocket("**/api/**/sync", socket => {
+      const server = socket.connectToServer();
+      server.onMessage(message => { if (held) messages.push(() => socket.send(message)); else socket.send(message); });
+    });
+    await page.reload();
+    const discover = page.getByRole("region", { name: "Discover", exact: true });
+    await expect(discover).toHaveAttribute("aria-busy", "true");
+    const shell = discover.getByTestId("discovery-placeholder").first();
+    await expect(shell).toHaveCount(1);
+    const shellBounds = await shell.boundingBox();
+    const geometry = () => page.evaluate(() => ({
+      footerDocumentY: (document.querySelector("footer")?.getBoundingClientRect().top ?? 0) + scrollY,
+      scheduleDocumentY: (document.querySelector("[data-home-schedule]")?.getBoundingClientRect().top ?? 0) + scrollY,
+      discoveryDocumentY: (document.querySelector('[aria-label="Discover"]')?.getBoundingClientRect().top ?? 0) + scrollY,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: innerWidth,
+      scrollY,
+    }));
+    const before = await geometry();
+    await expect(discover.getByRole("status")).toHaveText("Loading");
+    await expect(discover.getByRole("status")).toHaveCount(1);
+    await page.getByRole("combobox", { name: "Search VRDex", exact: true }).fill("Aurora");
+    await page.screenshot({ path: info.outputPath("slow-home.png"), fullPage: true });
+    const releasedAt = performance.now();
+    held = false; messages.splice(0).forEach(send => send());
+    await usableDiscovery(page);
+    await expect(discover).toHaveAttribute("aria-busy", "false");
+    await expect(discover.getByTestId("discovery-placeholder")).toHaveCount(0);
+    const readyBounds = await discover.getByTestId("discovery-event-card").first().boundingBox();
+    const after = await geometry();
+    expect(Math.abs(after.footerDocumentY - before.footerDocumentY)).toBeLessThanOrEqual(1);
+    expect(after.documentWidth).toBeLessThanOrEqual(after.viewportWidth);
+    expect(readyBounds?.width).toBe(shellBounds?.width);
+    expect(readyBounds?.height).toBe(shellBounds?.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect.poll(() => discover.locator("img").evaluateAll(images => images.every(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0))).toBe(true);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: info.outputPath("ready-home.png"), fullPage: true });
+    await info.attach("loading-geometry.json", { body: JSON.stringify({ before, after, shellBounds, readyBounds, releaseToReadyMs: performance.now() - releasedAt }), contentType: "application/json" });
+    if (!isMobile) {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.screenshot({ path: info.outputPath("ready-home-1440.png"), fullPage: true });
+    }
   });
   test("two event and two club cards use public musical identity and separate actions", async ({
     page,
@@ -52,9 +157,10 @@ test.describe("Home discovery @flow @fixture", () => {
     await expect(
       events.first().getByRole("link", { name: "Aurora", exact: true }),
     ).toHaveAttribute("data-favorite", "true");
-    await expect(events.first().getByLabel("Lineup genres")).toContainText(
-      "Aurora: Liquid DnB",
+    await expect(events.first().getByLabel("Favorite people")).toContainText(
+      "Aurora",
     );
+    await expect(events.first()).not.toContainText("Liquid DnB");
     await expect(events.nth(1)).toContainText("Dec 5");
     await expect(
       clubs
@@ -68,12 +174,12 @@ test.describe("Home discovery @flow @fixture", () => {
     await expect(clubs.first()).not.toContainText(/upcoming|next event/i);
     const save = events
       .first()
-      .getByRole("button", { name: "Add ORBIT to My night", exact: true });
+      .getByRole("button", { name: "Interested: ORBIT", exact: true });
     if (isMobile) {
       await expect(save).toHaveCSS("opacity", "1");
       await expect(
         events.nth(1).getByRole("button", {
-          name: "Add Low Tide to My night",
+          name: "Interested: Low Tide",
           exact: true,
         }),
       ).toHaveCSS("opacity", "1");
@@ -81,7 +187,7 @@ test.describe("Home discovery @flow @fixture", () => {
     } else await save.click();
     await expect(
       events.first().getByRole("button", {
-        name: "Remove ORBIT from My night",
+        name: "Remove interest: ORBIT",
         exact: true,
       }),
     ).toBeVisible();
@@ -121,7 +227,7 @@ test.describe("Home discovery @flow @fixture", () => {
     if (isMobile)
       await expect(
         events.nth(1).getByRole("button", {
-          name: "Add Low Tide to My night",
+          name: "Interested: Low Tide",
           exact: true,
         }),
       ).toHaveCSS("opacity", "1");
@@ -151,7 +257,7 @@ test.describe("Home discovery @flow @fixture", () => {
         }),
       );
     }, timelineFixture);
-    await page.reload();
+    await page.goto(`/?at=${TIMELINE_NOW + 7 * 86400000 - 3600000}`);
     await expect(page.getByLabel("Schedule data state")).toHaveAttribute(
       "data-state",
       "ready",
@@ -170,7 +276,7 @@ test.describe("Home discovery @flow @fixture", () => {
       exact: true,
     });
     await panel
-      .getByRole("button", { name: "Add Low Tide to My night", exact: true })
+      .getByRole("button", { name: "Interested: Low Tide", exact: true })
       .click();
     const warning = page.getByText("Limit reached", { exact: true });
     await expect(warning).toHaveCount(1);
@@ -206,7 +312,7 @@ test.describe("Home discovery @flow @fixture", () => {
       .press("Enter");
     const remove = page
       .getByRole("region", { name: "My night", exact: true })
-      .getByRole("button", { name: "Remove ORBIT from My night", exact: true });
+      .getByRole("button", { name: "Remove interest: ORBIT", exact: true });
     await remove.scrollIntoViewIfNeeded();
     await expect(warning).toBeInViewport({ ratio: 1 });
     await page.screenshot({
@@ -220,7 +326,6 @@ test.describe("Home discovery @flow @fixture", () => {
   test("a native Schedule add rejection stays in view and a discovery removal clears it", async ({
     page,
     timelineFixture,
-    isMobile,
   }, info) => {
     await page.evaluate(({ eventIds, profileIds }) => {
       localStorage.setItem(
@@ -249,15 +354,12 @@ test.describe("Home discovery @flow @fixture", () => {
     await expect(
       bar.getByRole("button", { name: "Open Aurora at ORBIT", exact: true }),
     ).toBeVisible();
-    // Touch uses the existing Agenda actions; chart Add controls are hover-only.
-    if (isMobile)
-      await page.getByRole("button", { name: "Agenda", exact: true }).click();
     const schedule = page.getByRole("region", {
       name: "Schedule",
       exact: true,
     });
     const add = schedule.getByRole("button", {
-      name: "Add ORBIT to My night",
+      name: "Interested: ORBIT",
       exact: true,
     });
     await add.click();
@@ -274,7 +376,7 @@ test.describe("Home discovery @flow @fixture", () => {
     });
     await discover
       .getByRole("button", {
-        name: "Remove Low Tide from My night",
+        name: "Remove interest: Low Tide",
         exact: true,
       })
       .click();
@@ -283,7 +385,7 @@ test.describe("Home discovery @flow @fixture", () => {
     await expect(
       schedule
         .getByRole("button", {
-          name: "Remove ORBIT from My night",
+          name: "Remove interest: ORBIT",
           exact: true,
         })
         .last(),
@@ -295,14 +397,14 @@ test.describe("Home discovery @flow @fixture", () => {
     timelineFixture,
   }) => {
     await page.goto(
-      `/?at=${TIMELINE_NOW + 7 * 86400000 - 3600000}&scheduleView=agenda`,
+      `/?at=${TIMELINE_NOW + 7 * 86400000 - 3600000}`,
     );
     const schedule = page.getByRole("region", {
       name: "Schedule",
       exact: true,
     });
     const openSchedule = async () => {
-      const trigger = schedule.getByRole("button", {
+      const trigger = schedule.getByTestId(`event-${timelineFixture.eventIds[0]}`).getByRole("button", {
         name: "Open ORBIT",
         exact: true,
       });
@@ -331,44 +433,44 @@ test.describe("Home discovery @flow @fixture", () => {
       panel.getByRole("heading", { name: "ORBIT", exact: true }),
     ).toBeVisible();
     await panel
-      .getByRole("button", { name: "Add ORBIT to My night", exact: true })
+      .getByRole("button", { name: "Interested: ORBIT", exact: true })
       .click();
     await expect(
       discover.getByRole("button", {
-        name: "Remove ORBIT from My night",
+        name: "Remove interest: ORBIT",
         exact: true,
       }),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(
       panel.getByRole("button", {
-        name: "Aurora: Included in ORBIT",
+        name: "Included with event: Aurora",
         exact: true,
       }),
     ).toBeDisabled();
     await panel
-      .getByRole("button", { name: "Unfavorite Aurora", exact: true })
+      .getByRole("button", { name: "Remove favorite: Aurora", exact: true })
       .click();
     await expect(
       discover.getByRole("link", { name: "Aurora", exact: true }),
-    ).toHaveAttribute("data-favorite", "false");
+    ).toHaveCount(0);
     await panel.getByRole("button", { name: "Close", exact: true }).click();
     await discover
-      .getByRole("button", { name: "Unfavorite Prism Collective", exact: true })
+      .getByRole("button", { name: "Remove favorite: Prism Collective", exact: true })
       .click();
     // Removing every affinity can legitimately move the card out of the sample.
     await openSchedule();
     await expect(
       panel.getByRole("button", {
-        name: "Favorite Prism Collective",
+        name: "Favorite: Prism Collective",
         exact: true,
       }),
     ).toBeVisible();
     await panel
-      .getByRole("button", { name: "Favorite Prism Collective", exact: true })
+      .getByRole("button", { name: "Favorite: Prism Collective", exact: true })
       .click();
     await expect(
       discover.getByRole("button", {
-        name: "Unfavorite Prism Collective",
+        name: "Remove favorite: Prism Collective",
         exact: true,
       }),
     ).toHaveAttribute("aria-pressed", "true");
@@ -376,7 +478,7 @@ test.describe("Home discovery @flow @fixture", () => {
     const reloaded = await usableDiscovery(page);
     await expect(
       reloaded.getByRole("button", {
-        name: "Remove ORBIT from My night",
+        name: "Remove interest: ORBIT",
         exact: true,
       }),
     ).toBeVisible();
@@ -416,7 +518,7 @@ test.describe("Home discovery @flow @fixture", () => {
     ).toHaveCount(0);
     await popup.close();
     await discover
-      .getByRole("button", { name: "Add ORBIT to My night", exact: true })
+      .getByRole("button", { name: "Interested: ORBIT", exact: true })
       .click();
     const club = discover
       .getByRole("group", { name: "Clubs", exact: true })
@@ -431,7 +533,7 @@ test.describe("Home discovery @flow @fixture", () => {
     await usableDiscovery(page);
     await expect(
       discover.getByRole("button", {
-        name: "Remove ORBIT from My night",
+        name: "Remove interest: ORBIT",
         exact: true,
       }),
     ).toBeVisible();
@@ -531,6 +633,10 @@ test.describe("Home discovery @flow @fixture", () => {
     ).toBeVisible();
     await expect(discover.getByTestId("discovery-event-card")).toHaveCount(0);
     await expect(discover.getByTestId("discovery-club-card")).toHaveCount(0);
+    const failureBounds = await discover.getByRole("status").boundingBox();
+    const frameBounds = await discover.getByTestId("discovery-placeholder").first().boundingBox();
+    expect(failureBounds).not.toBeNull(); expect(frameBounds).not.toBeNull();
+    if (failureBounds && frameBounds) expect(failureBounds.y + failureBounds.height).toBeLessThanOrEqual(frameBounds.y);
     await expect(
       page.getByRole("region", { name: "Event details", exact: true }),
     ).toHaveCount(0);
@@ -540,10 +646,10 @@ test.describe("Home discovery @flow @fixture", () => {
     });
     await search.fill("Aurora");
     await expect(search).toHaveValue("Aurora");
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    await page.getByRole("button", { name: "Later", exact: true }).click();
     await expect(
-      page.getByRole("button", { name: "Agenda", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
+      page.getByRole("button", { name: "Now", exact: true }),
+    ).toBeVisible();
     await discover.scrollIntoViewIfNeeded();
     await page.screenshot({
       path: info.outputPath("failed-public-refresh.png"),
@@ -644,9 +750,9 @@ test.describe("dense Home discovery @flow @fixture", () => {
     await expect(
       page.getByRole("combobox", { name: "Search VRDex", exact: true }),
     ).toHaveValue("Aurora");
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    await page.getByRole("button", { name: "Later", exact: true }).click();
     await expect(
-      page.getByRole("button", { name: "Timeline", exact: true }),
+      page.getByRole("region", { name: "Timeline chart", exact: true }),
     ).toBeVisible();
     await discover.scrollIntoViewIfNeeded();
     await page.screenshot({
@@ -709,7 +815,7 @@ test.describe("dense Home discovery @flow @fixture", () => {
     await expect(discover.getByText("No events", { exact: true })).toHaveCount(0);
     await expect(panel.getByRole("heading", { name: "ORBIT", exact: true })).toBeVisible();
     const after = queries.result();
-    expect(after.totalAdditions).toBe(before.totalAdditions);
+    for (const method of ["listEvents", "listClubs", "eventSignals", "profileSignals"]) expect(after.counts[`homeDiscovery:${method}`]).toBe(before.counts[`homeDiscovery:${method}`]);
     await panel.getByRole("button", { name: "Close", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Discover", exact: true })).toBeFocused();
     await info.attach("discovery-expiry-metrics.json", {
@@ -718,7 +824,40 @@ test.describe("dense Home discovery @flow @fixture", () => {
     });
   });
 
-  test("favoriting a public discovery performer reranks cards while preserving inspector and fallback focus", async ({
+  test("focusedCardSurvivesOrdinaryRerank until blur after another tab updates favorites", async ({ page, context, timelineFixture }, info) => {
+    await page.clock.setFixedTime(TIMELINE_NOW);
+    await initializeDiscovery(page, timelineFixture);
+    const queries = observeDiscoveryQueries(page);
+    await page.goto("/");
+    const discover = await usableDiscovery(page);
+    const open = discover.getByRole("link", { name: "Open Distant Horizons", exact: true });
+    const other = await context.newPage();
+    await other.goto("/search");
+    await page.bringToFront();
+    await open.focus();
+    const beforeBounds = await open.boundingBox();
+    const beforeScroll = await page.evaluate(() => window.scrollY);
+    const before = queries.result();
+    await other.evaluate(id => {
+      const preferences = JSON.parse(localStorage.getItem("vrdex.timeline.preferences.v1")!);
+      preferences.favoriteProfileIds.push(id);
+      localStorage.setItem("vrdex.timeline.preferences.v1", JSON.stringify(preferences));
+    }, timelineFixture.profileIds[7]);
+    await expect.poll(() => queries.result().counts["homeDiscovery:profileSignals"] ?? 0).toBeGreaterThan(before.counts["homeDiscovery:profileSignals"] ?? 0);
+    await expect.poll(() => queries.result().pending).toBe(0);
+    await expect(open).toBeFocused();
+    expect(await open.boundingBox()).toEqual(beforeBounds);
+    expect(await page.evaluate(() => window.scrollY)).toBe(beforeScroll);
+    const after = queries.result();
+    for (const method of ["listEvents", "listClubs", "eventSignals"]) expect(after.counts[`homeDiscovery:${method}`]).toBe(before.counts[`homeDiscovery:${method}`]);
+    await discover.getByRole("link", { name: "Browse", exact: true }).first().focus();
+    await expect(open).toHaveCount(0);
+    await expect(discover.getByRole("link", { name: "Open Low Tide", exact: true })).toBeVisible();
+    await info.attach("focused-rerank.json", { body: JSON.stringify({ beforeBounds, beforeScroll, before, after }, null, 2), contentType: "application/json" });
+    await other.close();
+  });
+
+  test("warmFavoriteUpdateKeepsInspectorAndReadingPosition", async ({
     page,
     timelineFixture,
   }, info) => {
@@ -741,10 +880,12 @@ test.describe("dense Home discovery @flow @fixture", () => {
       panel.getByRole("heading", { name: "Distant Horizons", exact: true }),
     ).toBeVisible();
     const beforeFavorite = queries.result();
+    const beforeScrollY = await page.evaluate(() => scrollY);
+    const beforePanel = await panel.boundingBox();
     const favoriteStart = performance.now();
     await panel
       .getByRole("button", {
-        name: "Favorite An Exceptionally Long Public Performer Name",
+        name: "Favorite: An Exceptionally Long Public Performer Name",
         exact: true,
       })
       .click();
@@ -752,10 +893,14 @@ test.describe("dense Home discovery @flow @fixture", () => {
     await expect(
       discover.getByRole("link", { name: "Open Low Tide", exact: true }),
     ).toBeVisible();
+    await expect(panel.getByText("Loading events", { exact: true })).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath("detail-short-content.png") });
     const afterFavorite = queries.result();
+    expect(await page.evaluate(() => scrollY)).toBe(beforeScrollY);
+    expect(await panel.boundingBox()).toEqual(beforePanel);
     // Cached first values complete logical reads before wire revalidation.
     // Preserve the cold bound; report the warm protocol burst separately.
-    expect(beforeFavorite.maximumPending).toBeLessThanOrEqual(3);
+    for (const method of ["listEvents", "listClubs", "eventSignals"]) expect(afterFavorite.counts[`homeDiscovery:${method}`]).toBe(beforeFavorite.counts[`homeDiscovery:${method}`]);
     expect(afterFavorite.maximumActive).toBeLessThanOrEqual(42);
     await info.attach("discovery-favorite-rebuild-metrics.json", {
       body: JSON.stringify(
@@ -810,11 +955,13 @@ test.describe("dense Home discovery @flow @fixture", () => {
     await input.fill("Aurora");
     await expect(input).toHaveValue("Aurora");
     const searchMs = performance.now() - searchStart;
+    // Close search suggestions before using the consolidated toolbar beneath them.
+    await input.press("Escape");
     const toolbarStart = performance.now();
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    await page.getByRole("button", { name: "Later", exact: true }).click();
     await expect(
-      page.getByRole("button", { name: "Agenda", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
+      page.getByRole("button", { name: "Now", exact: true }),
+    ).toBeVisible();
     const toolbarMs = performance.now() - toolbarStart;
     const panelStart = performance.now();
     await discover
@@ -877,5 +1024,124 @@ test.describe("dense Home discovery @flow @fixture", () => {
       body: JSON.stringify(metrics, null, 2),
       contentType: "application/json",
     });
+  });
+});
+
+
+test.describe("outside-sample focused discovery club @flow @fixture", () => {
+  test.use({ timelineScenario: "discovery-clubs" });
+  for (const revoke of [false, true]) test(`outside-sample club ${revoke ? "revocation clears a focused pin" : "unfavorite retains one existing watch until blur"}`, async ({ page, request, timelineFixture }, info) => {
+    await page.clock.setFixedTime(TIMELINE_NOW);
+    await initializeDiscovery(page, timelineFixture, [timelineFixture.profileIds[0]]);
+    const native = new ConvexHttpClient(process.env.PLAYWRIGHT_CONVEX_URL ?? "http://127.0.0.1:3210");
+    const samples = await Promise.all((["asc", "desc"] as const).map(direction => native.query(api.homeDiscovery.listClubs, { direction })));
+    for (const sample of samples) { expect(sample.items).toHaveLength(12); expect(sample.items.map(club => club.id)).not.toContain(timelineFixture.profileIds[0]); }
+    const queries = observeDiscoveryQueries(page);
+    await page.goto("/");
+    const discover = await usableDiscovery(page);
+    const card = discover.getByTestId("discovery-club-card").filter({ has: page.getByRole("link", { name: "Prism Collective", exact: true }) });
+    const button = card.getByRole("button");
+    await button.scrollIntoViewIfNeeded(); await button.focus();
+    await expect.poll(() => queries.result().pending).toBe(0);
+    const before = queries.result();
+    const beforeBounds = await card.boundingBox(), beforeScroll = await page.evaluate(() => window.scrollY);
+    await button.click();
+    await expect(button).toHaveAttribute("aria-pressed", "false");
+    // The selected-card membership query ends; the original favorite-profile
+    // source stays live, with no replacement query for the focus pin.
+    await expect.poll(() => queries.result().active).toBe(before.active - 1);
+    const retained = queries.result();
+    await expect(button).toBeFocused();
+    expect(await card.boundingBox()).toEqual(beforeBounds);
+    expect(await page.evaluate(() => window.scrollY)).toBe(beforeScroll);
+    expect(retained.totalAdditions).toBe(before.totalAdditions);
+    expect(retained.counts["homeDiscovery:profileSignals"]).toBe(1);
+    await page.screenshot({ path: info.outputPath("outside-sample-retained.png"), fullPage: true });
+    if (revoke) {
+      await changeTimelineFixture(request, timelineFixture, 0, "suppress-host");
+      await expect(card).toHaveCount(0);
+      await expect(discover.getByRole("link", { name: "Open ORBIT", exact: true })).toHaveCount(0);
+    } else {
+      await discover.getByRole("link", { name: "Browse", exact: true }).first().focus();
+      await expect(card).toHaveCount(0);
+      await expect.poll(() => queries.result().active).toBe(retained.active - 1);
+      expect(queries.result().totalAdditions).toBe(before.totalAdditions);
+    }
+    await info.attach("outside-sample-pin.json", { body: JSON.stringify({ sampleSizes: samples.map(sample => sample.items.length), excludedFavorite: true, beforeBounds, beforeScroll, before, retained, after: queries.result(), revoke }, null, 2), contentType: "application/json" });
+  });
+});
+
+test.describe("Home initial transport integration @flow @fixture", () => {
+  test.use({ timelineScenario: "discovery" });
+  test("failedInitialLoadSettlesWithRetry", async ({ page, timelineFixture }, info) => {
+    await page.clock.setFixedTime(TIMELINE_NOW);
+    await initializeDiscovery(page, timelineFixture);
+    const transport = await discoveryTransportFailure(page);
+    transport.setFailure(true);
+    await page.goto("/");
+    const discover = page.getByRole("region", { name: "Discover", exact: true });
+    await expect(discover.getByRole("button", { name: "Retry", exact: true })).toBeVisible({ timeout: 20000 });
+    await expect(discover).toHaveAttribute("aria-busy", "false");
+    await expect(discover.getByRole("status")).toContainText("Unavailable");
+    await expect(discover.getByRole("status")).not.toContainText("Loading");
+    await expect(discover.getByTestId("discovery-event-card")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
+    await page.screenshot({ path: info.outputPath("failed-initial-home.png"), fullPage: true });
+    transport.setFailure(false);
+    await discover.getByRole("button", { name: "Retry", exact: true }).click();
+    await usableDiscovery(page);
+    await expect(discover).toHaveAttribute("aria-busy", "false");
+  });
+  test("coldSearchRemainsUsable", async ({ page, timelineFixture }, info) => {
+    await page.clock.setFixedTime(TIMELINE_NOW);
+    await initializeDiscovery(page, timelineFixture);
+    let held = true;
+    const messages: (() => void)[] = [];
+    await page.routeWebSocket("**/api/**/sync", socket => {
+      const server = socket.connectToServer();
+      server.onMessage(message => { if (held) messages.push(() => socket.send(message)); else socket.send(message); });
+    });
+    await page.goto("/");
+    const search = page.getByRole("combobox", { name: "Search VRDex", exact: true });
+    await search.fill("Aurora");
+    await expect(search).toHaveValue("Aurora");
+    await expect(page.getByRole("region", { name: "Discover", exact: true })).toHaveAttribute("aria-busy", "true");
+    await page.screenshot({ path: info.outputPath("cold-usable-search.png"), fullPage: true });
+    held = false; messages.splice(0).forEach(send => send());
+    await search.press("Enter");
+    await expect(page).toHaveURL(/\/search\?q=Aurora/);
+    await expect(page.getByRole("combobox", { name: "Search VRDex", exact: true })).toHaveValue("Aurora");
+  });
+});
+
+test.describe("complete selected Home roster @flow @fixture", () => {
+  test.use({ timelineScenario: "discovery-roster" });
+  test("allFavoriteNamesSurviveLargeRoster", async ({ page, timelineFixture }, info) => {
+    await page.clock.setFixedTime(TIMELINE_NOW);
+    await initializeDiscovery(page, timelineFixture, timelineFixture.profileIds.slice(4));
+    const queries = observeDiscoveryQueries(page);
+    await page.goto("/");
+    const discover = await usableDiscovery(page);
+    const card = discover.getByTestId("discovery-event-card").filter({ has: page.getByRole("link", { name: "Open ORBIT", exact: true }) });
+    const people = card.getByLabel("Favorite people", { exact: true });
+    for (let index = 1; index <= 12; index++)
+      await expect(people).toContainText(`Favorite performer ${String(index).padStart(2, "0")} with a complete public name`);
+    await expect(discover).not.toContainText("SECRET");
+    const geometry = await people.evaluate(element => ({
+      height: element.getBoundingClientRect().height,
+      lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: innerWidth,
+    }));
+    expect(geometry.height).toBeGreaterThan(geometry.lineHeight * 2);
+    expect(geometry.scrollHeight).toBeLessThanOrEqual(geometry.clientHeight + 1);
+    expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
+    await expect.poll(() => queries.result().pending).toBe(0);
+    expect(queries.result().favoriteLineupBounds.maxEvents).toBe(2);
+    expect(queries.result().favoriteLineupBounds.maxFavorites).toBe(13);
+    await page.screenshot({ path: info.outputPath("complete-wrapped-favorite-roster.png"), fullPage: true });
+    await info.attach("large-roster.json", { body: JSON.stringify({ fixture: { events: 2, profiles: 17, slots: 95, precedingNonfavoriteRows: 80, publicFavorites: 12, hiddenControl: 1 }, geometry, discovery: queries.result() }, null, 2), contentType: "application/json" });
   });
 });

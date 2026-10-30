@@ -1,10 +1,10 @@
 "use client";
 
-import { Check, Plus, Star } from "lucide-react";
+import { ArrowRight, Star } from "lucide-react";
 import type { MouseEvent } from "react";
-import { publicSearchGenreLabel } from "@/lib/public-search-genres";
 import { EntityImage } from "@/components/ui/entity-image";
-import { discoveryEventGenres } from "@/lib/discovery/recommendations";
+import { InterestButton } from "@/components/ui/interest-button";
+import type { FavoriteLineupResult } from "@/lib/discovery/favorite-lineup";
 import type { DiscoverySnapshot } from "@/lib/discovery/controller";
 import type { TimelinePreferences } from "@/lib/timeline/preferences";
 import type { TimelineActions } from "../timeline/timeline-event-bar";
@@ -14,7 +14,7 @@ import styles from "./discovery.module.css";
 type Available = Extract<DiscoverySnapshot, { kind: "available" }>;
 export type DiscoveryEventCardProps = {
   event: Available["events"][number];
-  signal: Available["eventSignals"][number] | undefined;
+  matchingPeople?: FavoriteLineupResult["items"][number]["performers"];
   preferences: TimelinePreferences;
   timeZone: string;
   hour12: boolean;
@@ -24,7 +24,7 @@ export type DiscoveryEventCardProps = {
 
 export function DiscoveryEventCard({
   event,
-  signal,
+  matchingPeople,
   preferences,
   timeZone,
   hour12,
@@ -34,22 +34,6 @@ export function DiscoveryEventCard({
   const saved = preferences.plan.some(
     (reference) => reference.kind === "event" && reference.eventId === event.id,
   );
-  const favoriteIds = new Set(preferences.favoriteProfileIds);
-  const performers = [...(signal?.performers ?? [])]
-    .sort(
-      (left, right) =>
-        Number(favoriteIds.has(right.id)) - Number(favoriteIds.has(left.id)),
-    )
-    .slice(0, 3);
-  const attributedGenres = discoveryEventGenres(signal);
-  const genres = performers
-    .flatMap((performer) =>
-      (
-        attributedGenres.find((entry) => entry.performer.id === performer.id)
-          ?.genres ?? []
-      ).map((genre) => ({ performer, genre })),
-    )
-    .slice(0, 3);
   const schedule = event.schedule;
   const date =
     schedule.kind === "date_only"
@@ -90,62 +74,46 @@ export function DiscoveryEventCard({
             label={event.title}
             alt=""
             src={event.posterImageUrl}
-            sizes="(max-width: 760px) 45vw, 23vw"
+            sizes="(max-width: 760px) 78vw, 23vw"
           />
         </a>
-        <button
-          type="button"
+        <InterestButton
+          label={event.title}
+          state={saved ? "saved" : "unsaved"}
           className={styles.save}
-          data-saved={saved}
-          aria-label={`${saved ? "Remove" : "Add"} ${event.title} ${saved ? "from" : "to"} My night`}
-          aria-pressed={saved}
-          onClick={() => onSave({ kind: "event", eventId: event.id })}
-        >
-          {saved ? (
-            <Check size={18} aria-hidden="true" />
-          ) : (
-            <Plus size={18} aria-hidden="true" />
-          )}
-        </button>
+          onToggle={() => onSave({ kind: "event", eventId: event.id })}
+        />
       </div>
-      <p className={styles.date}>{date}</p>
-      <h4 className={styles.name}>
-        <a href={event.href} onClick={open}>
-          {event.title}
+      <div className={styles.eventMetadata}>
+        <h4 className={styles.name}>
+          <a href={event.href} onClick={open}>
+            {event.title}
+          </a>
+        </h4>
+        <p className={styles.date}>
+          {date} ·{" "}
+          <a className={styles.host} href={`/${event.host.slug}`}>
+            {event.host.displayName}
+          </a>
+        </p>
+        <div className={styles.favoriteSummary}>
+          {matchingPeople && matchingPeople.length > 0 && (
+            <ul className={styles.performers} aria-label="Favorite people">
+              {matchingPeople.map((person) => (
+                <li key={person.id}>
+                  <a href={`/${person.slug}`} data-favorite="true">
+                    <Star size={12} aria-hidden="true" />
+                    {person.displayName}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <a className={styles.lineup} href={event.href} onClick={open}>
+          Full lineup <ArrowRight size={14} aria-hidden="true" />
         </a>
-      </h4>
-      <a className={styles.host} href={`/${event.host.slug}`}>
-        {event.host.displayName}
-      </a>
-      {performers.length > 0 && (
-        <ul
-          className={styles.performers}
-          aria-label={genres.length > 0 ? "Lineup genres" : "Lineup"}
-        >
-          {performers.map((performer) => (
-            <li key={performer.id}>
-              <a
-                href={`/${performer.slug}`}
-                data-favorite={favoriteIds.has(performer.id)}
-              >
-                {favoriteIds.has(performer.id) && (
-                  <Star size={11} aria-hidden="true" />
-                )}
-                {performer.displayName}
-              </a>
-              {genres.some((entry) => entry.performer.id === performer.id) && (
-                <span className={styles.performerGenres}>
-                  :{" "}
-                  {genres
-                    .filter((entry) => entry.performer.id === performer.id)
-                    .map((entry) => publicSearchGenreLabel(entry.genre))
-                    .join(" · ")}
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      </div>
     </article>
   );
 }
