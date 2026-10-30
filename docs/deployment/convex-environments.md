@@ -163,16 +163,27 @@ console, set it on Convex and apply it to the web app through Terraform, then
 delete the old secret in the console. The client ID does not change, so stored
 refresh tokens keep working.
 
+The client lives in the `vrdex-production` Google Cloud project, under the
+`basicbit.net` organization and the `basic@basicbit.net` identity. It is
+`VRDex Calendar Connector`, separate from the project's existing
+`VRDex Production` client, and was created on 2026-10-30. Steps 1 to 3 below are
+done for it; step 4 and verification are not.
+
+The project's consent screen is External and already published, so no test users
+are needed and Testing's seven-day refresh token expiry does not apply. Until
+Google verifies `calendar.events`, a sensitive scope, connecting shows an
+unverified app warning and at most 100 users can ever grant it across the
+project's lifetime. That cap cannot be reset, so keep connecting limited to
+BASIC's own community until verification passes. Verification needs the home page
+and privacy policy links on the Branding page, a scope justification on Data
+Access, and a demo video recorded against staging.
+
 Bootstrap, once per Google Cloud project:
 
 1. Create or choose a Google Cloud project and enable the Google Calendar API.
-2. Configure the OAuth consent screen as External with exactly two scopes,
-   `https://www.googleapis.com/auth/calendar.calendarlist.readonly` and
-   `https://www.googleapis.com/auth/calendar.events`. While the app is in
-   Testing, add each organiser who will connect as a test user; Google expires
-   Testing refresh tokens after seven days, so those connectors ask for Reconnect
-   weekly. `calendar.events` is a sensitive scope: complete Google's
-   sensitive-scope verification before publishing the app beyond test users.
+2. Configure the OAuth consent screen as External and declare exactly two scopes
+   on Data Access, `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
+   and `https://www.googleapis.com/auth/calendar.events`.
 3. Create an OAuth client of type Web application and register one authorized
    redirect URI per web origin: the origin followed by
    `/api/connectors/google/callback`. Production is
