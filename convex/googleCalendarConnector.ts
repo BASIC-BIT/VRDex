@@ -42,13 +42,14 @@ export const exportContext = internalQuery({
   },
 });
 
-// Export dedupe must not claim a Google item another VRDex event or draft already holds.
+// Export dedupe must not claim a Google item another VRDex event holds; a held draft's link stays matchable so completeJob adopts it.
 export const linkedExternalIds = internalQuery({
   args: { connectorId: v.id("eventConnectors"), externalIds: v.array(v.string()) },
   handler: async (ctx, { connectorId, externalIds }) => {
     const linked: string[] = [];
     for (const externalId of externalIds) {
-      if (await ctx.db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connectorId).eq("externalId", externalId)).first()) linked.push(externalId);
+      const links = await ctx.db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connectorId).eq("externalId", externalId)).take(10);
+      if (links.some(link => link.eventId !== undefined)) linked.push(externalId);
     }
     return linked;
   },

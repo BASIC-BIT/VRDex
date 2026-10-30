@@ -4,7 +4,7 @@ import { convexTest } from "convex-test";
 import { decryptSecret } from "../../convex/_connectorCrypto";
 import { carriedFieldsHash } from "../../convex/_eventConnectors";
 import type { Doc } from "../../convex/_generated/dataModel";
-import type { GoogleEventBody } from "../../convex/_googleCalendar";
+import type { GoogleCalendarEvent, GoogleEventBody } from "../../convex/_googleCalendar";
 import { fieldsFromGoogleEvent } from "../../convex/eventSyncKinds/googleCalendar";
 import { EVENT_URL, fakeFetch, googleItem, modules, NOW, schema, seedEvent, seedGoogleConnector, runSyncJob, setupEnv, SITE } from "./_googleCalendarFixture";
 
@@ -270,6 +270,63 @@ describe("google calendar mapping and export", () => {
     assert.deepEqual(calls.map((c) => c.method), ["PATCH", "POST"]);
     assert.equal(job.state, "done");
     assert.equal(link.externalId, "created-2");
+  });
+
+  it("round-trips an event in the fall-back hour", async () => {
+    const { link, echoed } = await exportAndEcho({ eventDate: "2026-11-01", startAt: Date.parse("2026-11-01T06:30:00.000Z"), endAt: Date.parse("2026-11-01T09:00:00.000Z") });
+    assert.deepEqual(echoed.start, { time: "01:30", occurrence: "later" });
+    assert.equal(carriedFieldsHash("google_calendar", echoed), link.lastExportedHash);
+  });
+
+  it("round-trips an overnight event", async () => {
+    const { link, echoed } = await exportAndEcho({ startAt: Date.parse("2026-11-08T03:00:00.000Z"), endAt: Date.parse("2026-11-08T06:00:00.000Z") });
+    assert.deepEqual(echoed.end, { time: "01:00", dayOffset: 1 });
+    assert.equal(carriedFieldsHash("google_calendar", echoed), link.lastExportedHash);
+  });
+
+  it("round-trips a plain-text summary with angle brackets and entities unchanged", async () => {
+    const { link, echoed } = await exportAndEcho({ summary: "a < b > c &amp; d" });
+    assert.equal(echoed.summary, "a < b > c &amp; d");
+    assert.equal(carriedFieldsHash("google_calendar", echoed), link.lastExportedHash);
+  });
+
+  // Dedupe export: the calendar holds one candidate item; returns the methods called.
+  async function dedupeExport(overrides: Partial<Doc<"events">>, item: GoogleCalendarEvent) {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "export" });
+    const eventId = await seedEvent(t, communityProfileId, overrides);
+    const fake = fakeFetch(({ method }) => method === "GET" ? Response.json({ items: [item], timeZone: "UTC" }) : Response.json(googleItem({ id: item.id })));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId });
+    fake.restore();
+    return fake.calls.map((c) => `${c.method} ${c.url.pathname.split("/").at(-1)}`);
+  }
+
+  it("matches an external item by its date in the event's timezone", async () => {
+    const calls = await dedupeExport({}, googleItem({ id: "existing-1", start: { dateTime: "2026-11-08T01:00:00Z", timeZone: "UTC" }, end: { dateTime: "2026-11-08T04:00:00Z", timeZone: "UTC" } }));
+    assert.deepEqual(calls, ["GET events", "PATCH existing-1"]);
+  });
+
+  it("matches an external item whose title runs past the cap", async () => {
+    const calls = await dedupeExport({ title: "A".repeat(125) }, googleItem({ id: "existing-1", summary: "a".repeat(125) }));
+    assert.deepEqual(calls, ["GET events", "PATCH existing-1"]);
+  });
+
+  it("adopts an external item held only by an import draft", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    await t.run(async (ctx) => {
+      const draftId = await ctx.db.insert("eventIntakeDrafts", { actorUserId: staffUserId, connectorId, version: 1, fields: { title: "Held" }, provenance: [], createdAt: NOW, updatedAt: NOW, expiresAt: NOW + 86_400_000 });
+      await ctx.db.insert("eventSyncLinks", { connectorId, draftId, externalId: "existing-1", state: "linked", createdAt: NOW, updatedAt: NOW });
+    });
+    const eventId = await seedEvent(t, communityProfileId);
+    const fake = fakeFetch(({ method }) => method === "GET"
+      ? Response.json({ items: [googleItem({ id: "existing-1" })], timeZone: "UTC" })
+      : Response.json(googleItem({ id: "existing-1" })));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId });
+    fake.restore();
+    assert.deepEqual(fake.calls.map((c) => c.method), ["GET", "PATCH"]);
+    const links = await t.run((ctx) => ctx.db.query("eventSyncLinks").withIndex("by_connectorId_externalId", (q) => q.eq("connectorId", connectorId).eq("externalId", "existing-1")).collect());
+    assert.deepEqual(links.map((link) => link.eventId), [eventId]);
   });
 
   it("deletes on export_delete and treats 410 as done", async () => {

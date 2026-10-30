@@ -5,7 +5,7 @@ import {
   deleteEvent, GoogleApiError, googleTarget, insertEvent, listEvents, patchEvent, requireGoogleCalendarEnabled, withGoogleToken,
   type GoogleCalendarEvent, type GoogleEventBody, type GoogleEventDateTime,
 } from "../_googleCalendar";
-import type { EventIntakeFields } from "../../packages/api-contracts/src/event-intake";
+import { resolveEventLocalTime, type EventIntakeFields, type EventIntakeLocalTime } from "../../packages/api-contracts/src/event-intake";
 import type { SyncKindHandler } from "./types";
 
 const DAY_MS = 86_400_000;
@@ -39,7 +39,8 @@ const clip = (value: string | undefined, max: number) => value?.trim().slice(0, 
 // Google's UI saves descriptions as HTML; read them back as the plain text we export, minus our URL line.
 function plainDescription(description: string | undefined, siteUrl: string): string | null {
   if (!description) return null;
-  const text = description.replace(/<br\s*\/?>|<\/p>/gi, "\n").replace(/<[^>]*>/g, "").replace(/&(amp|lt|gt|quot|#39|nbsp);/g, entity => ENTITIES[entity]!);
+  // Only Google's editor writes HTML; a plain-text summary with < or &amp; must round-trip unchanged.
+  const text = !/<br|<p|<\//i.test(description) ? description : description.replace(/<br\s*\/?>|<\/p>/gi, "\n").replace(/<[^>]*>/g, "").replace(/&(amp|lt|gt|quot|#39|nbsp);/g, entity => ENTITIES[entity]!);
   const lines = text.split("\n");
   const last = () => lines[lines.length - 1]?.trim();
   while (last() === "") lines.pop();
@@ -48,8 +49,26 @@ function plainDescription(description: string | undefined, siteUrl: string): str
   return clip(lines.join("\n"), 240);
 }
 
-const clock = (instant: number, timeZone: string) =>
-  new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(instant);
+// Mirrors correctionFields, occurrence included, so a fall-back-hour echo hashes the same as the export.
+function localTime(instant: number, eventDate: string, timezone: string): EventIntakeLocalTime {
+  const dayOffset = (Date.parse(eventDateForInstant(instant, timezone)) - Date.parse(eventDate)) / DAY_MS;
+  const value: EventIntakeLocalTime = {
+    time: new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(instant),
+    ...(dayOffset ? { dayOffset } : {}),
+  };
+  let choices: number[] = [];
+  try {
+    choices = resolveEventLocalTime(eventDate, value, timezone);
+  } catch {
+    // An offset zone or an out-of-range dayOffset; Task 4's validation decides what to do with it.
+  }
+  if (choices.length > 1) value.occurrence = choices[0] === instant ? "earlier" : "later";
+  return value;
+}
+
+// The item's local date in the given zone; all-day items carry their own date.
+const itemDate = (item: GoogleCalendarEvent, timezone: string) =>
+  item.start?.date ?? (item.start?.dateTime ? eventDateForInstant(Date.parse(item.start.dateTime), timezone) : null);
 
 export function fieldsFromGoogleEvent(item: GoogleCalendarEvent, calendarTimeZone: string, siteUrl: string): EventIntakeFields {
   const fields: EventIntakeFields = {
@@ -62,12 +81,8 @@ export function fieldsFromGoogleEvent(item: GoogleCalendarEvent, calendarTimeZon
   const timezone = item.start!.timeZone ?? calendarTimeZone;
   const eventDate = eventDateForInstant(startAt, timezone);
   const endAt = item.end?.dateTime ? Date.parse(item.end.dateTime) : NaN;
-  let end: EventIntakeFields["end"] = null;
-  if (!Number.isNaN(endAt) && endAt !== startAt) {
-    const dayOffset = (Date.parse(eventDateForInstant(endAt, timezone)) - Date.parse(eventDate)) / DAY_MS;
-    end = { time: clock(endAt, timezone), ...(dayOffset ? { dayOffset } : {}) };
-  }
-  return { ...fields, eventDate, timeTba: false, timezone, start: { time: clock(startAt, timezone) }, end };
+  const end = !Number.isNaN(endAt) && endAt !== startAt ? localTime(endAt, eventDate, timezone) : null;
+  return { ...fields, eventDate, timeTba: false, timezone, start: localTime(startAt, eventDate, timezone), end };
 }
 
 export const googleCalendarHandler: SyncKindHandler = {
@@ -96,11 +111,11 @@ export const googleCalendarHandler: SyncKindHandler = {
         const eventDate = event.eventDate ?? eventDateForInstant(event.startAt!, event.timezone);
         // ponytail: first page only (250 items over three days); page through if a calendar ever fills it.
         const page = await listEvents(token, calendarId, { timeMin: `${addDays(eventDate, -1)}T00:00:00Z`, timeMax: `${addDays(eventDate, 2)}T00:00:00Z` });
-        const title = event.title.trim().toLowerCase();
-        const candidates = page.items.filter(item => {
-          const fields = fieldsFromGoogleEvent(item, page.timeZone, "");
-          return fields.eventDate === eventDate && fields.title?.toLowerCase() === title;
-        }).map(item => item.id);
+        const title = clip(event.title, 120)?.toLowerCase();
+        const timezone = event.timezone ?? "UTC";
+        const candidates = page.items
+          .filter(item => itemDate(item, timezone) === eventDate && clip(item.summary, 120)?.toLowerCase() === title)
+          .map(item => item.id);
         const linked = candidates.length ? await ctx.runQuery(internal.googleCalendarConnector.linkedExternalIds, { connectorId: connector._id, externalIds: candidates }) : [];
         const match = candidates.find(id => !linked.includes(id));
         if (match) return { externalId: (await patchEvent(token, calendarId, match, patch)).id };
