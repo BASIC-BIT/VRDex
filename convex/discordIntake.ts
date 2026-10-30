@@ -1,11 +1,50 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { internalMutation, type MutationCtx } from "./_generated/server";
+import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import { DISCORD_SNOWFLAKE, discordMessagePayloadValidator, isDiscordCdnUrl, quietWindowMs, resolveDiscordUserId } from "./_discordIntake";
+import { connectorDirection, connectorKind, connectorMode, connectorState } from "./_eventConnectors";
 import { cancelPendingSchedule } from "./_eventSync";
 
 const MAX_CONTENT = 12_000;
+const DISCORD_KINDS = ["discord_announcements", "discord_board", "discord_scheduled_events"] as const;
+
+/** Discord connectors for the gateway: a channel's or a guild's live ones, or with no filter every active one. */
+export const listChannelConnectors = internalQuery({
+  args: { guildId: v.optional(v.string()), channelId: v.optional(v.string()) },
+  returns: v.array(v.object({
+    connectorId: v.id("eventConnectors"), kind: connectorKind, direction: connectorDirection, mode: connectorMode, state: connectorState,
+    guildId: v.string(), channelId: v.optional(v.string()), lastMessageId: v.optional(v.string()),
+  })),
+  handler: async (ctx, { guildId, channelId }) => {
+    // ponytail: guild and unfiltered lookups scan each Discord kind's index prefix; add a guildId index if connector counts grow.
+    const connectors = [];
+    for (const kind of DISCORD_KINDS) {
+      const rows = await ctx.db.query("eventConnectors")
+        .withIndex("by_kind_target_channelId", q => channelId === undefined ? q.eq("kind", kind) : q.eq("kind", kind).eq("target.channelId", channelId)).collect();
+      connectors.push(...rows.filter(row => guildId === undefined ? row.state === "active" : row.target.guildId === guildId && row.state !== "removed"));
+    }
+    return Promise.all(connectors.filter(row => row.target.guildId !== undefined).map(async row => {
+      const last = await ctx.db.query("discordIntakeMessages").withIndex("by_connectorId_messageId", q => q.eq("connectorId", row._id)).order("desc").first();
+      return {
+        connectorId: row._id, kind: row.kind, direction: row.direction, mode: row.mode, state: row.state,
+        guildId: row.target.guildId!, channelId: row.target.channelId, lastMessageId: last?.messageId,
+      };
+    }));
+  },
+});
+
+/** One row per gateway instance, replaced on every beat. */
+export const recordHeartbeat = internalMutation({
+  args: { instanceId: v.string(), at: v.number() },
+  returns: v.null(),
+  handler: async (ctx, { instanceId, at }) => {
+    const existing = await ctx.db.query("discordGatewayHeartbeats").withIndex("by_instanceId", q => q.eq("instanceId", instanceId)).unique();
+    if (existing) await ctx.db.patch(existing._id, { at, receivedAt: Date.now() });
+    else await ctx.db.insert("discordGatewayHeartbeats", { instanceId, at, receivedAt: Date.now() });
+    return null;
+  },
+});
 
 /** Records one relayed channel message on every live connector for the channel, then restarts that author's quiet window. */
 export const recordMessage = internalMutation({

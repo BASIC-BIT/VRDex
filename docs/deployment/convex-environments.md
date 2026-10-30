@@ -139,6 +139,24 @@ Alerts send through the SES settings in
 Without them the `internal.opsAlertEmail.send` action throws, so a lost alert
 shows as a failed function in the Convex logs.
 
+## Discord intake
+
+`VRDEX_DISCORD_INTAKE_ENABLED` turns Discord announcement intake on when set to
+`true`. Scope: the Convex deployment environment only. Default: unset, which
+means off. Owner: BASIC. It gates the `/discord-intake/*` HTTP routes, which
+answer 503 while it is off, and intake runs.
+
+`DISCORD_INTAKE_SECRET` is the bearer token the Discord gateway presents on
+every `/discord-intake/*` request (secret). Scope: the Convex deployment
+environment and the gateway. Owner: BASIC. Value: at least 32 random bytes,
+generated with `openssl rand -base64 32`, set with
+`npx convex env set DISCORD_INTAKE_SECRET` and stored in the gateway's Secrets
+Manager entry. With the flag on and no secret set, every route answers 401.
+
+Rotation: set the new value on Convex and on the gateway in one window. Relays
+fail with 401 between the two writes, and the gateway does not retry those
+posts.
+
 ## Locked Decision
 
 VRDex keeps four Convex execution targets separate:

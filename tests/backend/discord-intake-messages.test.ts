@@ -95,3 +95,10 @@ it("records messages but schedules nothing while the connector is paused", async
   assert.equal((await t.run(ctx => ctx.db.query("discordIntakeMessages").collect())).length, 1);
   assert.equal((await runs(t)).length, 0);
 });
+
+it("truncates stored content to 12,000 characters", async () => {
+  const { t } = await seedDiscordIntake();
+  await record(t, "create", message(M1, { content: "a".repeat(12_500) }));
+  const [row] = await t.run(ctx => ctx.db.query("discordIntakeMessages").collect());
+  assert.equal(row.content.length, 12_000);
+});
