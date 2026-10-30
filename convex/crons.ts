@@ -139,4 +139,11 @@ crons.daily("materialize event series", { hourUTC: 6, minuteUTC: 20 }, internal.
 // VRChat group calendar (plan 09): only enqueues runner jobs; the runner owns retries and the failure alarm.
 crons.interval("poll VRChat calendars", { minutes: 30 }, internal.vrchatCalendarConnector.enqueuePolls, {});
 
+// --- Google Calendar connector (event connectors plan 08) ---
+// Polling backs up push notifications; a seven-day watch channel is renewed on its last day.
+crons.interval("poll google calendar connectors", { minutes: 15 }, internal.googleCalendarConnector.enqueuePolls, {});
+crons.daily("renew google calendar watches", { hourUTC: 5, minuteUTC: 20 }, internal.googleCalendarConnector.renewWatches, {});
+crons.daily("sweep google calendar connectors", { hourUTC: 5, minuteUTC: 50 }, internal.googleCalendarConnector.dailySweep, {});
+// --- end Google Calendar connector ---
+
 export default crons;

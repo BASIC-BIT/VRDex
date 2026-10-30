@@ -33,6 +33,14 @@ locals {
     TWITCH_CLIENT_SECRET = var.twitch_client_secret
   } : {}
 
+  manage_google_connector = nonsensitive(var.google_connector_client_id != null && var.google_connector_client_secret != null)
+  google_connector_keys   = local.manage_google_connector ? toset(["GOOGLE_CONNECTOR_CLIENT_ID", "GOOGLE_CONNECTOR_CLIENT_SECRET"]) : toset([])
+
+  google_connector_values = local.manage_google_connector ? {
+    GOOGLE_CONNECTOR_CLIENT_ID     = var.google_connector_client_id
+    GOOGLE_CONNECTOR_CLIENT_SECRET = var.google_connector_client_secret
+  } : {}
+
   manage_langfuse = nonsensitive(var.langfuse_public_key != null && var.langfuse_secret_key != null)
   langfuse_keys = local.manage_langfuse ? setunion(
     toset(["LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"]),
@@ -189,6 +197,42 @@ resource "vercel_project_environment_variable" "twitch_staging_custom" {
   custom_environment_ids = [each.value.custom_environment_id]
   sensitive              = true
   comment                = "Server-only Twitch app credentials for cached public profile live status."
+}
+
+resource "vercel_project_environment_variable" "google_connector_standard" {
+  for_each = {
+    for pair in setproduct(local.google_connector_keys, keys(local.standard_twitch_targets)) : "${pair[0]}_${pair[1]}" => {
+      key    = pair[0]
+      target = local.standard_twitch_targets[pair[1]]
+      value  = local.google_connector_values[pair[0]]
+    }
+  }
+
+  project_id = data.vercel_project.web.id
+  team_id    = var.vercel_team_id
+  key        = each.value.key
+  value      = each.value.value
+  target     = each.value.target
+  sensitive  = true
+  comment    = "Server-only Google OAuth client for the Google Calendar connector."
+}
+
+resource "vercel_project_environment_variable" "google_connector_staging_custom" {
+  for_each = {
+    for pair in setproduct(local.google_connector_keys, var.staging_custom_environment_ids) : "${pair[0]}_${pair[1]}" => {
+      key                   = pair[0]
+      custom_environment_id = pair[1]
+      value                 = local.google_connector_values[pair[0]]
+    }
+  }
+
+  project_id             = data.vercel_project.web.id
+  team_id                = var.vercel_team_id
+  key                    = each.value.key
+  value                  = each.value.value
+  custom_environment_ids = [each.value.custom_environment_id]
+  sensitive              = true
+  comment                = "Server-only Google OAuth client for the Google Calendar connector."
 }
 
 resource "vercel_project_environment_variable" "langfuse_standard" {

@@ -112,7 +112,7 @@ describe("candidateFromConnectorFields", () => {
       timezone: "America/New_York", venueLabel: null, summary: "Weekly bass night.", sourceUrl: null,
     });
     assert.deepEqual([candidate.lineup, candidate.questions, candidate.decision], [[], [], { kind: "new" }]);
-    assert.deepEqual(candidate.evidence.map((row) => row.fieldPath), ["event.title", "event.eventDate", "event.start", "event.end", "event.timezone", "event.summary"]);
+    assert.deepEqual(candidate.evidence.map((row) => row.fieldPath), ["event.title", "event.eventDate", "event.start", "event.end", "event.timezone", "event.summary", "event.timeTba"]);
     assert.ok(candidate.evidence.every((row) => row.origin === "connector" && row.assessment === "explicit" && row.excerpt === null));
     const { timeTba: _timeTba, ...rest } = fields;
     assert.deepEqual(candidatePatch(candidate).tentative, { ...rest, start: { time: "20:00", dayOffset: 0 } });

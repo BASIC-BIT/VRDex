@@ -8,6 +8,7 @@ import {
 } from "./_eventConnectors";
 import { enqueueSyncJob, failureAlertKey } from "./_eventSync";
 import { MINIMUM_COMMUNITY_CONTROL_LEVEL, requireControlProof } from "./_externalControl";
+import { googleCalendarEnabled, revokeCredentialIfUnused } from "./_googleCalendar";
 import { resolveOps } from "./_opsAlerts";
 import { canManageCalendarEvents, vrchatCalendarReadiness } from "./_vrchatCalendarConnector";
 import { vrchatCalendarEnabled } from "./eventSyncKinds/vrchatCalendar";
@@ -15,6 +16,8 @@ import { vrchatCalendarEnabled } from "./eventSyncKinds/vrchatCalendar";
 type ConnectorTarget = Infer<typeof connectorTarget>;
 const TARGET_IDS = ["guildId", "channelId", "calendarId", "groupId"] as const;
 const TARGET_NAMES = ["guildName", "channelName", "calendarName", "groupName"] as const;
+const PUBLIC_TARGET_KEYS: ReadonlyArray<string> = [...TARGET_IDS, ...TARGET_NAMES];
+const publicTarget = (target: ConnectorTarget) => Object.fromEntries(Object.entries(target).filter(([key]) => PUBLIC_TARGET_KEYS.includes(key))) as ConnectorTarget;
 
 const fail = (code: string): never => { throw new ConvexError({ code }); };
 
@@ -38,6 +41,8 @@ const KIND_TARGET_IDS: Record<Exclude<ConnectorKind, "notion">, TargetId[]> = {
 
 function requireTarget(kind: Exclude<ConnectorKind, "notion">, target: ConnectorTarget) {
   const required = KIND_TARGET_IDS[kind];
+  // Only a calendar group keeps its zone; every other non-public key belongs to the sync engine.
+  if (!Object.keys(target).every(key => PUBLIC_TARGET_KEYS.includes(key) || (kind === "vrchat_calendar" && key === "timezone"))) fail("CONNECTOR_TARGET");
   for (const key of TARGET_IDS) if ((target[key] === undefined) === required.includes(key)) fail("CONNECTOR_TARGET");
   for (const key of ["guildId", "channelId"] as const) if (target[key] !== undefined && !DISCORD_ID.test(target[key])) fail("CONNECTOR_TARGET");
   for (const key of ["calendarId", "groupId"] as const) if ((target[key]?.length ?? 0) > 256) fail("CONNECTOR_TARGET");
@@ -87,7 +92,7 @@ export const listForCommunity = query({ args: { communityProfileId: v.id("profil
   const rows = await ctx.db.query("eventConnectors").withIndex("by_communityProfileId", q => q.eq("communityProfileId", communityProfileId)).collect();
   return { enabled: true, connectors: rows.filter(row => row.state !== "removed").map(row => ({
     connectorId: row._id, kind: row.kind, direction: row.direction, mode: row.mode, state: row.state,
-    target: row.target, lastSyncedAt: row.lastSyncedAt, lastError: row.lastError,
+    target: publicTarget(row.target), lastSyncedAt: row.lastSyncedAt, lastError: row.lastError,
   })) };
 } });
 
@@ -100,16 +105,16 @@ export const create = mutation({
     if ((await ctx.db.get(args.communityProfileId))?.profileType !== "community") fail("CONNECTOR_FORBIDDEN");
     await requireConnectorAuthority(ctx, args.communityProfileId, userId);
     if (args.kind === "notion") return fail("CONNECTOR_KIND_RESERVED");
+    if (args.kind === "google_calendar" && !googleCalendarEnabled()) fail("CONNECTOR_KIND_DISABLED");
     if (args.kind === "discord_board" && !boardEnabled()) fail("CONNECTOR_KIND_DISABLED");
     requireDirection(args.kind, args.direction);
     const target = args.kind === "vrchat_calendar" ? await vrchatCalendarTarget(ctx, args.communityProfileId, args.target.timezone) : args.target;
     requireTarget(args.kind, target);
     // The bot posts the board as VRDex, so the staffer must prove the guild it posts into.
     if (args.kind === "discord_board") await requireControlProof(ctx.db, userId, "discord_guild", args.target.guildId!, MINIMUM_COMMUNITY_CONTROL_LEVEL);
-    if (args.credentialId) {
-      const credential = await ctx.db.get(args.credentialId);
-      if (credential?.state !== "active" || credential.ownerUserId !== userId) fail("CONNECTOR_CREDENTIAL");
-    }
+    const credential = args.credentialId ? await ctx.db.get(args.credentialId) : null;
+    if (args.credentialId && (credential?.state !== "active" || credential.ownerUserId !== userId)) fail("CONNECTOR_CREDENTIAL");
+    if (args.kind === "google_calendar" && credential?.provider !== "google") fail("CONNECTOR_CREDENTIAL");
     const existing = await ctx.db.query("eventConnectors").withIndex("by_communityProfileId", q => q.eq("communityProfileId", args.communityProfileId)).collect();
     // Names are display-only, so two targets with the same IDs are the same target.
     if (existing.some(row => row.state !== "removed" && row.kind === args.kind && TARGET_IDS.every(key => row.target[key] === target[key]))) fail("CONNECTOR_EXISTS");
@@ -159,5 +164,6 @@ export const remove = mutation({ args: { connectorId: v.id("eventConnectors") },
   if (connector.state !== "removed") await ctx.db.patch(connector._id, { state: "removed", updatedAt: Date.now() });
   // A removed connector cannot recover, so close any open failure alert for it.
   await resolveOps(ctx, failureAlertKey(connector._id));
+  if (connector.kind === "google_calendar" && connector.credentialId) await revokeCredentialIfUnused(ctx, connector.credentialId);
   return null;
 } });

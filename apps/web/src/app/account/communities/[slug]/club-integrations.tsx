@@ -4,15 +4,17 @@ import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs } from "convex/server";
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../../../convex/_generated/dataModel";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
+import { GoogleCalendarConnect } from "./club-google-calendar";
 import { VrchatCalendarConnect } from "./club-vrchat-calendar";
 import { ClubAccessNotice, useClubWorkspace } from "./club-workspace";
 import { DiscordBoardConnect } from "./discord-board-connect";
 import {
+  connectedCalendarIds,
   connectorTargetName,
   directionOptions,
   DIRECTION_HELP,
@@ -28,12 +30,14 @@ type ConnectorId = Connector["connectorId"];
 
 function ConnectorRow({
   connector,
+  communitySlug,
   now,
   run,
   onUpdate,
   onRemove,
 }: {
   connector: Connector;
+  communitySlug: string;
   now: number;
   run: (action: () => Promise<unknown>) => void;
   onUpdate: (connectorId: ConnectorId, patch: ConnectorPatch) => Promise<unknown>;
@@ -45,6 +49,8 @@ function ConnectorRow({
   const synced = syncedLabel(connector.lastSyncedAt, now);
   const help = DIRECTION_HELP[direction];
   const update = (patch: ConnectorPatch) => run(() => onUpdate(connectorId, patch));
+  // The state label and Reconnect already say this; lastError would only add an internal code.
+  const reconnect = kind === "google_calendar" && state === "needs_reauth";
   return (
     <li className="grid gap-4 py-5 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto]">
       <div className="min-w-0">
@@ -56,13 +62,21 @@ function ConnectorRow({
           </span>
           {synced ? <span className="text-muted">{synced}</span> : null}
         </p>
-        {lastError ? <p className="mt-1 break-words text-sm text-muted">{lastError}</p> : null}
+        {lastError && !reconnect ? <p className="mt-1 break-words text-sm text-muted">{lastError}</p> : null}
       </div>
       <div className="order-last flex flex-wrap items-start gap-2 sm:order-none sm:col-start-2 sm:row-start-1">
         {state === "paused" ? (
           <Button size="sm" onClick={() => update({ state: "active" })}>
             Resume
           </Button>
+        ) : null}
+        {reconnect ? (
+          <a
+            href={`/api/connectors/google/start?community=${encodeURIComponent(communitySlug)}&connectorId=${encodeURIComponent(connectorId)}`}
+            className={buttonVariants({ size: "sm" })}
+          >
+            Reconnect
+          </a>
         ) : null}
         <Button size="sm" variant="dangerGhost" onClick={() => run(() => onRemove(connectorId))}>
           Disconnect
@@ -108,6 +122,7 @@ function ConnectorRow({
 }
 
 export function ClubIntegrationsView({
+  communitySlug,
   connectors,
   onUpdate,
   onRemove,
@@ -115,6 +130,7 @@ export function ClubIntegrationsView({
   vrchatCalendarConnect,
   connect,
 }: {
+  communitySlug: string;
   connectors: readonly Connector[];
   onUpdate: (connectorId: ConnectorId, patch: ConnectorPatch) => Promise<unknown>;
   onRemove: (connectorId: ConnectorId) => Promise<unknown>;
@@ -133,12 +149,12 @@ export function ClubIntegrationsView({
   return (
     <div className="grid gap-6">
       <h1 className="text-3xl font-semibold tracking-tight">Integrations</h1>
-      {connect}
       {failed ? (
         <Notice variant="error" role="alert">
           Try again.
         </Notice>
       ) : null}
+      {connect}
       {rows.length ? (
         <Card>
           <ul className="grid divide-y divide-border">
@@ -146,6 +162,7 @@ export function ClubIntegrationsView({
               <ConnectorRow
                 key={connector.connectorId}
                 connector={connector}
+                communitySlug={communitySlug}
                 now={now}
                 run={run}
                 onUpdate={onUpdate}
@@ -161,7 +178,7 @@ export function ClubIntegrationsView({
   );
 }
 
-function ConnectedIntegrations({ communityProfileId }: { communityProfileId: Id<"profiles"> }) {
+function ConnectedIntegrations({ communityProfileId, communitySlug }: { communityProfileId: Id<"profiles">; communitySlug: string }) {
   const result = useQuery(api.eventConnectors.listForCommunity, { communityProfileId });
   const update = useMutation(api.eventConnectors.update);
   const remove = useMutation(api.eventConnectors.remove);
@@ -174,12 +191,18 @@ function ConnectedIntegrations({ communityProfileId }: { communityProfileId: Id<
   if (!result.enabled) return <ClubAccessNotice />;
   return (
     <ClubIntegrationsView
+      communitySlug={communitySlug}
       connectors={result.connectors}
       now={now}
       onUpdate={(connectorId, patch) => update({ connectorId, ...patch })}
       onRemove={(connectorId) => remove({ connectorId })}
       vrchatCalendarConnect={<VrchatCalendarConnect communityProfileId={communityProfileId} />}
-      connect={<DiscordBoardConnect communityProfileId={communityProfileId} />}
+      connect={
+        <>
+          <GoogleCalendarConnect connectedCalendarIds={connectedCalendarIds(result.connectors)} />
+          <DiscordBoardConnect communityProfileId={communityProfileId} />
+        </>
+      }
     />
   );
 }
@@ -192,5 +215,5 @@ export function ClubIntegrations() {
   )
     return <ClubAccessNotice />;
   if (!data.eventConnectorsEnabled) return <ClubAccessNotice />;
-  return <ConnectedIntegrations communityProfileId={data.community._id} />;
+  return <ConnectedIntegrations communityProfileId={data.community._id} communitySlug={data.community.slug} />;
 }
