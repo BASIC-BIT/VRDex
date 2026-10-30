@@ -27,6 +27,9 @@ import {
 } from "./_clubOperationPolicy";
 import {
   clubOperationPayload,
+  staffOperationPayload,
+  CALENDAR_OPERATION_KINDS,
+  type StaffOperationPayload,
   operationSchedule,
   operationState,
   policyOperation,
@@ -254,7 +257,7 @@ export const enqueue = mutation({
   args: {
     communityProfileId: v.id("profiles"),
     requestId: v.string(),
-    payloads: v.array(clubOperationPayload),
+    payloads: v.array(staffOperationPayload),
     schedule: operationSchedule,
     reviewedDueAt: v.optional(v.number()),
   },
@@ -487,7 +490,7 @@ export const edit = mutation({
   args: {
     operationId: v.id("clubOperations"),
     expectedRevision: v.number(),
-    payload: clubOperationPayload,
+    payload: staffOperationPayload,
     schedule: operationSchedule,
     reviewedDueAt: v.optional(v.number()),
   },
@@ -639,7 +642,7 @@ export const list = query({
       v.object({
         id: v.id("clubOperations"),
         revision: v.number(),
-        payload: clubOperationPayload,
+        payload: staffOperationPayload,
         schedule: operationSchedule,
         state: operationState,
         dueAt: v.number(),
@@ -675,7 +678,7 @@ export const list = query({
       )
       .order("desc");
     const page = await (actor.kind === "owner"
-      ? operationQuery
+      ? operationQuery.filter(q => q.and(...CALENDAR_OPERATION_KINDS.map(kind => q.neq(q.field("payload.kind"), kind))))
       : operationQuery.filter(q => q.or(...visibleKinds.map(kind => q.eq(q.field("payload.kind"), kind)))))
       .paginate(args.paginationOpts);
     return {
@@ -683,12 +686,13 @@ export const list = query({
       continueCursor: page.continueCursor,
       page: page.page
         .filter(
-          (j) =>
-            actor.kind === "owner" ||
+          (j): j is typeof j & { payload: StaffOperationPayload } =>
+            !(CALENDAR_OPERATION_KINDS as readonly string[]).includes(j.payload.kind) &&
+            (actor.kind === "owner" ||
             actor.permissions.includes(
               clubOperationRequirement(policyOperation(j.payload, "unknown"))
                 .permission,
-            ),
+            )),
         )
         .map((j) => ({
           id: j._id,

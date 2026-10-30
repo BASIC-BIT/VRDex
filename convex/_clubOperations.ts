@@ -10,7 +10,7 @@ const post = {
   roleIds: v.optional(v.array(v.string())),
 };
 const destination = { worldId: v.string(), instanceId: v.string() };
-export const clubOperationPayload = v.union(
+const staffOperationMembers = [
   v.object({
     kind: v.literal("invite_to_created_instance"),
     ...target,
@@ -56,7 +56,37 @@ export const clubOperationPayload = v.union(
     ...destination,
     messageSlot: v.optional(v.number()),
   }),
-);
+] as const;
+export const staffOperationPayload = v.union(...staffOperationMembers);
+export type StaffOperationPayload = Infer<typeof staffOperationPayload>;
+
+// VRChat group calendar operations: connector-owned, never staff-enqueued or listed.
+export const CALENDAR_OPERATION_KINDS = ["create_calendar_event", "update_calendar_event", "delete_calendar_event", "list_calendar_events"] as const;
+const calendarEvent = {
+  title: v.string(),
+  description: v.string(),
+  startsAt: v.string(),
+  endsAt: v.string(),
+  imageUrl: v.optional(v.string()),
+  accessType: v.literal("group"),
+};
+const calendarOperationMembers = [
+  v.object({ kind: v.literal("create_calendar_event"), ...calendarEvent }),
+  v.object({ kind: v.literal("update_calendar_event"), calendarEventId: v.string(), ...calendarEvent }),
+  v.object({ kind: v.literal("delete_calendar_event"), calendarEventId: v.string() }),
+  v.object({ kind: v.literal("list_calendar_events"), from: v.string(), to: v.string() }),
+] as const;
+export const calendarEventItem = v.object({ id: v.string(), title: v.string(), description: v.string(), startsAt: v.string(), endsAt: v.string(), updatedAt: v.string() });
+export type VrchatCalendarItem = Infer<typeof calendarEventItem>;
+export const operationResult = v.object({
+  worldId: v.optional(v.string()),
+  instanceId: v.optional(v.string()),
+  postId: v.optional(v.string()),
+  calendarEventId: v.optional(v.string()),
+  calendarEvents: v.optional(v.array(calendarEventItem)),
+  calendarEventsTruncated: v.optional(v.boolean()),
+});
+export const clubOperationPayload = v.union(...staffOperationMembers, ...calendarOperationMembers);
 export type OperationPayload = Infer<typeof clubOperationPayload>;
 export const operationSchedule = v.union(
   v.object({
@@ -127,6 +157,7 @@ export function validatePayload(op: OperationPayload, groupId: string) {
   }
   if ("calendarEntryId" in op && op.calendarEntryId)
     id(op.calendarEntryId, "cal");
+  if ("calendarEventId" in op) id(op.calendarEventId, "cal");
   if ("imageId" in op && op.imageId) id(op.imageId, "file");
   if ("roleIds" in op && op.roleIds) {
     if (
@@ -137,7 +168,7 @@ export function validatePayload(op: OperationPayload, groupId: string) {
     op.roleIds.forEach((x) => id(x, "grol"));
   }
   if (
-    "title" in op &&
+    (op.kind === "publish_post" || op.kind === "edit_post") &&
     (op.title.length < 1 ||
       op.title.length > 200 ||
       op.text.length < 1 ||
@@ -170,4 +201,30 @@ export function validatePayload(op: OperationPayload, groupId: string) {
       op.messageSlot > 11)
   )
     throw new Error("Invalid invitation message.");
+  validateCalendarPayload(op);
+}
+// VRChat group calendar payload rules.
+function validateCalendarPayload(op: OperationPayload) {
+  if (op.kind === "create_calendar_event" || op.kind === "update_calendar_event") {
+    const startsAt = Date.parse(op.startsAt);
+    const endsAt = Date.parse(op.endsAt);
+    if (op.title.length < 1 || op.title.length > 64 || op.description.length < 1 || op.description.length > 2000 ||
+        !Number.isFinite(startsAt) || !Number.isFinite(endsAt) || endsAt <= startsAt)
+      throw new Error("Invalid calendar event.");
+    if (op.imageUrl !== undefined && (op.imageUrl.length > 2048 || !isHttpsUrl(op.imageUrl)))
+      throw new Error("Invalid calendar event.");
+  }
+  if (op.kind === "list_calendar_events") {
+    const from = Date.parse(op.from);
+    const to = Date.parse(op.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to || to - from > 92 * 86_400_000)
+      throw new Error("Invalid calendar range.");
+  }
+}
+function isHttpsUrl(value: string) {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
