@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { directionOptions, syncedLabel, STATE_LABELS, DIRECTION_HELP } from "../../apps/web/src/app/account/communities/[slug]/club-integrations-model";
+import { directionOptions, primaryFirst, syncedLabel, STATE_LABELS, DIRECTION_HELP } from "../../apps/web/src/app/account/communities/[slug]/club-integrations-model";
 
 const NOW = Date.UTC(2027, 0, 10, 12);
 test("synced label uses relative time", () => {
@@ -17,4 +17,8 @@ test("direction options follow the kind's allowed directions", () => {
 test("approved copy is verbatim", () => {
   assert.deepEqual(STATE_LABELS, { active: "Active", paused: "Paused", needs_reauth: "Needs reconnecting" });
   assert.equal(DIRECTION_HELP.bidirectional, "Changes on either side reach the other.");
+});
+test("the primary Google calendar comes first, the rest keep their order", () => {
+  const calendars = [{ id: "a", summary: "A" }, { id: "b", summary: "B" }, { id: "me", summary: "Me", primary: true }, { id: "c", summary: "C" }];
+  assert.deepEqual(primaryFirst(calendars).map(c => c.id), ["me", "a", "b", "c"]);
 });

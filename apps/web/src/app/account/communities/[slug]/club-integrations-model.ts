@@ -64,3 +64,8 @@ export function syncedLabel(lastSyncedAt: number | undefined, now: number): stri
     : [Math.floor(seconds / 86400), "day"];
   return `Synced ${relative.format(-value, unit)}`;
 }
+
+export type GoogleCalendar = FunctionReturnType<typeof api.googleCalendarConnector.listCalendars>[number];
+export function primaryFirst(calendars: readonly GoogleCalendar[]): GoogleCalendar[] {
+  return [...calendars].sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)));
+}

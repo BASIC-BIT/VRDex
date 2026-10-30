@@ -1,14 +1,15 @@
 "use client";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs } from "convex/server";
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../../../convex/_generated/dataModel";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
+import { GoogleCalendarConnect } from "./club-google-calendar";
 import { ClubAccessNotice, useClubWorkspace } from "./club-workspace";
 import {
   connectorTargetName,
@@ -26,12 +27,14 @@ type ConnectorId = Connector["connectorId"];
 
 function ConnectorRow({
   connector,
+  communitySlug,
   now,
   run,
   onUpdate,
   onRemove,
 }: {
   connector: Connector;
+  communitySlug: string;
   now: number;
   run: (action: () => Promise<unknown>) => void;
   onUpdate: (connectorId: ConnectorId, patch: ConnectorPatch) => Promise<unknown>;
@@ -61,6 +64,14 @@ function ConnectorRow({
           <Button size="sm" onClick={() => update({ state: "active" })}>
             Resume
           </Button>
+        ) : null}
+        {kind === "google_calendar" && state === "needs_reauth" ? (
+          <a
+            href={`/api/connectors/google/start?community=${encodeURIComponent(communitySlug)}&connectorId=${encodeURIComponent(connectorId)}`}
+            className={buttonVariants({ size: "sm" })}
+          >
+            Reconnect
+          </a>
         ) : null}
         <Button size="sm" variant="dangerGhost" onClick={() => run(() => onRemove(connectorId))}>
           Disconnect
@@ -106,12 +117,16 @@ function ConnectorRow({
 }
 
 export function ClubIntegrationsView({
+  communitySlug,
   connectors,
+  connect,
   onUpdate,
   onRemove,
   now,
 }: {
+  communitySlug: string;
   connectors: readonly Connector[];
+  connect?: ReactNode;
   onUpdate: (connectorId: ConnectorId, patch: ConnectorPatch) => Promise<unknown>;
   onRemove: (connectorId: ConnectorId) => Promise<unknown>;
   now: number;
@@ -131,6 +146,7 @@ export function ClubIntegrationsView({
           Try again.
         </Notice>
       ) : null}
+      {connect}
       {rows.length ? (
         <Card>
           <ul className="grid divide-y divide-border">
@@ -138,6 +154,7 @@ export function ClubIntegrationsView({
               <ConnectorRow
                 key={connector.connectorId}
                 connector={connector}
+                communitySlug={communitySlug}
                 now={now}
                 run={run}
                 onUpdate={onUpdate}
@@ -151,7 +168,7 @@ export function ClubIntegrationsView({
   );
 }
 
-function ConnectedIntegrations({ communityProfileId }: { communityProfileId: Id<"profiles"> }) {
+function ConnectedIntegrations({ communityProfileId, communitySlug }: { communityProfileId: Id<"profiles">; communitySlug: string }) {
   const result = useQuery(api.eventConnectors.listForCommunity, { communityProfileId });
   const update = useMutation(api.eventConnectors.update);
   const remove = useMutation(api.eventConnectors.remove);
@@ -164,7 +181,9 @@ function ConnectedIntegrations({ communityProfileId }: { communityProfileId: Id<
   if (!result.enabled) return <ClubAccessNotice />;
   return (
     <ClubIntegrationsView
+      communitySlug={communitySlug}
       connectors={result.connectors}
+      connect={<GoogleCalendarConnect />}
       now={now}
       onUpdate={(connectorId, patch) => update({ connectorId, ...patch })}
       onRemove={(connectorId) => remove({ connectorId })}
@@ -180,5 +199,5 @@ export function ClubIntegrations() {
   )
     return <ClubAccessNotice />;
   if (!data.eventConnectorsEnabled) return <ClubAccessNotice />;
-  return <ConnectedIntegrations communityProfileId={data.community._id} />;
+  return <ConnectedIntegrations communityProfileId={data.community._id} communitySlug={data.community.slug} />;
 }
