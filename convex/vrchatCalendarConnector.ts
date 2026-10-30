@@ -183,6 +183,8 @@ export const advanceExport = internalMutation({
     // Date-only and cancelled events have no VRChat entry: delete one exported earlier, otherwise write nothing.
     if (event.scheduleKind === "date_only" || event.startAt === undefined || event.eventStatus === "cancelled") {
       if (!existing) return done(none(event._id));
+      // VRDex deletes only what it exported: a paired entry is the organiser's. `done("")` keeps it unexported, since any ID here would stamp lastExportedAt.
+      if (event.eventStatus !== "cancelled" && link?.lastExportedAt === undefined) return done("");
       return await enqueue(ctx, job, connector, { kind: "delete_calendar_event", calendarEventId: existing }, { step: "write" });
     }
     if (existing) {

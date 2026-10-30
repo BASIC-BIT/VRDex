@@ -234,7 +234,7 @@ describe("vrchat calendar export", () => {
     const t = convexTest({ schema, modules });
     const { connectorId, communityProfileId } = await seedVrchatConnector(t);
     const eventId = await seedEvent(t, communityProfileId, { scheduleKind: "date_only", startAt: undefined, endAt: undefined });
-    await link(t, connectorId!, eventId);
+    await link(t, connectorId!, eventId, { lastExportedAt: NOW - 60_000 });
     const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
     assert.deepEqual((await operations(t))[0].payload, { kind: "delete_calendar_event", calendarEventId: CAL_1 });
     await workerSettle(t, { status: "rejected", code: "visibility" });
@@ -838,8 +838,34 @@ describe("vrchat calendar import", () => {
     await workerSettle(t, { status: "succeeded", result: { calendarEvents: [vrchatItem()] } });
     await rerunJob(t, job._id);
     const links = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
-    assert.deepEqual(links.map((l) => [l.eventId, l.externalId, l.state, l.lastExportedHash]), [[eventId, CAL_1, "linked", undefined]]);
+    assert.deepEqual(links.map((l) => [l.eventId, l.externalId, l.state, l.lastExportedAt, l.lastExportedHash]), [[eventId, CAL_1, "linked", undefined, undefined]]);
     assert.deepEqual(await importIds(t), []);
+  });
+
+  it("never deletes an organiser's entry it only paired with a date-only event, on this export or the next", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "bidirectional" });
+    const eventId = await seedEvent(t, communityProfileId, dateOnly);
+    await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: connectorId!, eventId, externalId: "none:" + eventId, state: "linked", lastExportedAt: NOW - 60_000, lastExportedHash: "stale", createdAt: NOW, updatedAt: NOW }));
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "reconcile" });
+    await workerSettle(t, { status: "succeeded", result: { calendarEvents: [vrchatItem()] } });
+    await rerunJob(t, job._id);
+    // The import has not applied, so the event is still date-only when these exports run.
+    for (let run = 0; run < 2; run += 1) {
+      assert.equal((await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId })).state, "done");
+      assert.deepEqual((await operations(t)).map((op) => op.payload.kind), []);
+      const [row] = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
+      assert.deepEqual([row.externalId, row.state, row.lastExportedAt, row.lastExportedHash], [CAL_1, "linked", undefined, undefined]);
+    }
+  });
+
+  it("a cancelled event still deletes an entry it only paired", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "bidirectional" });
+    const eventId = await seedEvent(t, communityProfileId, { ...dateOnly, eventStatus: "cancelled" });
+    await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: connectorId!, eventId, externalId: CAL_1, state: "linked", createdAt: NOW, updatedAt: NOW }));
+    await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    assert.deepEqual((await operations(t)).map((op) => op.payload), [{ kind: "delete_calendar_event", calendarEventId: CAL_1 }]);
   });
 
   it("an import reuses a date-only event's none: link", async () => {
