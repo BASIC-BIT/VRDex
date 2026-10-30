@@ -86,6 +86,59 @@ shutdown. None of these deployment steps was executed by the local checkpoint.
 See [source controls](../backend/event-intake-sources.md) and
 [verification evidence](../testing/event-intake-checkpoint.md).
 
+## Event connectors
+
+`VRDEX_EVENT_CONNECTORS_ENABLED` turns event connectors on when set to `true`.
+Scope: the Convex deployment environment only. Default: unset, which means off.
+Owner: BASIC. It gates the Integrations page, connector creation,
+`enqueueEventSync`, and sync job execution. Turning it off leaves pending jobs in
+place; each closes as `connectors_disabled` when its run claims it. Keep it off
+until a kind plan registers a sync handler: with no handler every export job
+fails and the connector failure alarm fires.
+
+Connector OAuth tokens are stored encrypted with AES-256-GCM in the
+`v1:iv:tag:ciphertext` format, keyed by `VRDEX_CONNECTOR_TOKEN_KEY` (secret).
+
+Scope: the Convex deployment environment only; never set it on the web app.
+Owner: the deployment operator (BASIC). Value: 32 random bytes, base64 encoded,
+generated with `openssl rand -base64 32` and set with
+`npx convex env set VRDEX_CONNECTOR_TOKEN_KEY`. The value lives only in the
+Convex environment, never in git or Terraform state.
+
+Rotation: replacing the value makes every stored connector token unreadable, so
+each OAuth connector must be reconnected from the Integrations page. The `v1:`
+prefix leaves room for a dual-key rotation later.
+
+### Ops alerts
+
+`VRDEX_OPS_ALERT_EMAIL` is the recipient of `[VRDex ops]` alert emails.
+Scope: the Convex deployment environment only. Optional; default
+`basic@basicbit.net`. Owner: BASIC. Change it with
+`npx convex env set VRDEX_OPS_ALERT_EMAIL`; there is no rotation beyond
+replacing the address.
+
+Each alert key sends at most one email per six hours while it stays failing,
+and one `Resolved` email when it recovers. A failure after a recovery alerts
+again at once. Current alarms:
+
+- `connector-failures:` plus the connector ID: a connector's fifth and every
+  later consecutive finally failed sync job, including jobs failed by recovery
+  as `lease_expired` or `stalled`, so a long streak re-alerts every six hours.
+  Retries, skips, and `superseded` closes do not count. The next completed job
+  for that connector, or removing the connector, resolves it.
+- `product-analytics-delivery`: a product analytics outbox row stops retrying
+  after five failed deliveries to PostHog. The email names the row ID, event
+  name, attempt count, and creation time only. The next delivered row resolves
+  it.
+
+Gateway, Google watch, and recurrence alarms in later plans use the same path.
+
+Alerts send through the SES settings in
+[Transactional Email Environment](#transactional-email-environment):
+`AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, and the existing SES credential chain.
+Without them the `internal.opsAlertEmail.send` action throws, so a lost alert
+shows as a failed function in the Convex logs.
+
 ## Locked Decision
 
 VRDex keeps four Convex execution targets separate:
