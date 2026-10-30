@@ -26,6 +26,8 @@ function fakeDiscord(test: TestContext, respond: (call: Call) => Response | unde
   test.mock.method(globalThis, "fetch", async (input: string | URL, init: RequestInit = {}) => {
     const call: Call = { method: init.method ?? "GET", path: new URL(String(input)).pathname.replace("/api/v10", ""), ...(init.body ? { body: JSON.parse(String(init.body)) } : {}) };
     calls.push(call);
+    // The board channel belongs to the target guild unless a test says otherwise.
+    if (call.method === "GET" && call.path === `/channels/${CHANNEL}`) return respond(call) ?? Response.json({ id: CHANNEL, guild_id: GUILD, type: 0 });
     return respond(call) ?? (call.method === "DELETE" ? new Response(null, { status: 204 })
       : Response.json({ id: call.method === "POST" ? `9000000000000000${String(calls.length).padStart(2, "0")}` : call.path.split("/").at(-1) }));
   });
@@ -73,10 +75,10 @@ it("posts a new message when the event has no link", async (test) => {
   const t = convexTest({ schema, modules });
   const s = await seed(t, [{ title: "@everyone Harbor Night" }]);
   assert.equal((await upsert(t, s))?.state, "done");
-  assert.deepEqual(said(calls), [`POST /channels/${CHANNEL}/messages`]);
-  assert.equal(calls[0].body?.embeds[0].title, "@everyone Harbor Night");
-  assert.deepEqual(calls[0].body?.allowed_mentions, { parse: [] });
-  assert.equal((await linkFor(t, s.connectorId, s.eventIds[0]))?.externalId, "900000000000000001");
+  assert.deepEqual(said(calls), [`GET /channels/${CHANNEL}`, `POST /channels/${CHANNEL}/messages`]);
+  assert.equal(calls[1].body?.embeds[0].title, "@everyone Harbor Night");
+  assert.deepEqual(calls[1].body?.allowed_mentions, { parse: [] });
+  assert.equal((await linkFor(t, s.connectorId, s.eventIds[0]))?.externalId, "900000000000000002");
 });
 
 it("edits the linked message in place", async (test) => {
@@ -93,13 +95,14 @@ it("re-posts when the linked message is gone", async (test) => {
   const t = convexTest({ schema, modules });
   const s = await seed(t, [{ link: LIVE }]);
   await upsert(t, s);
-  assert.deepEqual(said(calls), [`PATCH /channels/${CHANNEL}/messages/${LIVE}`, `POST /channels/${CHANNEL}/messages`]);
-  assert.equal((await linkFor(t, s.connectorId, s.eventIds[0]))?.externalId, "900000000000000002");
+  assert.deepEqual(said(calls), [`PATCH /channels/${CHANNEL}/messages/${LIVE}`, `GET /channels/${CHANNEL}`, `POST /channels/${CHANNEL}/messages`]);
+  assert.equal((await linkFor(t, s.connectorId, s.eventIds[0]))?.externalId, "900000000000000003");
 });
 
 for (const [name, status, method, lastError] of [
   ["pauses the connector when Discord refuses the write", 403, "POST", "discord_forbidden"],
   ["pauses when the channel is gone", 404, "POST", "discord_channel_missing"],
+  ["pauses when the channel lookup finds nothing", 404, "GET", "discord_channel_missing"],
 ] as const) {
   it(name, async (test) => {
     fakeDiscord(test, (call) => (call.method === method ? new Response(null, { status }) : undefined));
@@ -111,6 +114,17 @@ for (const [name, status, method, lastError] of [
     assert.match(connector?.lastError ?? "", new RegExp(lastError));
   });
 }
+
+it("refuses to post into a channel of another guild", async (test) => {
+  const calls = fakeDiscord(test, (call) => (call.method === "GET" ? Response.json({ id: CHANNEL, guild_id: "999999999999999999", type: 0 }) : undefined));
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{}]);
+  assert.notEqual((await upsert(t, s))?.state, "done");
+  const connector = await t.run((ctx) => ctx.db.get(s.connectorId));
+  assert.equal(connector?.state, "paused");
+  assert.match(connector?.lastError ?? "", /discord_channel_mismatch/);
+  assert.deepEqual(said(calls), [`GET /channels/${CHANNEL}`]);
+});
 
 it("deletes the message on export_delete and treats a missing message as deleted", async (test) => {
   const calls = fakeDiscord(test, (call) => (call.path.endsWith("222222222222222222") ? new Response(null, { status: 404 }) : undefined));
@@ -192,7 +206,7 @@ it("refresh posts inside 14 days, retires after 24 hours, and keeps cancelled em
   ]);
   assert.equal((await runJob(t, { connectorId: s.connectorId, kind: "board_refresh" }))?.state, "done");
   await drain(t);
-  assert.deepEqual(said(calls).sort(), [`DELETE /channels/${CHANNEL}/messages/444444444444444444`, `POST /channels/${CHANNEL}/messages`].sort());
+  assert.deepEqual(said(calls).sort(), [`DELETE /channels/${CHANNEL}/messages/444444444444444444`, `GET /channels/${CHANNEL}`, `POST /channels/${CHANNEL}/messages`].sort());
   // Retirement removes the message through an upsert; it is not a retraction.
   const retired = await linkFor(t, s.connectorId, s.eventIds[3]);
   assert.equal(retired?.state, "linked");
@@ -206,10 +220,10 @@ it("refresh is idempotent", async (test) => {
   await t.mutation(internal.eventSyncKinds.discordBoard.planBoardRefresh, { connectorId: s.connectorId });
   assert.deepEqual(await t.mutation(internal.eventSyncKinds.discordBoard.planBoardRefresh, { connectorId: s.connectorId }), { upserts: 0, deletes: 0 });
   await drain(t);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 4); // a channel check and a post per event
   await runJob(t, { connectorId: s.connectorId, kind: "board_refresh" });
   await drain(t);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 4);
 });
 
 it("the daily cron enqueues one refresh per active export board", async () => {
@@ -268,4 +282,16 @@ it("reports whether the board is enabled", async () => {
   assert.equal(await t.query(api.eventSyncKinds.discordBoard.isEnabled, {}), true);
   delete process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED;
   assert.equal(await t.query(api.eventSyncKinds.discordBoard.isEnabled, {}), false);
+});
+
+it("creating a board needs a proof of its guild", async (test) => {
+  fakeDiscord(test);
+  const create = async (proved: boolean) => {
+    const t = convexTest({ schema, modules: { ...modules, "../../convex/eventConnectors.ts": () => import("../../convex/eventConnectors") } });
+    const { s, as } = await staffer(t, proved);
+    await t.run((ctx) => ctx.db.delete(s.connectorId)); // seed's board would be CONNECTOR_EXISTS
+    return as.mutation(api.eventConnectors.create, { communityProfileId: s.communityProfileId, kind: "discord_board", direction: "export", mode: "hold", target: { guildId: GUILD, channelId: CHANNEL, channelName: "general" } });
+  };
+  await assert.rejects(create(false), /CONTROL_NOT_VERIFIED/);
+  assert.ok(await create(true));
 });

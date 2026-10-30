@@ -257,20 +257,25 @@ function boardMessagesPath(connector: Connector): string {
   return `/channels/${channelId}/messages`;
 }
 
-// Returns null for a 404 on PATCH or DELETE (the message is gone); a 403, or a 404 on POST (the channel is gone), pauses the connector.
-async function send(ctx: ActionCtx, connector: Connector, method: "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<Response | null> {
+async function pause(ctx: ActionCtx, connector: Connector, code: string): Promise<never> {
+  await ctx.runMutation(internal.eventSyncKinds.discordBoard.pauseBoardConnector, { connectorId: connector._id, lastError: code });
+  throw new Error(code);
+}
+
+// Returns null for a 404 on PATCH or DELETE (the message is gone); a 403, or a 404 on GET or POST (the channel is gone), pauses the connector.
+async function send(ctx: ActionCtx, connector: Connector, method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<Response | null> {
   const response = await discordRequest({ method, path, body });
   if (response.ok) return response;
-  if (response.status === 404 && method !== "POST") return null;
-  if (response.status === 403 || response.status === 404) {
-    const code = response.status === 403 ? "discord_forbidden" : "discord_channel_missing";
-    await ctx.runMutation(internal.eventSyncKinds.discordBoard.pauseBoardConnector, { connectorId: connector._id, lastError: code });
-    throw new Error(code);
-  }
+  if (response.status === 404 && (method === "PATCH" || method === "DELETE")) return null;
+  if (response.status === 403) return pause(ctx, connector, "discord_forbidden");
+  if (response.status === 404) return pause(ctx, connector, "discord_channel_missing");
   throw new Error(`discord_${response.status}`);
 }
 
+// Every new message first proves the channel is a text or announcement channel of the target guild, so a foreign channelId never gets a post.
 async function postMessage(ctx: ActionCtx, connector: Connector, path: string, body: unknown): Promise<string> {
+  const channel = (await (await send(ctx, connector, "GET", path.replace(/\/messages$/, "")))!.json()) as { guild_id?: unknown; type?: unknown };
+  if (channel.guild_id !== connector.target.guildId || !BOARD_CHANNEL_TYPES.has(channel.type as number)) await pause(ctx, connector, "discord_channel_mismatch");
   const { id } = (await (await send(ctx, connector, "POST", path, body))!.json()) as { id?: unknown };
   if (typeof id !== "string" || !DISCORD_ID.test(id)) throw new Error("discord_bad_response");
   return id;

@@ -7,6 +7,7 @@ import {
   DISCORD_ID, requireConnectorAuthority, type ConnectorDirection, type ConnectorKind,
 } from "./_eventConnectors";
 import { enqueueSyncJob, failureAlertKey } from "./_eventSync";
+import { MINIMUM_COMMUNITY_CONTROL_LEVEL, requireControlProof } from "./_externalControl";
 import { resolveOps } from "./_opsAlerts";
 
 type ConnectorTarget = Infer<typeof connectorTarget>;
@@ -83,6 +84,8 @@ export const create = mutation({
     if (args.kind === "notion") return fail("CONNECTOR_KIND_RESERVED");
     requireDirection(args.kind, args.direction);
     requireTarget(args.kind, args.target);
+    // The bot posts the board as VRDex, so the staffer must prove the guild it posts into.
+    if (args.kind === "discord_board") await requireControlProof(ctx.db, userId, "discord_guild", args.target.guildId!, MINIMUM_COMMUNITY_CONTROL_LEVEL);
     if (args.credentialId) {
       const credential = await ctx.db.get(args.credentialId);
       if (credential?.state !== "active" || credential.ownerUserId !== userId) fail("CONNECTOR_CREDENTIAL");
