@@ -75,13 +75,14 @@ it("backs off 1, 2, 4, 8 minutes and marks the job failed on the fifth failure",
 
 it("an unregistered kind fails with a clear error", async () => {
   const f = await connectorFixture();
-  const connectorId = await f.insertConnector();
+  // Notion is reserved, so it never gets a handler.
+  const connectorId = await f.insertConnector({ kind: "notion" });
   const jobId = await f.t.run(ctx => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, kind: "import_poll" }));
   await f.t.action(run, { jobId });
   const job = (await f.t.run(ctx => ctx.db.get(jobId)))!;
   assert.equal(job.state, "pending");
   assert.equal(job.attempts, 1);
-  assert.match(job.lastError ?? "", /No import_poll handler is registered for connector kind google_calendar/);
+  assert.match(job.lastError ?? "", /No import_poll handler is registered for connector kind notion/);
 });
 
 it("the runner writes the link after a kind's export, and retracts it after a delete", async () => {
@@ -89,6 +90,7 @@ it("the runner writes the link after a kind's export, and retracts it after a de
   const { eventId } = await f.createEvent();
   const connectorId = await f.insertConnector({ direction: "export" });
   const google = syncKindHandlers.google_calendar;
+  const { exportUpsert, exportDelete } = google;
   google.exportUpsert = async () => ({ externalId: "g-9" });
   google.exportDelete = async () => {};
   try {
@@ -108,8 +110,7 @@ it("the runner writes the link after a kind's export, and retracts it after a de
     await f.t.action(run, { jobId: again });
     assert.deepEqual([(await link()).state, (await link()).externalId], ["linked", "g-10"]);
   } finally {
-    delete google.exportUpsert;
-    delete google.exportDelete;
+    Object.assign(google, { exportUpsert, exportDelete });
   }
 });
 
@@ -122,6 +123,7 @@ it("an export matched to an item an import already linked adopts that link inste
     return ctx.db.insert("eventSyncLinks", { connectorId, draftId, externalId: "g-1", state: "linked", createdAt: Date.now(), updatedAt: Date.now() });
   });
   const google = syncKindHandlers.google_calendar;
+  const { exportUpsert } = google;
   google.exportUpsert = async () => ({ externalId: "g-1" });
   try {
     const jobId = await f.t.run(ctx => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, eventId, kind: "export_upsert" }));
@@ -130,7 +132,7 @@ it("an export matched to an item an import already linked adopts that link inste
     const byExternal = await f.t.run(ctx => ctx.db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connectorId).eq("externalId", "g-1")).collect());
     assert.deepEqual(byExternal.map(link => [link._id, link.eventId, link.lastExportedAt]), [[heldLink, eventId, Date.now()]]);
   } finally {
-    delete google.exportUpsert;
+    google.exportUpsert = exportUpsert;
   }
 });
 
@@ -140,7 +142,7 @@ it("reconcile enqueues exports for unlinked upcoming events even without a kind 
   const linked = await f.createEvent({ title: "Linked", startAt: Date.now() + 5 * 86_400_000 });
   const past = await f.createEvent({ title: "Past", startAt: Date.now() - 3 * 86_400_000 });
   const far = await f.createEvent({ title: "Far", startAt: Date.now() + 120 * 86_400_000 });
-  const connectorId = await f.insertConnector({ direction: "export" });
+  const connectorId = await f.insertConnector({ direction: "export", kind: "notion" });
   await f.t.run(ctx => ctx.db.insert("eventSyncLinks", { connectorId, eventId: linked.eventId, externalId: "g-1", state: "linked", createdAt: Date.now(), updatedAt: Date.now() }));
   const jobId = await f.t.run(ctx => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, kind: "reconcile" }));
   await f.t.action(run, { jobId });
@@ -234,6 +236,7 @@ it("a handler returning AwaitingClubOperation keeps the job running without spen
   const f = await connectorFixture();
   const connectorId = await f.insertConnector();
   const google = syncKindHandlers.google_calendar;
+  const importPoll = google.importPoll;
   google.importPoll = async () => AwaitingClubOperation;
   try {
     const jobId = await f.t.run(ctx => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, kind: "import_poll" }));
@@ -241,7 +244,7 @@ it("a handler returning AwaitingClubOperation keeps the job running without spen
     const job = (await f.t.run(ctx => ctx.db.get(jobId)))!;
     assert.deepEqual([job.state, job.attempts, job.leaseExpiresAt], ["running", 0, Date.now() + OPERATION_WAIT_MS]);
   } finally {
-    delete google.importPoll;
+    google.importPoll = importPoll;
   }
 });
 
@@ -317,6 +320,7 @@ it("an edit during an in-flight export waits for it and updates the same copy", 
   const { eventId } = await f.createEvent();
   const connectorId = await f.insertConnector({ direction: "export" });
   const google = syncKindHandlers.google_calendar;
+  const { exportUpsert } = google;
   let created = 0;
   google.exportUpsert = async (_ctx, _connector, _event, link) => ({ externalId: link?.externalId ?? `g-${++created}` });
   try {
@@ -335,7 +339,7 @@ it("an edit during an in-flight export waits for it and updates the same copy", 
     const links = await f.t.run(ctx => ctx.db.query("eventSyncLinks").withIndex("by_eventId", q => q.eq("eventId", eventId)).collect());
     assert.deepEqual([created, links.length, links[0]!.externalId, (await f.t.run(ctx => ctx.db.get(second)))!.state], [0, 1, "g-1", "done"]);
   } finally {
-    delete google.exportUpsert;
+    google.exportUpsert = exportUpsert;
   }
 });
 

@@ -17,9 +17,12 @@ export const connectorDirection = v.union(v.literal("import"), v.literal("export
 export const connectorMode = v.union(v.literal("hold"), v.literal("autopublish"));
 export const connectorState = v.union(v.literal("active"), v.literal("paused"), v.literal("needs_reauth"), v.literal("removed"));
 // The *Name fields are display names captured at connect time for the settings page; never used for matching.
+// The watch* fields and syncToken are the kind's own sync bookkeeping: never accepted from or shown to a client.
 export const connectorTarget = v.object({
   guildId: v.optional(v.string()), channelId: v.optional(v.string()), calendarId: v.optional(v.string()), groupId: v.optional(v.string()),
   guildName: v.optional(v.string()), channelName: v.optional(v.string()), calendarName: v.optional(v.string()), groupName: v.optional(v.string()),
+  watchChannelId: v.optional(v.string()), watchResourceId: v.optional(v.string()), watchExpiresAt: v.optional(v.number()), watchRenewedAt: v.optional(v.number()),
+  syncToken: v.optional(v.string()),
 });
 export const credentialProvider = v.union(v.literal("google"), v.literal("notion"));
 export const syncLinkState = v.union(v.literal("linked"), v.literal("external_deleted"), v.literal("vrdex_retracted"));
@@ -107,7 +110,8 @@ export function carriedFieldsHash(kind: ConnectorKind, fields: EventIntakeFields
     if (dateOnly && (key === "start" || key === "end" || key === "doors" || key === "timezone")) return [];
     // Only a true timeTba is meaningful; false and absent both mean a timed event.
     if (key === "timeTba" && !dateOnly) return [];
-    const item = canonicalIntakeValue(fields[key]);
+    // The owner path allows a longer venue than intake and import do; hash what a round trip through either keeps.
+    const item = canonicalIntakeValue(key === "venueLabel" ? fields.venueLabel?.trim().slice(0, 120) : fields[key]);
     return item === undefined ? [] : [[key, item]];
   });
   return sha256Hex(JSON.stringify(pairs));
