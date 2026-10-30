@@ -190,6 +190,12 @@ so a token from another application reports the gateway's bot as missing from
 every server. Rotate it with the gateway's token, in one window. These calls
 always go to `discord.com`: `DISCORD_API_BASE_URL` does not apply to them.
 
+Staging's `DISCORD_BOT_TOKEN` is the hosted adapter stub's token (see
+[Hosted E2E Helpers](#hosted-e2e-helpers)), which real Discord rejects, and the
+stub cannot stand in here. The site channel listing and connect do not work
+against the stub, so `VRDEX_DISCORD_INTAKE_ENABLED` stays off on staging until a
+real staging bot exists.
+
 Runs reuse `SITE_URL` as the poster bridge origin. They also read
 `OPENAI_API_KEY`, `VRDEX_EVENT_INTAKE_AI_ENABLED`, and
 `VRDEX_EVENT_INTAKE_MODEL` from the Convex deployment, so set those on Convex as
@@ -518,7 +524,7 @@ Development/staging Convex env names:
 - `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord credentials for the purpose-scoped community-verification round-trip. These are **not** sign-in credentials — Clerk holds those — but `convex/discordVerification.ts` still requires them
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`
 - `DISCORD_OAUTH_AUTHORIZE_URL`: optional consent-screen override, for pointing the OAuth round-trip at a stub instead of Discord. Defaults to `https://discord.com/oauth2/authorize`. The browser follows it carrying the `state` that authorizes the round-trip, so it must be https unless it is loopback
-- `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment
+- `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment. It is not a real bot token, so the site Discord connect flow does not work on staging; see [Discord intake](#discord-intake)
 - `VRCHAT_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCLINKING_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching the hosted app environment

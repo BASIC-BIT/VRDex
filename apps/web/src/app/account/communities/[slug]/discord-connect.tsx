@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@convex-generated-api";
@@ -143,25 +143,34 @@ export function DiscordConnectView({
   );
 }
 
-export function DiscordConnect({ communityProfileId }: { communityProfileId: Id<"profiles"> }) {
-  const context = useQuery(api.discordIntake.connectContext, { communityProfileId });
-  const listChannels = useAction(api.discordIntake.listConnectableChannels);
-  const connectChannel = useAction(api.discordIntake.connectChannel);
-  const pathname = usePathname();
+type ConnectArgs = { guildId: string; guildName: string; channelId: string; channelName: string; mode: Mode };
+
+/** The connect flow's state, free of Convex and routing so a story can run it with stubbed calls. */
+export function DiscordConnectFlow({
+  context,
+  pathname,
+  listChannels,
+  connectChannel,
+}: {
+  context: { guilds: readonly DiscordGuild[]; preselectedGuildId: string | null };
+  pathname: string;
+  listChannels: (guildId: string) => Promise<DiscordChannels>;
+  connectChannel: (args: ConnectArgs) => Promise<unknown>;
+}) {
   const [chosenGuildId, setChosenGuildId] = useState<string>();
   const [listing, setListing] = useState<DiscordChannels>();
   const [channelId, setChannelId] = useState("");
   const [mode, setMode] = useState<Mode>("hold");
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
-  const guildId = chosenGuildId ?? context?.preselectedGuildId ?? "";
+  const guildId = chosenGuildId ?? context.preselectedGuildId ?? "";
 
   useEffect(() => {
     if (!guildId) return;
     // Drops a listing that arrives after the server changed. The focus reload picks up a bot invited in another tab.
     let current = true;
     const load = () =>
-      listChannels({ communityProfileId, guildId })
+      listChannels(guildId)
         .then((result) => {
           if (!current) return;
           setListing(result);
@@ -174,9 +183,7 @@ export function DiscordConnect({ communityProfileId }: { communityProfileId: Id<
       current = false;
       window.removeEventListener("focus", load);
     };
-  }, [communityProfileId, guildId, listChannels]);
-
-  if (!context?.enabled) return null;
+  }, [guildId, listChannels]);
 
   const chooseGuild = (next: string) => {
     setChosenGuildId(next);
@@ -190,7 +197,6 @@ export function DiscordConnect({ communityProfileId }: { communityProfileId: Id<
     setPending(true);
     setFailed(false);
     connectChannel({
-      communityProfileId,
       guildId,
       guildName: context.guilds.find((guild) => guild.guildId === guildId)?.guildName ?? guildId,
       channelId: channel.channelId,
@@ -219,6 +225,23 @@ export function DiscordConnect({ communityProfileId }: { communityProfileId: Id<
       onChannelChange={setChannelId}
       onModeChange={setMode}
       onConnect={connect}
+    />
+  );
+}
+
+export function DiscordConnect({ communityProfileId }: { communityProfileId: Id<"profiles"> }) {
+  const context = useQuery(api.discordIntake.connectContext, { communityProfileId });
+  const list = useAction(api.discordIntake.listConnectableChannels);
+  const connect = useAction(api.discordIntake.connectChannel);
+  const pathname = usePathname();
+  const listChannels = useCallback((guildId: string) => list({ communityProfileId, guildId }), [communityProfileId, list]);
+  if (!context?.enabled) return null;
+  return (
+    <DiscordConnectFlow
+      context={context}
+      pathname={pathname}
+      listChannels={listChannels}
+      connectChannel={(args) => connect({ communityProfileId, ...args })}
     />
   );
 }
