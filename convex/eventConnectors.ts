@@ -3,7 +3,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
-  allowedDirections, connectorDirection, connectorKind, connectorMode, connectorState, connectorTarget, connectorsEnabled,
+  allowedDirections, boardEnabled, connectorDirection, connectorKind, connectorMode, connectorState, connectorTarget, connectorsEnabled,
   DISCORD_ID, requireConnectorAuthority, type ConnectorDirection, type ConnectorKind,
 } from "./_eventConnectors";
 import { enqueueSyncJob, failureAlertKey } from "./_eventSync";
@@ -82,6 +82,7 @@ export const create = mutation({
     if ((await ctx.db.get(args.communityProfileId))?.profileType !== "community") fail("CONNECTOR_FORBIDDEN");
     await requireConnectorAuthority(ctx, args.communityProfileId, userId);
     if (args.kind === "notion") return fail("CONNECTOR_KIND_RESERVED");
+    if (args.kind === "discord_board" && !boardEnabled()) fail("CONNECTOR_KIND_DISABLED");
     requireDirection(args.kind, args.direction);
     requireTarget(args.kind, args.target);
     // The bot posts the board as VRDex, so the staffer must prove the guild it posts into.

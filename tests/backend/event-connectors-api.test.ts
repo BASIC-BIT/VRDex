@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { beforeEach, it } from "node:test";
+import { afterEach, beforeEach, it } from "node:test";
 import { api } from "../../convex/_generated/api";
 import { connectorFixture } from "./_eventConnectorFixture";
 
-beforeEach(test => test.mock.timers.enable({ apis: ["setTimeout"] }));
+// Board rows are created below; create refuses the kind while its flag is off.
+beforeEach(test => { test.mock.timers.enable({ apis: ["setTimeout"] }); process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED = "true"; });
+afterEach(() => { delete process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED; });
 const google = { kind: "google_calendar" as const, direction: "bidirectional" as const, mode: "hold" as const, target: { calendarId: "club@example.com", calendarName: "Club nights" } };
 
 it("create enqueues one reconcile job and lists the connector", async () => {

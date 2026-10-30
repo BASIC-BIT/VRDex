@@ -5,7 +5,7 @@ import { action, internalMutation, internalQuery, query, type ActionCtx } from "
 import { requireActiveBrowserSessionSubject } from "../_browserSessionAuthority";
 import { discordRequest } from "../_discordRest";
 import { createDiscordTimestampSet } from "../_discordTimestamps";
-import { DISCORD_ID, requireConnectorAuthority } from "../_eventConnectors";
+import { boardEnabled, DISCORD_ID, requireConnectorAuthority } from "../_eventConnectors";
 import { cleanPublicText, formatDiscordLineupLines } from "../_eventDiscordExport";
 import { eventPathForSlugs } from "../_eventPaths";
 import { getPublicEventBySlug, type PublicEvent } from "../_eventPublic";
@@ -115,10 +115,6 @@ export const BOARD_RETIRE_AFTER_MS = 24 * 3_600_000;
 type Connector = Doc<"eventConnectors">;
 type BoardEvent = { projection: PublicEventProjection | null; status: "scheduled" | "cancelled"; sortAt: number; sortEndAt: number };
 
-export function boardEnabled(): boolean {
-  return process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED === "true";
-}
-
 export const isEnabled = query({ args: {}, handler: async (): Promise<boolean> => boardEnabled() });
 
 /** The signed-in staffer manages the community's integrations and has proved control of the guild. */
@@ -143,7 +139,7 @@ export const listBoardChannels = action({
     await ctx.runQuery(internal.eventSyncKinds.discordBoard.authorizeBoardTarget, args);
     const response = await discordRequest({ method: "GET", path: `/guilds/${args.guildId}/channels` });
     if (!response.ok) throw new ConvexError({ code: `discord_${response.status}` });
-    const rows = (await response.json()) as unknown;
+    const rows: unknown = await response.json().catch(() => null);
     if (!Array.isArray(rows)) throw new ConvexError({ code: "discord_bad_response" });
     return rows
       .filter((row): row is { id: string; name: string; type: number; position?: number } =>
@@ -272,11 +268,18 @@ async function send(ctx: ActionCtx, connector: Connector, method: "GET" | "POST"
   throw new Error(`discord_${response.status}`);
 }
 
+// A non-JSON body would throw a SyntaxError quoting it, and lastError must stay a short code.
+async function readObject(response: Response): Promise<Record<string, unknown>> {
+  const value: unknown = await response.json().catch(() => null);
+  if (typeof value !== "object" || value === null) throw new Error("discord_bad_response");
+  return value as Record<string, unknown>;
+}
+
 // Every new message first proves the channel is a text or announcement channel of the target guild, so a foreign channelId never gets a post.
 async function postMessage(ctx: ActionCtx, connector: Connector, path: string, body: unknown): Promise<string> {
-  const channel = (await (await send(ctx, connector, "GET", path.replace(/\/messages$/, "")))!.json()) as { guild_id?: unknown; type?: unknown };
+  const channel = await readObject((await send(ctx, connector, "GET", path.replace(/\/messages$/, "")))!);
   if (channel.guild_id !== connector.target.guildId || !BOARD_CHANNEL_TYPES.has(channel.type as number)) await pause(ctx, connector, "discord_channel_mismatch");
-  const { id } = (await (await send(ctx, connector, "POST", path, body))!.json()) as { id?: unknown };
+  const { id } = await readObject((await send(ctx, connector, "POST", path, body))!);
   if (typeof id !== "string" || !DISCORD_ID.test(id)) throw new Error("discord_bad_response");
   return id;
 }
@@ -293,11 +296,9 @@ export const discordBoardHandler: SyncKindHandler = {
       return none;
     }
     const body = { embeds: [renderEventEmbed(board.projection)], allowed_mentions: { parse: [] } };
-    if (messageId) {
-      if (await send(ctx, connector, "PATCH", `${path}/${messageId}`, body)) return { externalId: messageId };
-    } else if (board.status !== "scheduled" || board.sortAt > now + BOARD_POST_AHEAD_MS) {
-      return none;
-    }
+    // A live message is edited whatever its status; a new one (none yet, or the old one deleted) only for a postable event.
+    if (messageId && await send(ctx, connector, "PATCH", `${path}/${messageId}`, body)) return { externalId: messageId };
+    if (board.status !== "scheduled" || board.sortAt > now + BOARD_POST_AHEAD_MS) return none;
     return { externalId: await postMessage(ctx, connector, path, body) };
   },
   async exportDelete(ctx, connector, link): Promise<void> {

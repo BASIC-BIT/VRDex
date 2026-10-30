@@ -102,7 +102,9 @@ Connect button. Scope: the Convex deployment environment only. Default: unset,
 which means off; board jobs then fail with `CONNECTOR_KIND_DISABLED`. It also
 needs `VRDEX_EVENT_CONNECTORS_ENABLED`, `DISCORD_BOT_TOKEN`, and `SITE_URL`.
 Owner: the deployment operator (BASIC). Not a secret; recreate it with
-`npx convex env set`, and roll back by setting it to `false`.
+`npx convex env set`, and roll back by setting it to `false`. Pause or
+disconnect existing boards first: while it is `false`, their queued jobs fail
+toward the five-failure connector alarm.
 
 Connector OAuth tokens are stored encrypted with AES-256-GCM in the
 `v1:iv:tag:ciphertext` format, keyed by `VRDEX_CONNECTOR_TOKEN_KEY` (secret).
@@ -483,6 +485,7 @@ Production Convex auth env names:
 - `CLERK_JWT_ISSUER_DOMAIN=https://<clerk-frontend-api>`: production Clerk Frontend API origin, read by `convex/auth.config.ts`. Must match the issuer of the `convex` JWT template on the production Clerk instance
 - `SITE_URL=https://vrdex.net`: builds the Discord verification callback URL
 - `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: production Discord credentials for the purpose-scoped community-verification round-trip. Still required by `convex/discordVerification.ts`; they are no longer sign-in credentials
+- `DISCORD_BOT_TOKEN` (secret): bot token of the production Discord application, read by `convex/_discordRest.ts` for the Discord board connector and by `convex/profileClaims.ts` for the bot claim path. Needed once `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` is on. Scope: the production Convex environment; the [Discord Gateway](discord-gateway.md) holds the same token. Owner: BASIC. Rotate or recreate it by resetting the token in the Discord Developer Portal, then setting the new value with `npx convex env set DISCORD_BOT_TOKEN` and on the gateway together, since the reset revokes the old one
 
 Retired when Clerk replaced Convex Auth, and safe to delete from every Convex
 deployment once the cutover is verified:
