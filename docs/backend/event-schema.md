@@ -291,6 +291,29 @@ First `#121` slice: the event editor can preview and copy one deterministic Disc
 
 The export includes the event title, canonical `/<community>/events/<event-code>` URL, host and world names when projected, Discord timestamp tokens for the event time and slot times, slot lineup rows or public participant rows, and projected public media/watch links. It does not post to Discord, run a bot/Gateway flow, use arbitrary user-authored templates, or include private operator/media-control state.
 
+## Discord Intake
+
+A `discord_announcements` connector turns posts in one Discord channel into held drafts, published events, or updates through `applyEventCandidate` (see [Connectors](#connectors)). The gateway relays each post to `internal.discordIntake.recordMessage`; runs need both `VRDEX_DISCORD_INTAKE_ENABLED` and `VRDEX_EVENT_CONNECTORS_ENABLED` on (see [Convex environments](../deployment/convex-environments.md#discord-intake)).
+
+Tables, in `convex/schema.ts`:
+
+- `discordIntakeMessages`: one row per connector per relayed post, with author, content (at most 12,000 characters), Discord CDN attachments, and `editedAt` or `deletedAt`. `authorUserId` is set only when exactly one VRDex user has verified that Discord ID. Posts created before the connector existed are never recorded, so they are never read. Bot posts are dropped.
+- `discordIntakeRuns`: one debounced run per connector and Discord author: its `triggerMessageIds`, state (`pending`, `running`, `done`, `failed`), the agent's `decision`, a `reason` (the apply outcome, a skip reason, or a failure code), the working `draftId`, the resulting `eventId`, and `startedAt`/`finishedAt`.
+- `discordIntakeSources`: which post fed which event or draft, one row per connector and message, pointing at the run that last used it.
+
+Each post restarts its author's quiet window: the connector's `quietWindowSeconds`, default 120 and clamped to 30..600. Every post from that author in the window joins the same `pending` run, keyed by connector and Discord author, and the run starts once the author goes quiet.
+
+`claimRun` starts a run, or closes it `done` with a skip reason:
+
+- `connector_inactive`: the connector is not `active`, is `off`, or lost its community. A run that is no longer `pending` is left as it is.
+- `authority_lost`: the authority user lost `manage_integrations`; the connector pauses with that `lastError`.
+- `binding_cap`: the connector already started 20 runs this UTC day; it pauses with that `lastError` and `resumeConnector` reopens it at the next UTC midnight if it is still paused for that reason.
+- `source_deleted`: every trigger post was deleted. For each event those posts fed, when every `discordIntakeSources` row of that event points at a deleted post, the connector's link for the event becomes `external_deleted`. The event itself is never touched.
+
+A started run reads the author's posts on the connector from the last 6 hours plus its trigger posts. The source text lists live posts oldest first as `Author (ISO time): content`, keeping the newest posts within 12,000 characters; the source URL is the newest post's; up to three PNG, JPEG, or WebP attachments within the poster size limit are offered as posters, largest first. The agent also receives the events these posts produced before (`priorEvents`), and its `list_events` and `get_event` tools see only published, unremoved events of the connector's community: `list_events` returns those prior events first, then events dated from 7 days ago to 90 days ahead, at most 40; `get_event` returns public fields only, with the `updatedAt` a later update must match.
+
+A Discord link's `externalId` is the first trigger post of the run that created it. A run whose trigger posts already have source rows reuses that earlier run's `externalId`, so an edited or follow-up post finds the same link and event. `saveRunDraft` creates the run's working draft once, owned by the authority user and carrying the connector's id. `finishRun` applies the candidate with the run's ID as the idempotency key; an update patches only the fields the post states explicitly. It records one source row per trigger post for the resulting event or draft, closes the run `done`, and expires the working draft for `not_event`. `failRun` marks the run `failed` and expires its draft. When a connector's three most recently started runs have all failed, ops is emailed once (`discord-intake:` alert key, connector and community IDs and the failure codes only); the next finished run resolves it.
+
 ## Event Link Previews
 
 Published community event pages expose Open Graph and Twitter metadata at the canonical `/<community>/events/<event-code>` route. The crawler-facing query verifies that the routed community is public, the event belongs to that community, and the event is published before returning a deliberately small projection: event title, public description, start/end time, authored timezone, scheduled/cancelled status, public community identity, and one artwork URL.
