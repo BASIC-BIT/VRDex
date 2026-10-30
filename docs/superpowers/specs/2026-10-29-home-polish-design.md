@@ -4,7 +4,7 @@ Status: visual direction approved by BASIC on October 29, 2026. Implementation
 defaults below are identified separately for plan review. Deliver as one
 combined change, not separate feature PRs.
 
-Prototype: <https://vrdex-home-polish-20261029.basicbit.chatgpt.site>.
+Prototype: [Home polish study](https://vrdex-home-polish-20261029.basicbit.chatgpt.site).
 Loading demonstration: add `?loading=slow`; its simulated delay must not enter
 production. Latest prototype source commit: `231a22e9e522b3ab371fbec06a0f0b1e48b3dcd6`.
 The prototype uses illustrative data. It is visual/interaction evidence, not
@@ -103,7 +103,7 @@ Reuse overlap packing with zero artificial travel-time padding for personal
 choices. Preserve explicit overlap feedback and known roster coverage.
 
 Favorite DJs have gold stars by their names. A favorite club has a small gold
-star grouped with its logo, with a Favorite club: {club name} tooltip. Keep
+star grouped with its logo, with a `Favorite club: {club name}` tooltip. Keep
 purple as the interest color. Update these markers without rebuilding bars or
 changing lane height. Truncate long labels with full accessible names.
 
@@ -213,7 +213,7 @@ an implementation call for review, not a new discovery horizon.
 
 Preserve existing approved copy. Utility labels used here include Interested,
 My night, Full lineup, Browse, Next event, Loading, Retry, More, Time TBA,
-Remove interest, Included with event and Favorite club: {name}. Accessible names
+Remove interest, Included with event and `Favorite club: {name}`. Accessible names
 may include full event/performer context. Any newly authored public sentences
 require BASIC's exact-copy review under AGENTS.md.
 
