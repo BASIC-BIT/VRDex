@@ -35,6 +35,7 @@ export const modules: Record<string, () => Promise<unknown>> = {
   "../../convex/search.ts": () => import("../../convex/search"),
   "../../convex/opsAlerts.ts": () => import("../../convex/opsAlerts"),
   "../../convex/opsAlertEmail.ts": () => import("../../convex/opsAlertEmail"),
+  "../../convex/vrchatCalendarConnector.ts": () => import("../../convex/vrchatCalendarConnector"),
 };
 
 // Date and setTimeout are mocked so scheduled functions (a resume's runAfter(0, runJob)) never run mid-test.
@@ -148,15 +149,16 @@ export async function workerSettle(t: T, outcome: {
   });
   const claimed = await t.mutation(internal.clubOperations.claim, worker);
   if (!claimed) throw new Error("No operation to claim.");
-  const { authorized } = await t.mutation(internal.clubOperations.authorizeSubmission, {
+  const authorization = await t.mutation(internal.clubOperations.authorizeSubmission, {
     ...worker, operationId: claimed.operationId, nonce: claimed.nonce,
     authority: {
       groupId: GROUP_ID, userId: BOT_ID, ownerUserId: "usr_99999999-9999-9999-9999-999999999999",
       membershipStatus: "member", permissions: ["group-calendar-manage"], observedAt: Date.now(),
     },
   });
-  if (authorized)
-    await t.mutation(internal.clubOperations.complete, { ...worker, operationId: claimed.operationId, nonce: claimed.nonce, ...outcome });
+  // A refusal would settle the operation on its own; fail loudly so a test asking for `succeeded` never gets `rejected`.
+  if (!authorization.authorized) throw new Error("Submission refused: " + authorization.code);
+  await t.mutation(internal.clubOperations.complete, { ...worker, operationId: claimed.operationId, nonce: claimed.nonce, ...outcome });
   return (await t.run((ctx) => ctx.db.get(claimed.operationId)))!;
 }
 

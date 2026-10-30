@@ -96,6 +96,14 @@ place; each closes as `connectors_disabled` when its run claims it. Keep it off
 until a kind plan registers a sync handler: with no handler every export job
 fails and the connector failure alarm fires.
 
+`VRDEX_CONNECTOR_VRCHAT_CALENDAR_ENABLED` turns the VRChat calendar connector
+kind on when set to `true`. Scope: the Convex deployment environment only.
+Default: unset, which means off. Owner: BASIC. Non-secret; rotation does not
+apply. While it is off, VRChat calendar sync jobs fail with
+`CONNECTOR_KIND_DISABLED` and enqueue no club operations. Enable it only after
+the collector release-readiness check shows a collector running the worker that
+executes calendar operations.
+
 Connector OAuth tokens are stored encrypted with AES-256-GCM in the
 `v1:iv:tag:ciphertext` format, keyed by `VRDEX_CONNECTOR_TOKEN_KEY` (secret).
 

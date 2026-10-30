@@ -1,7 +1,9 @@
+import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import type { VrchatCalendarItem } from "../_clubOperations";
 import { eventDateForInstant, eventLocalTime } from "../_eventSchedule";
 import type { EventIntakeFields } from "../../packages/api-contracts/src/event-intake";
+import { AwaitingClubOperation, type SyncKindHandler } from "./types";
 
 export const VRCHAT_TITLE_MAX = 64;
 export const DEFAULT_DURATION_MS = 4 * 3_600_000;
@@ -59,3 +61,26 @@ export function fieldsFromVrchatEvent(item: VrchatCalendarItem, zone: string, si
     summary: cutUnits(paragraphs.join("\n\n").trim(), SUMMARY_MAX).trimEnd() || null,
   };
 }
+
+export const vrchatCalendarEnabled = (): boolean => process.env.VRDEX_CONNECTOR_VRCHAT_CALENDAR_ENABLED === "true";
+
+export function requireVrchatCalendarEnabled(): void {
+  if (!vrchatCalendarEnabled()) throw new Error("CONNECTOR_KIND_DISABLED");
+}
+
+// Each method runs one step of vrchatCalendarConnector's state machine; VRChat writes go only through club operations.
+export const vrchatCalendarHandler: SyncKindHandler = {
+  async exportUpsert(ctx, _connector, _event, _link, job) {
+    requireVrchatCalendarEnabled();
+    const result = await ctx.runMutation(internal.vrchatCalendarConnector.advanceExport, { jobId: job._id });
+    if (result.kind === "await") return AwaitingClubOperation;
+    if (result.kind === "failed") throw new Error(result.code);
+    return { externalId: result.externalId };
+  },
+  async exportDelete(ctx, _connector, _link, job) {
+    requireVrchatCalendarEnabled();
+    const result = await ctx.runMutation(internal.vrchatCalendarConnector.advanceDelete, { jobId: job._id });
+    if (result.kind === "await") return AwaitingClubOperation;
+    if (result.kind === "failed") throw new Error(result.code);
+  },
+};

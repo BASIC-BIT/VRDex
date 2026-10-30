@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { convexTest } from "convex-test";
+import { beforeEach, describe, it } from "node:test";
+import { convexTest, type TestConvex } from "convex-test";
 import schemaModule from "../../convex/schema";
-import type { Doc } from "../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { carriedFieldsHash } from "../../convex/_eventConnectors";
 import { correctionFields } from "../../convex/eventCorrections";
 import { exportPayloadFromEvent, fieldsFromVrchatEvent, truncateTitle } from "../../convex/eventSyncKinds/vrchatCalendar";
-import { EVENT_URL, SITE, eventDoc, modules, seedEvent, seedVrchatConnector, vrchatItem } from "./_vrchatCalendarFixture";
+import type { VrchatJobPayload } from "../../convex/vrchatCalendarConnector";
+import {
+  CAL_1, EVENT_URL, NOW, SITE, eventDoc, modules, operations, rerunJob, runSyncJob, seedEvent, seedVrchatConnector, setupEnv, vrchatItem, workerSettle,
+} from "./_vrchatCalendarFixture";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 
@@ -90,5 +93,229 @@ describe("vrchat calendar mapping", () => {
     const foreign = fieldsFromVrchatEvent(vrchatItem({ description: "Doors at 8.\n\nBring friends." }), "UTC", SITE, null);
     assert.equal(foreign.summary, "Doors at 8.\n\nBring friends.");
     assert.equal(fieldsFromVrchatEvent(vrchatItem({ description: "y".repeat(300) }), "UTC", SITE, null).summary!.length, 240);
+  });
+});
+
+describe("vrchat calendar export", () => {
+  beforeEach(setupEnv);
+  const long = "Bass Temple presents an extremely long night of low frequencies and friends";
+  const link = (t: TestConvex<typeof schema>, connectorId: Id<"eventConnectors">, eventId: Id<"events">, extra: Partial<Doc<"eventSyncLinks">> = {}) =>
+    t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId, eventId, externalId: CAL_1, state: "linked", createdAt: NOW, updatedAt: NOW, ...extra }));
+  const linkOf = async (t: TestConvex<typeof schema>, eventId: Id<"events">) =>
+    (await t.run((ctx) => ctx.db.query("eventSyncLinks").withIndex("by_eventId", (q) => q.eq("eventId", eventId)).collect()))[0];
+  const creates = async (t: TestConvex<typeof schema>) => (await operations(t)).filter((op) => op.payload.kind === "create_calendar_event").length;
+  const expireLease = (t: TestConvex<typeof schema>, jobId: Id<"eventSyncJobs">, extra: Partial<Doc<"eventSyncJobs">> = {}) =>
+    t.run((ctx) => ctx.db.patch(jobId, { leaseExpiresAt: NOW, ...extra }));
+
+  it("no link: reads the dates first, then creates with a truncated title and no notification field", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId, { title: long, endAt: undefined });
+    let job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    assert.deepEqual([job.state, job.attempts, job.leaseExpiresAt], ["running", 0, NOW + 30 * 60_000]);
+    assert.deepEqual((await operations(t))[0].payload, { kind: "list_calendar_events", from: "2026-11-06T00:00:00.000Z", to: "2026-11-09T00:00:00.000Z" });
+    await workerSettle(t, { status: "succeeded", result: { calendarEvents: [], calendarEventsTruncated: false } });
+    job = await rerunJob(t, job._id);
+    const create = (await operations(t))[1];
+    assert.equal(create.connectorSync?.jobId, job._id);
+    assert.equal(create.eventId, undefined);
+    assert.deepEqual(create.payload, { kind: "create_calendar_event", title: long.slice(0, 63) + "…", description: "Weekly bass night.\n\n" + EVENT_URL,
+      startsAt: "2026-11-08T01:00:00.000Z", endsAt: "2026-11-08T05:00:00.000Z", accessType: "group" });
+    await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1 } });
+    assert.equal((await rerunJob(t, job._id)).state, "done");
+    const event = (await t.run((ctx) => ctx.db.get(eventId)))!;
+    const row = await linkOf(t, eventId);
+    assert.deepEqual([row.externalId, row.state, row.lastExportedAt], [CAL_1, "linked", NOW]);
+    assert.equal(row.lastExportedHash, carriedFieldsHash("vrchat_calendar", await t.run((ctx) => correctionFields(ctx.db, event))));
+  });
+
+  it("matches an existing VRChat entry instead of creating, and sends relative artwork as a site URL", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId, { posterImageUrl: "/posters/bass.png" });
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    // Same local date in New York with the title differing only in case and padding; the other item is the night before.
+    await workerSettle(t, { status: "succeeded", result: { calendarEvents: [
+      vrchatItem({ id: "cal_00000000-0000-0000-0000-000000000009", startsAt: "2026-11-07T01:00:00.000Z" }), vrchatItem({ title: " BASS TEMPLE " }),
+    ] } });
+    await rerunJob(t, job._id);
+    const ops = await operations(t);
+    const update = ops[1].payload as { kind: string; calendarEventId: string; imageUrl?: string };
+    assert.deepEqual([ops.length, update.kind, update.calendarEventId, update.imageUrl], [2, "update_calendar_event", CAL_1, SITE + "/posters/bass.png"]);
+    await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1 } });
+    assert.equal((await rerunJob(t, job._id)).state, "done");
+    const row = await linkOf(t, eventId);
+    assert.deepEqual([row.externalId, row.externalArtworkUrl], [CAL_1, SITE + "/posters/bass.png"]);
+  });
+
+  it("an indeterminate create retries through a read and links the entry", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId);
+    let job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    await workerSettle(t, { status: "succeeded", result: { calendarEvents: [] } });
+    await rerunJob(t, job._id);
+    await workerSettle(t, { status: "indeterminate", code: "submission_outcome_unknown" });
+    job = await rerunJob(t, job._id);
+    assert.notEqual(job.state, "done");
+    assert.equal((job.payload as VrchatJobPayload).operationId, undefined);
+    await t.run((ctx) => ctx.db.patch(job._id, { state: "pending", dueAt: NOW }));
+    job = await rerunJob(t, job._id);
+    assert.equal((await operations(t))[2].payload.kind, "list_calendar_events");
+    await workerSettle(t, { status: "succeeded", result: { calendarEvents: [vrchatItem()] } });
+    await rerunJob(t, job._id);
+    assert.equal((await operations(t)).at(-1)!.payload.kind, "update_calendar_event");
+    await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1 } });
+    await rerunJob(t, job._id);
+    assert.equal(await creates(t), 1);
+    assert.equal((await linkOf(t, eventId)).externalId, CAL_1);
+  });
+
+  it("a linked update sends artwork only when it changed and resumes from the callback", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId, { posterImageUrl: "https://media.vrdex.test/poster.png" });
+    await link(t, connectorId!, eventId, { externalArtworkUrl: "https://media.vrdex.test/poster.png" });
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    const [op] = await operations(t);
+    assert.deepEqual([op.payload.kind, "imageUrl" in op.payload], ["update_calendar_event", false]);
+    await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1 } });
+    assert.ok((await t.run((ctx) => ctx.db.get(job._id)))!.leaseExpiresAt! <= NOW);
+    assert.equal((await rerunJob(t, job._id)).state, "done");
+  });
+
+  // A cancelled event stays published, so the runner keeps export_upsert and the kind deletes; completeJob keeps the link linked.
+  it("a cancelled event deletes the linked entry and leaves a none: link", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId, { eventStatus: "cancelled" });
+    await link(t, connectorId!, eventId);
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    assert.deepEqual([job.kind, (await operations(t))[0].payload], ["export_upsert", { kind: "delete_calendar_event", calendarEventId: CAL_1 }]);
+    await workerSettle(t, { status: "succeeded" });
+    assert.equal((await rerunJob(t, job._id)).state, "done");
+    const row = await linkOf(t, eventId);
+    assert.deepEqual([row.externalId, row.state], ["none:" + eventId, "linked"]);
+    // Nothing left to delete: a second run writes nothing.
+    assert.equal((await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId })).state, "done");
+    assert.equal((await operations(t)).length, 1);
+  });
+
+  it("an exported event made date-only deletes its entry", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId, { scheduleKind: "date_only", startAt: undefined, endAt: undefined });
+    await link(t, connectorId!, eventId);
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    assert.deepEqual((await operations(t))[0].payload, { kind: "delete_calendar_event", calendarEventId: CAL_1 });
+    await workerSettle(t, { status: "rejected", code: "visibility" });
+    assert.equal((await rerunJob(t, job._id)).state, "done");
+    assert.equal((await linkOf(t, eventId)).externalId, "none:" + eventId);
+  });
+
+  it("export_delete treats an entry already gone as done", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId, { publicationState: "draft_private" });
+    await link(t, connectorId!, eventId);
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_delete", eventId });
+    assert.equal((await operations(t))[0].payload.kind, "delete_calendar_event");
+    await workerSettle(t, { status: "rejected", code: "visibility" });
+    assert.equal((await rerunJob(t, job._id)).state, "done");
+    assert.equal((await linkOf(t, eventId)).state, "vrdex_retracted");
+  });
+
+  it("export_delete of a none: link writes nothing", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId, { publicationState: "draft_private" });
+    await link(t, connectorId!, eventId, { externalId: "none:" + eventId });
+    assert.equal((await runSyncJob(t, { connectorId: connectorId!, kind: "export_delete", eventId })).state, "done");
+    assert.equal((await operations(t)).length, 0);
+  });
+
+  it("an update to an entry deleted in VRChat flags the link", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId);
+    await link(t, connectorId!, eventId);
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    await workerSettle(t, { status: "rejected", code: "visibility" });
+    assert.equal((await rerunJob(t, job._id)).state, "done");
+    assert.equal((await linkOf(t, eventId)).state, "external_deleted");
+    // Never recreate a copy the organiser removed.
+    assert.equal((await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId })).state, "done");
+    assert.equal((await operations(t)).length, 1);
+  });
+
+  it("a second export waits while the first create is in flight and then updates", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId);
+    let first = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    await workerSettle(t, { status: "succeeded", result: { calendarEvents: [] } });
+    first = await rerunJob(t, first._id);
+    const second = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    assert.deepEqual([second.state, second.dueAt], ["pending", first.leaseExpiresAt]);
+    assert.deepEqual([(await operations(t)).length, await creates(t)], [2, 1]);
+    await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1 } });
+    assert.equal((await rerunJob(t, first._id)).state, "done");
+    await rerunJob(t, second._id);
+    assert.equal((await operations(t)).at(-1)!.payload.kind, "update_calendar_event");
+    assert.equal(await creates(t), 1);
+  });
+
+  it("re-enqueues a missed operation without spending an attempt", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId);
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    const [missed] = await operations(t);
+    await t.run((ctx) => ctx.db.patch(missed._id, { state: "missed", code: "late_window_elapsed", completedAt: NOW }));
+    await expireLease(t, job._id);
+    const again = await rerunJob(t, job._id);
+    const ops = await operations(t);
+    assert.deepEqual([again.state, again.attempts, ops.length, ops[1].payload], ["running", 0, 2, missed.payload]);
+    assert.equal((again.payload as VrchatJobPayload).operationId, ops[1]._id);
+  });
+
+  it("fails a wait past six hours but keeps the in-flight create, and never creates twice", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId);
+    let job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    await workerSettle(t, { status: "succeeded", result: { calendarEvents: [] } });
+    job = await rerunJob(t, job._id);
+    const createId = (job.payload as VrchatJobPayload).operationId;
+    await expireLease(t, job._id, { payload: { ...(job.payload as object), waitingSince: NOW - 6 * 3_600_000 - 1 } });
+    job = await rerunJob(t, job._id);
+    assert.deepEqual([job.state, job.lastError, (job.payload as VrchatJobPayload).operationId], ["pending", "vrchat_operation_stalled", createId]);
+    await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1 } });
+    assert.equal((await rerunJob(t, job._id)).state, "done");
+    assert.equal(await creates(t), 1);
+    assert.equal((await linkOf(t, eventId)).externalId, CAL_1);
+  });
+
+  it("pauses the connector when its authority lost manage_events", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t, { authority: "integrations_only" });
+    const eventId = await seedEvent(t, communityProfileId);
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    const connector = (await t.run((ctx) => ctx.db.get(connectorId!)))!;
+    assert.deepEqual([job.state, job.lastError, connector.state, connector.lastError], ["pending", "authority_lost", "paused", "authority_lost"]);
+    assert.equal((await operations(t)).length, 0);
+  });
+
+  it("does not export date-only events, and does nothing with the flag off", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const dateOnly = await seedEvent(t, communityProfileId, { scheduleKind: "date_only", startAt: undefined, endAt: undefined });
+    assert.equal((await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId: dateOnly })).state, "done");
+    assert.equal((await linkOf(t, dateOnly)).externalId, "none:" + dateOnly);
+    process.env.VRDEX_CONNECTOR_VRCHAT_CALENDAR_ENABLED = "false";
+    const timed = await seedEvent(t, communityProfileId, { slug: "other-night" });
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId: timed });
+    assert.deepEqual([job.state, job.lastError], ["pending", "CONNECTOR_KIND_DISABLED"]);
+    assert.equal((await operations(t)).length, 0);
   });
 });

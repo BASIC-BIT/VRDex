@@ -235,6 +235,7 @@ import type * as suppressions from "../suppressions.js";
 import type * as temporalParsing from "../temporalParsing.js";
 import type * as temporalParsingActions from "../temporalParsingActions.js";
 import type * as users from "../users.js";
+import type * as vrchatCalendarConnector from "../vrchatCalendarConnector.js";
 import type * as vrclinkingCredentials from "../vrclinkingCredentials.js";
 import type * as worlds from "../worlds.js";
 
@@ -472,6 +473,7 @@ declare const fullApi: ApiFromModules<{
   temporalParsing: typeof temporalParsing;
   temporalParsingActions: typeof temporalParsingActions;
   users: typeof users;
+  vrchatCalendarConnector: typeof vrchatCalendarConnector;
   vrclinkingCredentials: typeof vrclinkingCredentials;
   worlds: typeof worlds;
 }>;
