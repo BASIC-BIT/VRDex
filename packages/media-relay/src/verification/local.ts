@@ -609,6 +609,11 @@ export async function runLocalProof(options: ProofOptions) {
         .map(async (pid) => {
           try {
             process.kill(pid, 0);
+            // Process identity/state only: never include argv, paths or credentials.
+            const processStat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => null);
+            const fields = processStat?.slice(processStat.lastIndexOf(")") + 2).split(" ");
+            const name = (await readFile(`/proc/${pid}/comm`, "utf8").catch(() => "unknown")).trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32);
+            diagnostics.push(`cleanup-live name=${name} pid=${pid} state=${fields?.[0] ?? "unknown"} ppid=${fields?.[1] ?? "unknown"} group=${fields?.[2] ?? "unknown"} start=${fields?.[19] ?? "unknown"}`);
             return 1;
           } catch {
             return 0;

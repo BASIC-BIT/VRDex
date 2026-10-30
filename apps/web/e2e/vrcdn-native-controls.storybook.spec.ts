@@ -14,7 +14,9 @@ for (const story of ["media-vrcdn-player-controls--native-video", "media-vrcdn-p
     for (const button of [audio, video]) { const box = await button.boundingBox(); expect(box!.height).toBeGreaterThanOrEqual(44); expect(box!.width).toBeGreaterThanOrEqual(44); }
     const pip = page.getByRole("button", { name: "Picture in picture", exact: true });
     if (await pip.count()) await expect(pip).toBeDisabled();
-    const screenshot = info.outputPath(`${story}-${info.project.name}.png`);
-    await page.screenshot({ path: screenshot, fullPage: true }); await info.attach("native-controls", { path: screenshot, contentType: "image/png" });
+    if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+      const screenshot = info.outputPath(`${story}-${info.project.name}.png`);
+      await page.screenshot({ path: screenshot, fullPage: true }); await info.attach("native-controls", { path: screenshot, contentType: "image/png" });
+    }
   });
 }

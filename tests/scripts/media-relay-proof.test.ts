@@ -58,7 +58,7 @@ test(
       );
       assert.equal(evidence.target, "local");
       assert.equal(evidence.providerCalls, 0);
-      assert.equal(evidence.cleanup.childrenAlive, 0);
+      assert.equal(evidence.cleanup.childrenAlive, 0, JSON.stringify({ cleanup: evidence.cleanup, failures: evidence.failures, diagnostics: evidence.diagnostics }));
       assert.equal(evidence.cleanup.scratchBytes, 0);
       assert.ok(evidence.metrics.maxActiveSources >= 2);
       assert.ok(evidence.metrics.cpuSeconds > 0);
@@ -102,7 +102,7 @@ test(
         ]),
       );
       assert.ok(evidence.failures.includes("deadline exceeded"));
-      assert.equal(evidence.cleanup.childrenAlive, 0);
+      assert.equal(evidence.cleanup.childrenAlive, 0, JSON.stringify({ cleanup: evidence.cleanup, failures: evidence.failures, diagnostics: evidence.diagnostics }));
       assert.equal(evidence.cleanup.scratchBytes, 0);
     } finally {
       await rm(output, { recursive: true, force: true });
@@ -140,7 +140,7 @@ test(
       assert.equal(evidence.metrics.storageOperations.PUT, 0);
       assert.ok(evidence.failures.includes("not all sources became ready"));
       assert.equal(evidence.partialDiskBoundVerified, false);
-      assert.equal(evidence.cleanup.childrenAlive, 0);
+      assert.equal(evidence.cleanup.childrenAlive, 0, JSON.stringify({ cleanup: evidence.cleanup, failures: evidence.failures, diagnostics: evidence.diagnostics }));
       assert.equal(evidence.cleanup.scratchBytes, 0);
     } finally {
       await rm(output, { recursive: true, force: true });
@@ -165,7 +165,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
       assert.deepEqual((await readdir(root)).filter(n => n.startsWith("relay-proof-work-")), []);
       const evidence = JSON.parse(await readFile(join(root, "out/evidence.json"), "utf8"));
       assert.ok(evidence.failures.includes("operator interrupted"));
-      assert.equal(evidence.cleanup.childrenAlive, 0);
+      assert.equal(evidence.cleanup.childrenAlive, 0, JSON.stringify({ cleanup: evidence.cleanup, failures: evidence.failures, diagnostics: evidence.diagnostics }));
     } finally {
       child.kill("SIGKILL");
       // On RED, terminate only this test's detached descendant via its unique output argument.
