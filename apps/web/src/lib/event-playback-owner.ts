@@ -63,7 +63,7 @@ export type PlaybackStatus =
 export type PlaybackSnapshot = {
   request?: PlaybackRequest;
   status: PlaybackStatus;
-  unavailableReason?: "unsupported";
+  unavailableReason?: "unsupported" | "ended";
   mode: PlaybackMode;
   volume: number;
   muted: boolean;

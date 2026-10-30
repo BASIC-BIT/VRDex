@@ -206,6 +206,7 @@ describe("optional browser and visual evidence contract", () => {
     assert.equal(account.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS, "${{ needs.visual-selection.outputs.visuals }}");
   });
   it("requires real current-branch claim coverage on a local backend without exposing keys to forks", () => {
+    assert.equal(workflow.jobs["playwright-data-flow"]["timeout-minutes"], 30, "Budget includes existing flows, composed media coverage, and artifacts");
     const steps = workflow.jobs["playwright-data-flow"].steps;
     const claim = steps.find((step: { id?: string }) => step.id === "claim-auth");
     assert.ok(claim, "The current-branch signed-in claim regression must have a CI execution target");

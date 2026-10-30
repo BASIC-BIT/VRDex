@@ -73,6 +73,13 @@ export function createEventPlaybackAdapter(
     disposed = false,
     attempt = 0;
   let failed = false;
+  const connectionEnded = () => {
+    if (disposed || failed) return;
+    if ("profileId" in request) {
+      failed = true;
+      notify({ status: "unavailable", unavailableReason: "ended" });
+    } else notify({ status: "paused" });
+  };
   const listeners: Array<[string, () => void]> = [
     [
       "playing",
@@ -89,12 +96,7 @@ export function createEventPlaybackAdapter(
         if (!disposed && !failed) notify({ status: "paused" });
       },
     ],
-    [
-      "ended",
-      () => {
-        if (!disposed && !failed) notify({ status: "paused" });
-      },
-    ],
+    ["ended", connectionEnded],
     [
       "error",
       () => {
@@ -117,6 +119,7 @@ export function createEventPlaybackAdapter(
           if (!mpegts.isSupported())
             throw new Error("Unsupported media transport");
           player = attachVrcdnTransport(mpegts, video, request.src, {
+            ...( "profileId" in request ? { onLoadingComplete: connectionEnded } : {} ),
             onError: () => {
               if (!disposed) {
                 failed = true;

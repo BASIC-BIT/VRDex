@@ -140,3 +140,21 @@ test("relay rollout preserves profile and event direct video while audio never l
     }
   } finally { fixture.restore(); }
 });
+
+test("profile EOF requires explicit fresh playback while event EOF remains paused", async () => {
+  const fixture = dom();
+  const owner = new EventPlaybackOwner((value, notify) => createEventPlaybackAdapter(value, fixture.mount, notify));
+  const profile: PlaybackRequest = {kind:"vrcdn",profileId:"profile",profileSlug:"dj",title:"DJ - VRDex",href:"/dj",sourceId:"Alpha",src:"/direct.mp4",transport:"video"};
+  try {
+    await owner.play(profile);
+    const video = fixture.nodes[0];
+    video.dispatchEvent(new Event("ended"));
+    assert.equal(owner.getSnapshot().status,"unavailable");
+    assert.equal(owner.getSnapshot().unavailableReason,"ended");
+    await owner.play(profile);
+    assert.equal(fixture.nodes.length,2);
+    assert.equal(video.removed,true);
+    assert.equal(owner.getSnapshot().status,"playing");
+    assert.equal(owner.getSnapshot().unavailableReason,undefined);
+  } finally {owner.close();fixture.restore();}
+});
