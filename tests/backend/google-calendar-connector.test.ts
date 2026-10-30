@@ -305,6 +305,22 @@ describe("google calendar mapping and export", () => {
     assert.equal(renamed.summary, "A New Title");
   });
 
+  it("adopting an existing item keeps Google's richer values too", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "export" });
+    const eventId = await seedEvent(t, communityProfileId, { summary: "x".repeat(240), venueLabel: "V".repeat(120) });
+    const item = googleItem({ id: "existing-1", description: rich, location: "V".repeat(150) });
+    const fake = fakeFetch(({ method }) => method === "GET" ? Response.json({ items: [item], timeZone: "UTC" }) : Response.json(item));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId });
+    fake.restore();
+    assert.deepEqual(fake.calls.map((c) => c.method), ["GET", "PATCH"]);
+    const patch = patchOf(fake.calls);
+    assert.equal(patch.description, `${rich}\n\n${EVENT_URL}`);
+    assert.equal((patch.description as string).split(EVENT_URL).length, 2);
+    assert.equal("location" in patch, false);
+    assert.equal(fake.calls[0].url.searchParams.has("showDeleted"), false);
+  });
+
   it("leaves a description that already ends with the event URL as it is", async () => {
     const description = `<p>${rich}</p><br><a href="${EVENT_URL}">${EVENT_URL}</a>`;
     const { calls } = await linkedExport({ summary: "x".repeat(240) }, () => Response.json(googleItem({ description })));
@@ -365,6 +381,12 @@ describe("google calendar mapping and export", () => {
     assert.deepEqual(calls, ["GET events", "PATCH existing-1"]);
   });
 
+  it("does not adopt a private or confidential item of the same date and title", async () => {
+    for (const visibility of ["private", "confidential"] as const) {
+      assert.deepEqual(await dedupeExport({}, googleItem({ id: "existing-1", visibility })), ["GET events", "POST events"]);
+    }
+  });
+
   it("adopts an external item held only by an import draft", async () => {
     const t = convexTest({ schema, modules });
     const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
@@ -393,6 +415,12 @@ describe("google calendar mapping and export", () => {
     fake.restore();
     assert.equal(fake.calls[0].method, "DELETE");
     assert.equal(job.state, "done");
+  });
+
+  it("leaves no tag behind from nested markup", () => {
+    const fields = fieldsFromGoogleEvent(googleItem({ description: "Doors<br><<b>script>alert(1)<</b>/script>" }), "UTC", SITE);
+    assert.doesNotMatch(fields.summary!, /<[^>]*>/);
+    assert.equal(fields.summary, "Doors\nscript>alert(1)/script>");
   });
 
   it("reads descriptions edited in Google's UI as plain text, and tolerates an item with no times", () => {
@@ -690,6 +718,27 @@ describe("google calendar import", () => {
     const [link] = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
     assert.equal(link.externalId, "g-new");
     assert.ok(link.draftId);
+  });
+
+  it("a resync after a 410 still sees deletions, and only polls ask for them", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "import", target: { calendarId: "cal-1", syncToken: "stale-token" } });
+    const eventId = await seedEvent(t, communityProfileId);
+    const linkId = await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId, eventId, externalId: "g1", state: "linked", externalUpdatedAt: Date.parse("2026-11-02T10:00:00.000Z"), createdAt: NOW, updatedAt: NOW }));
+    const gone = { id: "g1", status: "cancelled", updated: "2026-11-02T11:59:59.000Z" };
+    const fake = fakeFetch(({ url }) => {
+      if (url.pathname.endsWith("/watch")) return Response.json({ resourceId: "res-1", expiration: String(NOW + 604_800_000) });
+      if (url.searchParams.get("syncToken") === "stale-token") return new Response("", { status: 410 });
+      // Google's default: a list with no sync token hides deleted items.
+      return Response.json({ items: url.searchParams.get("showDeleted") === "true" ? [gone] : [], nextSyncToken: "fresh-token", timeZone: "America/New_York" });
+    });
+    await runSyncJob(t, { connectorId, kind: "import_poll" });
+    assert.deepEqual(fake.calls.map((c) => c.url.searchParams.get("showDeleted")), ["true", "true"]);
+    assert.equal((await t.run((ctx) => ctx.db.get(linkId)))!.state, "external_deleted");
+    await runSyncJob(t, { connectorId, kind: "reconcile" });
+    fake.restore();
+    const reconcileList = fake.calls.find((c) => c.url.searchParams.has("timeMin"))!;
+    assert.equal(reconcileList.url.searchParams.has("showDeleted"), false);
   });
 
   // Ruling C5: the edit waits behind the held draft, so the link must not record having seen it.

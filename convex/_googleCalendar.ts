@@ -125,10 +125,11 @@ async function google<T>(token: string, method: string, path: string, options: {
 
 const eventsPath = (calendarId: string) => `/calendars/${encodeURIComponent(calendarId)}/events`;
 
-export async function listEvents(token: string, calendarId: string, params: { syncToken?: string; pageToken?: string; timeMin?: string; timeMax?: string }): Promise<{ items: GoogleCalendarEvent[]; nextPageToken?: string; nextSyncToken?: string; timeZone: string }> {
+export async function listEvents(token: string, calendarId: string, params: { syncToken?: string; pageToken?: string; timeMin?: string; timeMax?: string; showDeleted?: boolean }): Promise<{ items: GoogleCalendarEvent[]; nextPageToken?: string; nextSyncToken?: string; timeZone: string }> {
+  const { showDeleted, ...query } = params;
   const page = await google<{ items?: GoogleCalendarEvent[]; nextPageToken?: string; nextSyncToken?: string; timeZone: string }>(token, "GET", eventsPath(calendarId), {
     // Without eventTypes Google also returns birthdays, out-of-office, working location, and Gmail-derived entries.
-    query: { ...params, singleEvents: "true", maxResults: "250", eventTypes: "default" },
+    query: { ...query, singleEvents: "true", maxResults: "250", eventTypes: "default", showDeleted: showDeleted ? "true" : undefined },
   });
   return { ...page, items: (page.items ?? []).map(pickItem) };
 }

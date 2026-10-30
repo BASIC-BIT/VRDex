@@ -38,10 +38,21 @@ const clip = (value: string | undefined, max: number) => value?.trim().slice(0, 
 
 const lastLine = (lines: string[]) => lines[lines.length - 1];
 
+// One pass already reaches a fixed point with this regex; repeating states that guarantee for CodeQL's multi-character sanitization rule.
+function stripTags(html: string): string {
+  let text = html;
+  let previous: string;
+  do {
+    previous = text;
+    text = text.replace(/<[^>]*>/g, "");
+  } while (text !== previous);
+  return text;
+}
+
 // Google's UI saves descriptions as HTML; read them back as the plain text we export, split into lines with no trailing blanks.
 function descriptionLines(description: string): string[] {
   // Only Google's editor writes HTML; a plain-text summary with < or &amp; must round-trip unchanged.
-  const text = !/<br|<p|<\//i.test(description) ? description : description.replace(/<br\s*\/?>|<\/p>/gi, "\n").replace(/<[^>]*>/g, "").replace(/&(amp|lt|gt|quot|#39|nbsp);/g, entity => ENTITIES[entity]!);
+  const text = !/<br|<p|<\//i.test(description) ? description : stripTags(description.replace(/<br\s*\/?>|<\/p>/gi, "\n")).replace(/&(amp|lt|gt|quot|#39|nbsp);/g, entity => ENTITIES[entity]!);
   const lines = text.split("\n");
   while (lastLine(lines)?.trim() === "") lines.pop();
   return lines;
@@ -127,7 +138,7 @@ export function outsideImportWindow(item: GoogleCalendarEvent, fields: EventInta
 const MAX_PAGES = 200;
 
 // Every page of one list; the last page carries the sync token.
-async function listAll(token: string, calendarId: string, params: { syncToken?: string; timeMin?: string; timeMax?: string }) {
+async function listAll(token: string, calendarId: string, params: { syncToken?: string; timeMin?: string; timeMax?: string; showDeleted?: boolean }) {
   const items: GoogleCalendarEvent[] = [];
   let pageToken: string | undefined;
   let page: Awaited<ReturnType<typeof listEvents>>;
@@ -155,13 +166,14 @@ export const googleCalendarHandler: SyncKindHandler = {
     const { syncToken } = connector.target;
     const list = await withGoogleToken(ctx, credentialId, async token => {
       try {
-        return await listAll(token, calendarId, { syncToken });
+        return await listAll(token, calendarId, { syncToken, showDeleted: true });
       } catch (error) {
         if (!(syncToken && error instanceof GoogleApiError && error.status === 410)) throw error;
       }
       // Google forbids timeMin and timeMax alongside a sync token, so the list that seeds the next one has no bounds either.
       // ponytail: full resync pages the whole calendar in one action; split by page into jobs if a calendar outgrows the action time limit.
-      return await listAll(token, calendarId, {});
+      // showDeleted so a deletion in the gap still flags its link; a full list hides tombstones by default.
+      return await listAll(token, calendarId, { showDeleted: true });
     });
     for (const item of list.items) {
       const args = { connectorId: connector._id, item, calendarTimeZone: list.timeZone };
@@ -210,11 +222,10 @@ export const googleCalendarHandler: SyncKindHandler = {
         const title = clip(event.title, 120)?.toLowerCase();
         const timezone = event.timezone ?? "UTC";
         const candidates = page.items
-          .filter(item => itemDate(item, timezone) === eventDate && clip(item.summary, 120)?.toLowerCase() === title)
-          .map(item => item.id);
-        const linked = candidates.length ? await ctx.runQuery(internal.googleCalendarConnector.linkedExternalIds, { connectorId: connector._id, externalIds: candidates }) : [];
-        const match = candidates.find(id => !linked.includes(id));
-        if (match) return { externalId: (await patchEvent(token, calendarId, match, patch)).id };
+          .filter(item => !isPrivateItem(item) && itemDate(item, timezone) === eventDate && clip(item.summary, 120)?.toLowerCase() === title);
+        const linked = candidates.length ? await ctx.runQuery(internal.googleCalendarConnector.linkedExternalIds, { connectorId: connector._id, externalIds: candidates.map(item => item.id) }) : [];
+        const match = candidates.find(item => !linked.includes(item.id));
+        if (match) return { externalId: (await patchEvent(token, calendarId, match.id, patchKeepingGoogle(patch, match, event, eventUrl, siteUrl))).id };
       }
       return { externalId: (await insertEvent(token, calendarId, body)).id };
     });
