@@ -122,7 +122,7 @@ it("a success after the alert sends exactly one resolved email; a success with n
   const quiet = await f.insertConnector({ target: { calendarId: "quiet" } });
   await succeed(quiet);
   assert.equal((await sends(f)).length, 0);
-  const noisy = await f.insertConnector({ consecutiveFailures: 5 });
+  const noisy = await f.insertConnector({ direction: "export", consecutiveFailures: 5 });
   await f.t.run(ctx => notifyOps(ctx, { key: `connector-failures:${noisy}`, subject: "Event connector failing", body: "x" }));
   await succeed(noisy);
   await succeed(noisy);

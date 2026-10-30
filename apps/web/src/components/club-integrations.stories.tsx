@@ -6,6 +6,7 @@ import {
 } from "@/app/account/communities/[slug]/club-integrations";
 import { GoogleCalendarConnectView } from "@/app/account/communities/[slug]/club-google-calendar";
 import type { Connector, GoogleCalendar } from "@/app/account/communities/[slug]/club-integrations-model";
+import { VrchatCalendarConnectView } from "@/app/account/communities/[slug]/club-vrchat-calendar";
 import { DiscordBoardConnectView } from "@/app/account/communities/[slug]/discord-board-connect";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -100,7 +101,15 @@ function BoardConnect({ initial, onConnected }: { initial: BoardState; onConnect
   );
 }
 
-function Preview({ connectors = fixtures, board, google }: { connectors?: Connector[]; board?: BoardState; google?: GooglePreview }) {
+const withoutCalendar = fixtures.filter((connector) => connector.kind !== "vrchat_calendar");
+
+function Preview({ connectors = fixtures, board, google, calendar, connectFails = false }: {
+  connectors?: Connector[];
+  board?: BoardState;
+  google?: GooglePreview;
+  calendar?: { enabled: boolean; ready: boolean };
+  connectFails?: boolean;
+}) {
   const [rows, setRows] = useState(connectors);
   const [picker, setPicker] = useState(google?.calendars);
   const [submitted, setSubmitted] = useState("");
@@ -117,6 +126,16 @@ function Preview({ connectors = fixtures, board, google }: { connectors?: Connec
             : row));
         }}
         onRemove={async (connectorId) => setRows((current) => current.filter((row) => row.connectorId !== connectorId))}
+        vrchatCalendarConnect={
+          <VrchatCalendarConnectView
+            availability={calendar}
+            onConnect={async (direction) => {
+              if (connectFails) throw new Error("CONNECTOR_EXISTS");
+              setSubmitted(JSON.stringify({ kind: "vrchat_calendar", direction }));
+              setRows((current) => [...current, row({ connectorId: id("connected"), kind: "vrchat_calendar", direction, mode: "hold", state: "active", target: { groupId: "grp_afterhours" } })]);
+            }}
+          />
+        }
         connect={<>
           {google ? (
             <GoogleCalendarConnectView
@@ -151,6 +170,10 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Connectors: Story = {};
 export const Empty: Story = { args: { connectors: [] } };
+export const CalendarReady: Story = { args: { connectors: withoutCalendar, calendar: { enabled: true, ready: true } } };
+export const CalendarNotReady: Story = { args: { connectors: withoutCalendar, calendar: { enabled: true, ready: false } } };
+export const CalendarFlagOff: Story = { args: { connectors: withoutCalendar, calendar: { enabled: false, ready: false } } };
+export const CalendarConnectFails: Story = { args: { connectors: [], calendar: { enabled: true, ready: true }, connectFails: true } };
 export const GoogleConnect: Story = { args: { connectors: [], google: {} } };
 export const GoogleCalendarPicker: Story = { args: { connectors: [], google: { calendars } } };
 export const GoogleSaveFails: Story = { args: { connectors: [], google: { calendars, saveFails: true } } };

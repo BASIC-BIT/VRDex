@@ -11,6 +11,7 @@ import { clubPermission, clubVisibility, clubSubject } from "./_clubModel";
 import { providerReadParams, providerReadPage } from "./_clubProviderReads";
 import { integrationFeature, storedAuthority } from "./_clubConnection";
 import {clubOperationPayload,operationSchedule,operationState} from "./_clubOperations";
+import { operationResult } from "./_clubOperations";
 import { contributionTables } from "./_contributionTables";
 import { connectorDirection, connectorKind, connectorMode, connectorState, connectorTarget, credentialProvider, syncJobKind, syncJobState, syncLinkState } from "./_eventConnectors";
 import { eventSeriesRuleValidator } from "./_eventSeriesModel";
@@ -1210,6 +1211,8 @@ export default defineSchema({
     connectorId: v.id("eventConnectors"), eventId: v.optional(v.id("events")), draftId: v.optional(v.id("eventIntakeDrafts")),
     externalId: v.string(), externalSeriesId: v.optional(v.string()), lastExportedAt: v.optional(v.number()), lastExportedHash: v.optional(v.string()),
     lastImportedAt: v.optional(v.number()), externalUpdatedAt: v.optional(v.number()), state: syncLinkState, createdAt: v.number(), updatedAt: v.number(),
+    // vrchat_calendar: the poster URL last exported, so an unchanged poster is not re-sent.
+    externalArtworkUrl: v.optional(v.string()),
   }).index("by_connectorId_externalId", ["connectorId", "externalId"])
     .index("by_eventId", ["eventId"]),
   eventSyncJobs: defineTable({
@@ -1738,7 +1741,10 @@ export default defineSchema({
   communityDashboardPreferences: defineTable({
     communityProfileId:v.id("profiles"),scope:v.union(v.literal("club"),v.literal("personal")),subjectTokenIdentifier:v.string(),widgets:v.array(v.string()),rangeDays:v.union(v.literal(7),v.literal(30),v.literal(90)),updatedAt:v.number(),
   }).index("by_communityProfileId_scope_subject",["communityProfileId","scope","subjectTokenIdentifier"]),
-  clubOperations:defineTable({dependencyId:v.optional(v.id("clubOperations")),dependencyRevision:v.optional(v.number()),readyAt:v.number(),preflightAttempts:v.optional(v.number()),retryAt:v.optional(v.number()),communityProfileId:v.id("profiles"),integrationId:v.id("communityVrchatIntegrations"),epochStartedAt:v.number(),requestId:v.string(),batchId:v.string(),payload:clubOperationPayload,schedule:operationSchedule,eventId:v.optional(v.id("events")),dueAt:v.number(),actor:clubSubject,createdBy:clubSubject,revision:v.number(),state:operationState,claim:v.optional(v.object({nonce:v.string(),collectorAccountId:v.id("collectorAccounts"),credentialGeneration:v.number(),workerId:v.string(),fencingToken:v.number(),expiresAt:v.number()})),submittedAt:v.optional(v.number()),completedAt:v.optional(v.number()),code:v.optional(v.string()),result:v.optional(v.object({worldId:v.optional(v.string()),instanceId:v.optional(v.string()),postId:v.optional(v.string())})),createdAt:v.number(),updatedAt:v.number()})
+  clubOperations:defineTable({dependencyId:v.optional(v.id("clubOperations")),dependencyRevision:v.optional(v.number()),readyAt:v.number(),preflightAttempts:v.optional(v.number()),retryAt:v.optional(v.number()),communityProfileId:v.id("profiles"),integrationId:v.id("communityVrchatIntegrations"),epochStartedAt:v.number(),requestId:v.string(),batchId:v.string(),payload:clubOperationPayload,schedule:operationSchedule,eventId:v.optional(v.id("events")),dueAt:v.number(),actor:clubSubject,createdBy:clubSubject,revision:v.number(),state:operationState,claim:v.optional(v.object({nonce:v.string(),collectorAccountId:v.id("collectorAccounts"),credentialGeneration:v.number(),workerId:v.string(),fencingToken:v.number(),expiresAt:v.number()})),submittedAt:v.optional(v.number()),completedAt:v.optional(v.number()),code:v.optional(v.string()),result:v.optional(operationResult),createdAt:v.number(),updatedAt:v.number(),
+    // Set only on operations a VRChat calendar connector enqueued; terminal ones resume this sync job.
+    connectorSync:v.optional(v.object({connectorId:v.id("eventConnectors"),jobId:v.id("eventSyncJobs")})),
+  })
     .index("by_state_createdAt",["state","createdAt"])
     .index("by_integration_state_dueAt",["integrationId","state","dueAt"])
     .index("by_integration_state_readyAt",["integrationId","state","readyAt"])
