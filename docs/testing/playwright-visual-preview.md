@@ -441,6 +441,12 @@ followed by exact owned cleanup release normally. Only fixture setup/teardown ha
 a 150-second budget to include the bounded 120-second lease wait; test bodies
 keep their existing timeout.
 
+Cleanup DELETE retries once after a connection reset, using the same run ID.
+Creation POST and state-change PATCH keep their existing retry behavior. A
+successful cleanup still requires valid JSON with exact owned counts. Exhausted
+resets, HTTP errors, malformed JSON and count mismatches keep the lease blocked,
+including a retry that returns zero after the first deletion's response was lost.
+
 `home-timeline-time-regressions.flow.spec.ts` covers fractional CSS zoom panning,
 date navigation and Back restoration, plus event and selected-set details with a
 New York URL timezone in a UTC browser. Its rollback case uses the same guarded
