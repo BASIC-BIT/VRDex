@@ -69,6 +69,7 @@ function IntegrationsPage(props: Parameters<typeof Flow>[0]) {
       <PageContainer max="7xl">
         <ClubWorkspaceView data={WORKSPACE} pathname={PATHNAME}>
           <ClubIntegrationsView
+            communitySlug={WORKSPACE.community.slug}
             connectors={ROWS}
             now={0}
             onUpdate={(connectorId, patch) => hold(held.updates, { connectorId, ...patch })}

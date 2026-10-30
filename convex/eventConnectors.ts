@@ -8,10 +8,13 @@ import {
 } from "./_eventConnectors";
 import { enqueueSyncJob, removeConnector } from "./_eventSync";
 import { MINIMUM_COMMUNITY_CONTROL_LEVEL, requireControlProof } from "./_externalControl";
+import { googleCalendarEnabled, revokeCredentialIfUnused } from "./_googleCalendar";
 
 type ConnectorTarget = Infer<typeof connectorTarget>;
 const TARGET_IDS = ["guildId", "channelId", "calendarId", "groupId"] as const;
 const TARGET_NAMES = ["guildName", "channelName", "calendarName", "groupName"] as const;
+const PUBLIC_TARGET_KEYS: ReadonlyArray<string> = [...TARGET_IDS, ...TARGET_NAMES];
+const publicTarget = (target: ConnectorTarget) => Object.fromEntries(Object.entries(target).filter(([key]) => PUBLIC_TARGET_KEYS.includes(key))) as ConnectorTarget;
 
 const fail = (code: string): never => { throw new ConvexError({ code }); };
 
@@ -35,6 +38,7 @@ const KIND_TARGET_IDS: Record<CreatableKind, { required: TargetId[]; optional?: 
 
 function requireTarget(kind: CreatableKind, target: ConnectorTarget) {
   const { required, optional = [] } = KIND_TARGET_IDS[kind];
+  if (!Object.keys(target).every(key => PUBLIC_TARGET_KEYS.includes(key))) fail("CONNECTOR_TARGET");
   for (const key of TARGET_IDS) {
     const value = target[key];
     if (value === undefined ? required.includes(key) : !required.includes(key) && !optional.includes(key)) fail("CONNECTOR_TARGET");
@@ -68,7 +72,7 @@ export const listForCommunity = query({ args: { communityProfileId: v.id("profil
   const rows = await ctx.db.query("eventConnectors").withIndex("by_communityProfileId", q => q.eq("communityProfileId", communityProfileId)).collect();
   return { enabled: true, connectors: rows.filter(row => row.state !== "removed").map(row => ({
     connectorId: row._id, kind: row.kind, direction: row.direction, mode: row.mode, state: row.state,
-    target: row.target, lastSyncedAt: row.lastSyncedAt, lastError: row.lastError,
+    target: publicTarget(row.target), lastSyncedAt: row.lastSyncedAt, lastError: row.lastError,
   })) };
 } });
 
@@ -82,15 +86,15 @@ export const create = mutation({
     await requireConnectorAuthority(ctx, args.communityProfileId, userId);
     // Discord announcements connect only through the slash command or the site flow, which prove guild control.
     if (args.kind === "notion" || args.kind === "discord_announcements") return fail("CONNECTOR_KIND_RESERVED");
+    if (args.kind === "google_calendar" && !googleCalendarEnabled()) fail("CONNECTOR_KIND_DISABLED");
     if (args.kind === "discord_board" && !boardEnabled()) fail("CONNECTOR_KIND_DISABLED");
     requireDirection(args.kind, args.direction);
     requireTarget(args.kind, args.target);
     // The bot posts the board as VRDex, so the staffer must prove the guild it posts into.
     if (args.kind === "discord_board") await requireControlProof(ctx.db, userId, "discord_guild", args.target.guildId!, MINIMUM_COMMUNITY_CONTROL_LEVEL);
-    if (args.credentialId) {
-      const credential = await ctx.db.get(args.credentialId);
-      if (credential?.state !== "active" || credential.ownerUserId !== userId) fail("CONNECTOR_CREDENTIAL");
-    }
+    const credential = args.credentialId ? await ctx.db.get(args.credentialId) : null;
+    if (args.credentialId && (credential?.state !== "active" || credential.ownerUserId !== userId)) fail("CONNECTOR_CREDENTIAL");
+    if (args.kind === "google_calendar" && credential?.provider !== "google") fail("CONNECTOR_CREDENTIAL");
     const existing = await ctx.db.query("eventConnectors").withIndex("by_communityProfileId", q => q.eq("communityProfileId", args.communityProfileId)).collect();
     // Names are display-only, so two targets with the same IDs are the same target.
     if (existing.some(row => row.state !== "removed" && row.kind === args.kind && TARGET_IDS.every(key => row.target[key] === args.target[key]))) fail("CONNECTOR_EXISTS");
@@ -134,5 +138,6 @@ export const update = mutation({
 export const remove = mutation({ args: { connectorId: v.id("eventConnectors") }, returns: v.null(), handler: async (ctx, args) => {
   const { connector } = await authorizedConnector(ctx, args.connectorId);
   await removeConnector(ctx, connector);
+  if (connector.kind === "google_calendar" && connector.credentialId) await revokeCredentialIfUnused(ctx, connector.credentialId);
   return null;
 } });

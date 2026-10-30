@@ -20,6 +20,12 @@ temporal_input_hash_key = "REPLACE_WITH_A_BASE64_ENCODED_32_BYTE_SECRET"
 twitch_client_id     = null
 twitch_client_secret = null
 
+# Optional. The Google Calendar connector's OAuth client (Web application) from
+# the Google Cloud console; the same pair is set on Convex. See
+# docs/deployment/convex-environments.md.
+google_connector_client_id     = null
+google_connector_client_secret = null
+
 # Optional. Create a key pair in the Langfuse project settings and set both keys
 # to enable event intake tracing. Leave the base URL null for Langfuse Cloud.
 langfuse_public_key = null

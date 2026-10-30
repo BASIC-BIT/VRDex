@@ -136,4 +136,11 @@ crons.daily("refresh discord event boards", { hourUTC: 6, minuteUTC: 15 }, inter
 // Inert unless VRDEX_RECURRING_EVENTS_ENABLED; a failed series emails ops.
 crons.daily("materialize event series", { hourUTC: 6, minuteUTC: 20 }, internal.eventSeries.materializeAll, {});
 
+// --- Google Calendar connector (event connectors plan 08) ---
+// Polling backs up push notifications; a seven-day watch channel is renewed on its last day.
+crons.interval("poll google calendar connectors", { minutes: 15 }, internal.googleCalendarConnector.enqueuePolls, {});
+crons.daily("renew google calendar watches", { hourUTC: 5, minuteUTC: 20 }, internal.googleCalendarConnector.renewWatches, {});
+crons.daily("sweep google calendar connectors", { hourUTC: 5, minuteUTC: 50 }, internal.googleCalendarConnector.dailySweep, {});
+// --- end Google Calendar connector ---
+
 export default crons;

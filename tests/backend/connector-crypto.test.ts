@@ -27,3 +27,20 @@ it("refuses a key that is not 32 bytes", async () => {
   await assert.rejects(encryptSecret("x"), /VRDEX_CONNECTOR_TOKEN_KEY/);
   process.env.VRDEX_CONNECTOR_TOKEN_KEY = Buffer.alloc(32, 7).toString("base64");
 });
+
+it("rejects extra segments and wrong IV or tag lengths as a format error", async () => {
+  const [v, iv, tag, body] = (await encryptSecret("refresh")).split(":");
+  const short = Buffer.alloc(8).toString("base64");
+  await assert.rejects(decryptSecret([v, iv, tag, body, "extra"].join(":")), /CONNECTOR_CIPHER_FORMAT/);
+  await assert.rejects(decryptSecret([v, short, tag, body].join(":")), /CONNECTOR_CIPHER_FORMAT/);
+  await assert.rejects(decryptSecret([v, iv, short, body].join(":")), /CONNECTOR_CIPHER_FORMAT/);
+});
+
+it("refuses to decrypt without the key or with a different key", async () => {
+  const cipher = await encryptSecret("refresh");
+  delete process.env.VRDEX_CONNECTOR_TOKEN_KEY;
+  await assert.rejects(decryptSecret(cipher), /VRDEX_CONNECTOR_TOKEN_KEY/);
+  process.env.VRDEX_CONNECTOR_TOKEN_KEY = Buffer.alloc(32, 8).toString("base64");
+  await assert.rejects(decryptSecret(cipher));
+  process.env.VRDEX_CONNECTOR_TOKEN_KEY = Buffer.alloc(32, 7).toString("base64");
+});

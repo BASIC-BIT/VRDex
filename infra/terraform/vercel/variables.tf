@@ -89,6 +89,22 @@ variable "twitch_client_secret" {
   nullable    = true
 }
 
+variable "google_connector_client_id" {
+  description = "Optional server-only Google OAuth client ID for the Google Calendar connector. Set with google_connector_client_secret to manage both Vercel values."
+  type        = string
+  sensitive   = true
+  default     = null
+  nullable    = true
+}
+
+variable "google_connector_client_secret" {
+  description = "Optional server-only Google OAuth client secret for the Google Calendar connector."
+  type        = string
+  sensitive   = true
+  default     = null
+  nullable    = true
+}
+
 variable "langfuse_public_key" {
   description = "Optional server-only Langfuse public key for event intake tracing. Set with langfuse_secret_key to manage the Langfuse Vercel values."
   type        = string

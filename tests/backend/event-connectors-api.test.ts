@@ -1,16 +1,25 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, it } from "node:test";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import { connectorFixture } from "./_eventConnectorFixture";
 
-// Board rows are created below; create refuses the kind while its flag is off.
-beforeEach(test => { test.mock.timers.enable({ apis: ["setTimeout"] }); process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED = "true"; });
+// Board and Google rows are created below; create refuses each kind while its flag is off.
+beforeEach(test => {
+  test.mock.timers.enable({ apis: ["setTimeout"] });
+  process.env.VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED = "true";
+  process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED = "true";
+});
 afterEach(() => { delete process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED; });
 const google = { kind: "google_calendar" as const, direction: "bidirectional" as const, mode: "hold" as const, target: { calendarId: "club@example.com", calendarName: "Club nights" } };
+type Fixture = Awaited<ReturnType<typeof connectorFixture>>;
+const credential = (f: Fixture, ownerUserId: Id<"users">, provider: "google" | "notion" = "google") => f.t.run(ctx => ctx.db.insert("connectorCredentials", { provider, ownerUserId, encryptedAccessToken: "v1:a:b:c", encryptedRefreshToken: "v1:a:b:c", accessTokenExpiresAt: Date.now() + 3_600_000, scopes: [], externalAccountId: "sub-1", state: "active", createdAt: Date.now(), updatedAt: Date.now() }));
+// A google_calendar connector needs the creator's own Google credential.
+const googleFor = async (f: Fixture, user: keyof Fixture["users"]) => ({ ...google, credentialId: await credential(f, f.users[user]) });
 
 it("create enqueues one reconcile job and lists the connector", async () => {
   const f = await connectorFixture();
-  const connectorId = await f.as("integrator").mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google });
+  const connectorId = await f.as("integrator").mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...await googleFor(f, "integrator") });
   const jobs = await f.t.run(ctx => ctx.db.query("eventSyncJobs").collect());
   assert.deepEqual(jobs.map(row => [row.connectorId, row.kind, row.state]), [[connectorId, "reconcile", "pending"]]);
   const listed = await f.as("integrator").query(api.eventConnectors.listForCommunity, { communityProfileId: f.communityProfileId });
@@ -28,7 +37,8 @@ it("refuses a staffer without manage_integrations", async () => {
 it("validates kind, direction, Discord IDs, and uniqueness", async () => {
   const f = await connectorFixture();
   const as = f.as("integrator");
-  const create = (args: Record<string, unknown>) => as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google, ...args } as never);
+  const mine = await googleFor(f, "integrator");
+  const create = (args: Record<string, unknown>) => as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...mine, ...args } as never);
   await assert.rejects(create({ kind: "notion" }), /CONNECTOR_KIND_RESERVED/);
   const channel = { guildId: "123456789012345678", channelId: "223456789012345678" };
   await assert.rejects(create({ kind: "discord_board", direction: "import", target: channel }), /CONNECTOR_DIRECTION_INVALID/);
@@ -39,8 +49,9 @@ it("validates kind, direction, Discord IDs, and uniqueness", async () => {
 
 it("each kind takes exactly its own target IDs", async () => {
   const f = await connectorFixture();
+  const credentialId = await credential(f, f.users.integrator);
   const create = (kind: string, direction: string, target: Record<string, string>) =>
-    f.as("integrator").mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, kind, direction, mode: "hold", target } as never);
+    f.as("integrator").mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, kind, direction, mode: "hold", target, ...(kind === "google_calendar" ? { credentialId } : {}) } as never);
   const guild = "123456789012345678";
   const channel = "223456789012345678";
   await assert.rejects(create("google_calendar", "export", {}), /CONNECTOR_TARGET/);
@@ -61,13 +72,13 @@ it("refuses a profile that is not a community, even for a super admin", async ()
   const f = await connectorFixture();
   const person = await f.t.run(ctx => ctx.db.insert("profiles", { slug: "someone", displayName: "Someone", sortName: "someone", profileType: "person", person: { roleTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: Date.now() }));
   await assert.rejects(f.as("admin").mutation(api.eventConnectors.create, { communityProfileId: person, ...google }), /CONNECTOR_FORBIDDEN/);
-  await f.as("admin").mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google });
+  await f.as("admin").mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...await googleFor(f, "admin") });
 });
 
 it("changing a live direction to another non-off direction reconciles", async () => {
   const f = await connectorFixture();
   const as = f.as("integrator");
-  const connectorId = await as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google, direction: "import" });
+  const connectorId = await as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...await googleFor(f, "integrator"), direction: "import" });
   const reconciles = async () => (await f.t.run(ctx => ctx.db.query("eventSyncJobs").collect())).filter(row => row.kind === "reconcile").length;
   assert.equal(await reconciles(), 1);
   await as.mutation(api.eventConnectors.update, { connectorId, direction: "bidirectional" });
@@ -104,17 +115,16 @@ it("update enforces the kind's allowed directions", async () => {
 
 it("create refuses a credential owned by someone else", async () => {
   const f = await connectorFixture();
-  const credential = (ownerUserId: typeof f.users.owner) => f.t.run(ctx => ctx.db.insert("connectorCredentials", { provider: "google", ownerUserId, encryptedAccessToken: "v1:a:b:c", encryptedRefreshToken: "v1:a:b:c", accessTokenExpiresAt: Date.now() + 3_600_000, scopes: [], externalAccountId: "sub-1", state: "active", createdAt: Date.now(), updatedAt: Date.now() }));
-  const others = await credential(f.users.owner);
+  const others = await credential(f, f.users.owner);
   await assert.rejects(f.as("integrator").mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google, credentialId: others }), /CONNECTOR_CREDENTIAL/);
-  const mine = await credential(f.users.integrator);
+  const mine = await credential(f, f.users.integrator);
   await f.as("integrator").mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google, credentialId: mine });
 });
 
 it("update re-enables with a reconcile and remove hides the connector", async () => {
   const f = await connectorFixture();
   const as = f.as("integrator");
-  const connectorId = await as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google, direction: "off" });
+  const connectorId = await as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...await googleFor(f, "integrator"), direction: "off" });
   assert.equal((await f.t.run(ctx => ctx.db.query("eventSyncJobs").collect())).length, 0);
   await as.mutation(api.eventConnectors.update, { connectorId, direction: "export" });
   assert.equal((await f.t.run(ctx => ctx.db.query("eventSyncJobs").collect())).length, 1);
@@ -142,9 +152,34 @@ it("caps display names and refuses changes to a removed connector", async () => 
   const f = await connectorFixture();
   const as = f.as("integrator");
   await assert.rejects(as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google, target: { calendarId: "long", calendarName: "x".repeat(101) } }), /CONNECTOR_TARGET/);
-  const connectorId = await as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google });
+  const connectorId = await as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...await googleFor(f, "integrator") });
   await assert.rejects(f.as("outsider").mutation(api.eventConnectors.remove, { connectorId }), /CONNECTOR_FORBIDDEN/);
   await as.mutation(api.eventConnectors.remove, { connectorId });
   await assert.rejects(as.mutation(api.eventConnectors.update, { connectorId, mode: "autopublish" }), /CONNECTOR_REMOVED/);
   await assert.rejects(as.mutation(api.eventConnectors.update, { connectorId, state: "active" }), /CONNECTOR_RESUME_INVALID/);
+});
+
+it("google_calendar needs the kind flag and a Google credential", async () => {
+  const f = await connectorFixture();
+  const as = f.as("integrator");
+  await assert.rejects(as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google }), /CONNECTOR_CREDENTIAL/);
+  const notion = await credential(f, f.users.integrator, "notion");
+  await assert.rejects(as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google, credentialId: notion }), /CONNECTOR_CREDENTIAL/);
+  const args = { communityProfileId: f.communityProfileId, ...await googleFor(f, "integrator") };
+  process.env.VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED = "false";
+  await assert.rejects(as.mutation(api.eventConnectors.create, args), /CONNECTOR_KIND_DISABLED/);
+  process.env.VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED = "true";
+  await as.mutation(api.eventConnectors.create, args);
+});
+
+it("the target's sync bookkeeping is neither accepted nor listed", async () => {
+  const f = await connectorFixture();
+  const as = f.as("integrator");
+  const args = { communityProfileId: f.communityProfileId, ...await googleFor(f, "integrator") };
+  for (const extra of [{ watchChannelId: "c" }, { watchResourceId: "r" }, { watchExpiresAt: 1 }, { watchRenewedAt: 1 }, { syncToken: "s" }]) {
+    await assert.rejects(as.mutation(api.eventConnectors.create, { ...args, target: { ...google.target, ...extra } }), /CONNECTOR_TARGET/);
+  }
+  await f.insertConnector({ target: { calendarId: "club@example.com", calendarName: "Club nights", watchChannelId: "c", watchResourceId: "r", watchExpiresAt: 1, watchRenewedAt: 1, syncToken: "s" } });
+  const listed = await as.query(api.eventConnectors.listForCommunity, { communityProfileId: f.communityProfileId });
+  assert.deepEqual(listed.connectors.map(row => row.target), [{ calendarId: "club@example.com", calendarName: "Club nights" }]);
 });

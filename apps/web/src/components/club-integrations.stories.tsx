@@ -4,7 +4,8 @@ import {
   ClubIntegrationsView,
   type ConnectorPatch,
 } from "@/app/account/communities/[slug]/club-integrations";
-import type { Connector } from "@/app/account/communities/[slug]/club-integrations-model";
+import { GoogleCalendarConnectView } from "@/app/account/communities/[slug]/club-google-calendar";
+import type { Connector, GoogleCalendar } from "@/app/account/communities/[slug]/club-integrations-model";
 import { DiscordBoardConnectView } from "@/app/account/communities/[slug]/discord-board-connect";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -38,6 +39,13 @@ const fixtures: Connector[] = [
   row({ connectorId: id("notion"), kind: "notion", direction: "off", mode: "hold", state: "active", target: {} }),
 ];
 
+const calendars: GoogleCalendar[] = [
+  { id: "afterhours@group.calendar.google.com", summary: "Afterhours events" },
+  { id: "host@example.com", summary: "host@example.com", primary: true },
+  { id: "late@group.calendar.google.com", summary: "Late night sets and guest DJ rotations across every Afterhours stage" },
+];
+
+type GooglePreview = { calendars?: GoogleCalendar[]; enabled?: boolean; failed?: boolean; saveFails?: boolean };
 const guilds = [
   { guildId: "123456789012345678", guildName: "Afterhours" },
   { guildId: "423456789012345678", guildName: "Afterhours Staff" },
@@ -92,12 +100,14 @@ function BoardConnect({ initial, onConnected }: { initial: BoardState; onConnect
   );
 }
 
-function Preview({ connectors = fixtures, board }: { connectors?: Connector[]; board?: BoardState }) {
+function Preview({ connectors = fixtures, board, google }: { connectors?: Connector[]; board?: BoardState; google?: GooglePreview }) {
   const [rows, setRows] = useState(connectors);
+  const [picker, setPicker] = useState(google?.calendars);
   const [submitted, setSubmitted] = useState("");
   return (
     <div className="mx-auto grid max-w-4xl gap-4 p-4 sm:p-6">
       <ClubIntegrationsView
+        communitySlug="afterhours"
         connectors={rows}
         now={NOW}
         onUpdate={async (connectorId, patch: ConnectorPatch) => {
@@ -107,7 +117,25 @@ function Preview({ connectors = fixtures, board }: { connectors?: Connector[]; b
             : row));
         }}
         onRemove={async (connectorId) => setRows((current) => current.filter((row) => row.connectorId !== connectorId))}
-        connect={board ? <BoardConnect initial={board} onConnected={(added) => setRows((current) => [...current, added])} /> : undefined}
+        connect={<>
+          {google ? (
+            <GoogleCalendarConnectView
+              communitySlug="afterhours"
+              enabled={google.enabled ?? true}
+              failed={google.failed ?? false}
+              calendars={picker}
+              onSave={async (target, direction) => {
+                if (google.saveFails) {
+                  await new Promise((resolve) => setTimeout(resolve, 1_000));
+                  throw new Error("CONNECTOR_EXISTS");
+                }
+                setSubmitted(JSON.stringify({ kind: "google_calendar", direction, mode: "hold", target }));
+                setPicker(undefined);
+              }}
+            />
+          ) : null}
+          {board ? <BoardConnect initial={board} onConnected={(added) => setRows((current) => [...current, added])} /> : null}
+        </>}
       />
       <output aria-label="Submitted connector update" className="sr-only">{submitted}</output>
     </div>
@@ -123,5 +151,23 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Connectors: Story = {};
 export const Empty: Story = { args: { connectors: [] } };
+export const GoogleConnect: Story = { args: { connectors: [], google: {} } };
+export const GoogleCalendarPicker: Story = { args: { connectors: [], google: { calendars } } };
+export const GoogleSaveFails: Story = { args: { connectors: [], google: { calendars, saveFails: true } } };
+export const GoogleReconnect: Story = {
+  args: {
+    google: {},
+    connectors: [
+      row({
+        connectorId: id("google"), kind: "google_calendar", direction: "bidirectional", mode: "hold", state: "needs_reauth",
+        target: { calendarId: "afterhours@group.calendar.google.com", calendarName: "Afterhours events" },
+        lastSyncedAt: NOW - 3 * 3_600_000, lastError: "GOOGLE_REAUTH_REQUIRED",
+      }),
+    ],
+  },
+};
+export const GoogleConnectFailed: Story = { args: { connectors: [], google: { failed: true } } };
+export const GoogleNoCalendars: Story = { args: { connectors: [], google: { calendars: [] } } };
+export const GoogleDisabledFailed: Story = { args: { connectors: [], google: { enabled: false, failed: true } } };
 export const BoardClosed: Story = { args: { board: {} } };
 export const BoardOpen: Story = { args: { board: { open: true, guildId: "123456789012345678" } } };

@@ -7,8 +7,6 @@ import { loadEventsWithFixtureCapacity } from "./_eventCapacityFixture";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 export const START = Date.UTC(2027, 1, 12, 20); // 2027-02-12 20:00 UTC
-const grantedBy = { tokenIdentifier: "test|root", issuer: "test", subject: "root" };
-
 export const connectorModules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/events.ts": loadEventsWithFixtureCapacity,
@@ -22,6 +20,7 @@ export const connectorModules = {
   "../../convex/opsAlerts.ts": () => import("../../convex/opsAlerts"),
   "../../convex/opsAlertEmail.ts": () => import("../../convex/opsAlertEmail"),
 };
+const grantedBy = { tokenIdentifier: "test|root", issuer: "test", subject: "root" };
 
 /** One community role holding `permissions`, granted to a Clerk subject under the test issuer. */
 export async function grantCommunityRole(db: DatabaseWriter, communityProfileId: Id<"profiles">, subject: string, key: string, permissions: Doc<"communityRoles">["permissions"]) {

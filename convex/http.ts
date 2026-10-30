@@ -435,4 +435,28 @@ http.route({ path: "/discord-intake/heartbeat", method: "POST", handler: httpAct
   return json({ ok: true });
 }) });
 
+// --- Google Calendar push notifications (event connectors plan 08) ---
+// Imports live with the block so parallel route additions do not collide.
+import { connectorsEnabled } from "./_eventConnectors";
+import { googleCalendarEnabled, watchChannelToken } from "./_googleCalendar";
+
+// Google retries a 5xx, so a disabled kind and every ignored message answer 200; only a bad token gets 401.
+const googleCalendarNotify = httpAction(async (ctx, request) => {
+  const ok = new Response(null, { status: 200 });
+  if (!connectorsEnabled() || !googleCalendarEnabled()) return ok;
+  const token = request.headers.get("x-goog-channel-token") ?? "";
+  const channelId = request.headers.get("x-goog-channel-id") ?? "";
+  const connectorId = token.split(".")[0];
+  if (!connectorId || !safeEqual(token, await watchChannelToken(connectorId, channelId))) return new Response(null, { status: 401 });
+  const connector = await ctx.runQuery(internal.googleCalendarConnector.notifyTarget, { connectorId });
+  if (!connector) return new Response(null, { status: 401 });
+  if (connector.state !== "active" || (connector.direction !== "import" && connector.direction !== "bidirectional")) return ok;
+  if (channelId !== connector.target.watchChannelId || request.headers.get("x-goog-resource-state") === "sync") return ok;
+  await ctx.runMutation(internal.googleCalendarConnector.enqueuePoll, { connectorId: connector._id });
+  return ok;
+});
+
+http.route({ path: "/connectors/google/notify", method: "POST", handler: googleCalendarNotify });
+// --- end Google Calendar push notifications ---
+
 export default http;
