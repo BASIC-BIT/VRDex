@@ -27,9 +27,10 @@ import { Card, Eyebrow, SectionTitle } from "@/components/ui/card";
 import { Field, FieldText, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
-import { VrcdnMediaLinkAssistant } from "../_components/vrcdn-media-link-assistant";
 import { ViewerLocalEventDateTime } from "../_components/viewer-local-event-times";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
+import { parseMediaLinks, serializeMediaLinks } from "@/lib/event-media-links";
+import { EventMediaLinksField, EventWatchFields } from "./event-media-fields";
 import { formatZonedDateTimeInput } from "@/lib/calendar/zoned-date-time";
 import { applyStaffLineupTimings, changeStaffSlotOffset, readStaffLineupTimings, timeUntimedLineupRow, type UntimedFormRow, type SlotFormRow } from "@/lib/calendar/event-lineup-adapters";
 import { changeLineupDuration, generateLineupTimings, getLineupEndAt, getLineupEndConflict, insertLineupSlot, removeLineupSlot, shiftLineupStart, type LineupEditResult, type LineupTimingRow } from "@/lib/calendar/event-lineup-timing";
@@ -43,7 +44,6 @@ import type { EventIdentityOption } from "@/lib/event-editor-identity";
 import { EventEditorPreview, EventCommunitySummary, useEventCommunity } from "./event-editor-preview";
 import { EventPerformerField, useEventPerformerEditor } from "./event-performer-field";
 
-type EventMediaLinkType = PublicEvent["mediaLinks"][number]["type"];
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -248,53 +248,6 @@ function parseInteger(value: string, fieldName: string): number {
   return parsed;
 }
 
-function parseMediaLinks(value: string) {
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [type = "other", label = "Event link", url = "", presentation] = line
-        .split("|")
-        .map((part) => part.trim());
-      const vrcdnLinks = parseVrcdnStreamLinks(type);
-
-      if (vrcdnLinks !== null && url === "") {
-        return {
-          type: "vrcdn" as const,
-          label: "VRCDN stream",
-          url: vrcdnLinks.reference,
-          presentation: "copy" as const,
-        };
-      }
-
-      return {
-        type: normalizeMediaType(type),
-        label,
-        url,
-        presentation: presentation === "copy" ? ("copy" as const) : ("open" as const),
-      };
-    });
-}
-
-function normalizeMediaType(value: string): EventMediaLinkType {
-  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-
-  if (
-    normalized === "event_page" ||
-    normalized === "watch" ||
-    normalized === "stream" ||
-    normalized === "vrcdn" ||
-    normalized === "discord" ||
-    normalized === "ticket" ||
-    normalized === "other"
-  ) {
-    return normalized;
-  }
-
-  return "other" as const;
-}
-
 function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
   return rows.map((row) => {
       const offsetMinutes = row.startAtOverride === undefined && row.offsetMsOverride === undefined ? parseInteger(row.offsetMinutes, "Slot offset minutes") : 0;
@@ -315,12 +268,6 @@ function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
         ...(row.endAtOverride !== undefined ? { endAt: row.endAtOverride } : row.durationMsOverride !== undefined ? { endAt: startAt + row.durationMsOverride } : durationMinutes === undefined ? {} : { endAt: startAt + durationMinutes * 60_000 }),
       };
     });
-}
-
-function serializeMediaLinks(event: PublicEvent | undefined): string {
-  return (event?.authoredMediaLinks ?? event?.mediaLinks ?? [])
-    .map((link) => `${link.type} | ${link.label} | ${link.url} | ${link.presentation}`)
-    .join("\n");
 }
 
 function initialSlotRows(event: EditableEvent | undefined): SlotFormRow[] {
@@ -523,7 +470,7 @@ function ConnectedEventEditorForm({
     : String(Math.max(0, Math.round((event.startAt - event.doorsOpenAt) / 60_000))));
   const [watchSurfaceEnabled, setWatchSurfaceEnabled] = useState(event?.watchSurfaceEnabled ?? false);
   const [watchMode, setWatchMode] = useState<"event_stream" | "performer_sequence">(event?.watchMode ?? "event_stream");
-  const [mediaLinksText, setMediaLinksText] = useState(() => serializeMediaLinks(event));
+  const [mediaLinksText, setMediaLinksText] = useState(() => serializeMediaLinks(event?.authoredMediaLinks ?? event?.mediaLinks ?? []));
   const [vrcdnOutput, setVrcdnOutput] = useState<VrcdnOutputFormState>(() => createInitialVrcdnOutputForm(event));
   const [persistedVrcdnOutput, setPersistedVrcdnOutput] = useState(vrcdnOutput);
   const authoredVrcdnOutputFields = useRef(new Set<keyof VrcdnOutputFormState>());
@@ -1132,12 +1079,7 @@ function ConnectedEventEditorForm({
         </Field>
         </div>
 
-      <Field>
-        Media links
-        <Textarea className="min-h-28" name="mediaLinks" onChange={(changeEvent) => setMediaLinksText(changeEvent.currentTarget.value)} placeholder="watch | Twitch watch link | https://... | open&#10;vrcdn | VRCDN Quest link | https://stream.vrcdn.live/live/name.live.ts | copy&#10;vrcdn | VRCDN PC link | rtspt://stream.vrcdn.live/live/name | copy" value={mediaLinksText} />
-        <FieldText>One per line: type | label | URL | open or copy. VRCDN variants derive Quest and PC player links automatically.</FieldText>
-      </Field>
-      <VrcdnMediaLinkAssistant mediaLinksText={mediaLinksText} />
+      <EventMediaLinksField value={mediaLinksText} onChange={setMediaLinksText} />
       </EditorDisclosure>
       </div>
       <div hidden={activeStep !== "Lineup"} data-editor-step="Lineup">
@@ -1224,28 +1166,7 @@ function ConnectedEventEditorForm({
           </div>
         </EditorSection>
         <EditorDisclosure title="Advanced">
-      <label className="flex gap-3 rounded-control border border-border bg-surface-strong p-4 text-sm leading-6">
-        <input
-          className="mt-1 h-4 w-4 flex-none accent-accent"
-          checked={watchSurfaceEnabled}
-          onChange={event => setWatchSurfaceEnabled(event.currentTarget.checked)}
-          name="watchSurfaceEnabled"
-          type="checkbox"
-        />
-        <span>
-          <span className="block font-medium text-foreground">Promote a watch surface during the event window</span>
-          <span className="mt-1 block text-xs leading-5 text-muted">
-            Keep this off unless stream capacity is ready for public viewers.
-          </span>
-        </span>
-      </label>
-      {watchSurfaceEnabled ? <Field>
-        Watch mode
-        <Select aria-label="Watch mode" onChange={event => setWatchMode(event.currentTarget.value as "event_stream" | "performer_sequence")} value={watchMode}>
-          <option value="event_stream">Event stream</option>
-          <option value="performer_sequence">Performer sequence</option>
-        </Select>
-      </Field> : null}
+      <EventWatchFields enabled={watchSurfaceEnabled} mode={watchMode} onEnabledChange={setWatchSurfaceEnabled} onModeChange={setWatchMode} />
 
       {event === undefined || watchMode !== "event_stream" ? null : (
         <Card className="grid gap-4" padding="sm" surface="strong">

@@ -71,7 +71,32 @@ test("the series editor saves only what changed @fixture", async ({ page }) => {
   await expect.poll(() => seriesUpdates(page)).toEqual([{
     seriesId: "series-editor-preview",
     summary: "Now fortnightly.",
-    rule: { frequency: "biweekly", weekday: 6, startTime: "18:00" },
+    rule: { frequency: "biweekly", weekday: 6, startTime: "18:00", doorsTime: "17:30" },
+  }]);
+});
+
+test("changing Starts moves doors and end with it @fixture", async ({ page }) => {
+  await page.goto(seriesEditorPath);
+  await (await hydrated(page.getByLabel("Starts", { exact: true }))).fill("19:30");
+  await expect(page.getByLabel("Doors open", { exact: true })).toHaveValue("19:00");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect.poll(() => seriesUpdates(page)).toEqual([{
+    seriesId: "series-editor-preview",
+    rule: { frequency: "weekly", weekday: 6, startTime: "19:30", doorsTime: "19:00" },
+  }]);
+});
+
+test("the series editor saves media links and watch settings @fixture", async ({ page }) => {
+  await page.goto(seriesEditorPath);
+  await (await hydrated(page.locator("textarea[name=mediaLinks]"))).fill("watch | Harbor stream | https://example.com/live | open");
+  await page.getByRole("checkbox", { name: /^Promote a watch surface during the event window/ }).check();
+  await page.getByLabel("Watch mode", { exact: true }).selectOption({ label: "Performer sequence" });
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect.poll(() => seriesUpdates(page)).toEqual([{
+    seriesId: "series-editor-preview",
+    mediaLinks: [{ type: "watch", label: "Harbor stream", url: "https://example.com/live", presentation: "open" }],
+    watchMode: "performer_sequence",
+    watchSurfaceEnabled: true,
   }]);
 });
 

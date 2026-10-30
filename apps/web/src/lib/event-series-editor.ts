@@ -1,4 +1,7 @@
 import { monthlyOrdinalOf, type SeriesOwnedEventField, type SeriesRule } from "../../../../convex/_eventSeriesModel";
+import { parseMediaLinks, serializeMediaLinks, type EventMediaLink } from "./event-media-links";
+
+type WatchMode = "event_stream" | "performer_sequence";
 
 export type EditableSeries = {
   id: string;
@@ -10,6 +13,9 @@ export type EditableSeries = {
   sourceUrl?: string;
   bannerImageUrl?: string;
   thumbnailImageUrl?: string;
+  mediaLinks?: EventMediaLink[];
+  watchMode?: WatchMode;
+  watchSurfaceEnabled?: boolean;
   rule: SeriesRule;
   startsOn: string;
   endsOn?: string;
@@ -84,6 +90,9 @@ export type SeriesEditorFields = Record<(typeof CLEARABLE_FIELDS)[number], strin
   doorsTime: string;
   endTime: string;
   endsOn: string;
+  mediaLinksText: string;
+  watchMode: WatchMode;
+  watchSurfaceEnabled: boolean;
 };
 
 export type SeriesEditorChanges = Partial<Record<(typeof CLEARABLE_FIELDS)[number], string | null>> & {
@@ -91,6 +100,9 @@ export type SeriesEditorChanges = Partial<Record<(typeof CLEARABLE_FIELDS)[numbe
   timezone?: string;
   rule?: SeriesRule;
   endsOn?: string | null;
+  mediaLinks?: EventMediaLink[];
+  watchMode?: WatchMode;
+  watchSurfaceEnabled?: boolean;
 };
 
 export function seriesEditorFields(series: EditableSeries): SeriesEditorFields {
@@ -108,7 +120,26 @@ export function seriesEditorFields(series: EditableSeries): SeriesEditorFields {
     doorsTime: series.rule.doorsTime ?? "",
     endTime: series.rule.endTime ?? "",
     endsOn: series.endsOn ?? "",
+    mediaLinksText: serializeMediaLinks(series.mediaLinks ?? []),
+    watchMode: series.watchMode ?? "event_stream",
+    watchSurfaceEnabled: series.watchSurfaceEnabled ?? false,
   };
+}
+
+const DAY_MINUTES = 24 * 60;
+const minutesOf = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+
+function clockTime(minutes: number): string {
+  const wrapped = ((minutes % DAY_MINUTES) + DAY_MINUTES) % DAY_MINUTES;
+  return `${String(Math.floor(wrapped / 60)).padStart(2, "0")}:${String(wrapped % 60).padStart(2, "0")}`;
+}
+
+/** The form after `Starts` changes: doors and end keep their distance from the start, and empty ones stay empty. */
+export function shiftSeriesTimes(fields: SeriesEditorFields, previousStart: string, startTime: string): SeriesEditorFields {
+  if (!previousStart || !startTime) return { ...fields, startTime };
+  const delta = minutesOf(startTime) - minutesOf(previousStart);
+  const shift = (time: string) => time && clockTime(minutesOf(time) + delta);
+  return { ...fields, startTime, doorsTime: shift(fields.doorsTime), endTime: shift(fields.endTime) };
 }
 
 /** The `eventSeries.update` arguments for this form: only what differs from `series`, with null to clear. */
@@ -119,6 +150,9 @@ export function changedSeriesFields(series: EditableSeries, fields: SeriesEditor
   if (fields.timezone !== stored.timezone) changes.timezone = fields.timezone;
   for (const field of CLEARABLE_FIELDS) if (fields[field] !== stored[field]) changes[field] = fields[field] || null;
   if (fields.endsOn !== stored.endsOn) changes.endsOn = fields.endsOn || null;
+  if (fields.mediaLinksText !== stored.mediaLinksText) changes.mediaLinks = parseMediaLinks(fields.mediaLinksText);
+  if (fields.watchMode !== stored.watchMode) changes.watchMode = fields.watchMode;
+  if (fields.watchSurfaceEnabled !== stored.watchSurfaceEnabled) changes.watchSurfaceEnabled = fields.watchSurfaceEnabled;
   if ((["frequency", "startTime", "doorsTime", "endTime"] as const).some(key => fields[key] !== stored[key])) {
     changes.rule = {
       frequency: fields.frequency,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { changedSeriesFields, seriesCreateArgs, seriesEditorFields, seriesNoteActions, seriesOverrideRows, seriesRepeatAvailable, type EditableSeries } from "../../apps/web/src/lib/event-series-editor";
+import { changedSeriesFields, seriesCreateArgs, seriesEditorFields, seriesNoteActions, seriesOverrideRows, seriesRepeatAvailable, shiftSeriesTimes, type EditableSeries } from "../../apps/web/src/lib/event-series-editor";
 
 const series: EditableSeries = {
   id: "s1",
@@ -37,6 +37,25 @@ describe("changedSeriesFields", () => {
     });
   });
 
+  it("sends media links and watch settings only when they change", () => {
+    const link = { type: "watch" as const, label: "Harbor stream", url: "https://example.com/live", presentation: "open" as const };
+    const streamed = { ...series, mediaLinks: [link], watchMode: "performer_sequence" as const, watchSurfaceEnabled: true };
+    const fields = seriesEditorFields(streamed);
+    assert.equal(fields.mediaLinksText, "watch | Harbor stream | https://example.com/live | open");
+    assert.deepEqual(changedSeriesFields(streamed, fields), {});
+    assert.deepEqual(changedSeriesFields(streamed, { ...fields, mediaLinksText: "" }), { mediaLinks: [] });
+    assert.deepEqual(changedSeriesFields(streamed, { ...fields, mediaLinksText: "discord | Club | https://example.com/d | copy" }), {
+      mediaLinks: [{ type: "discord", label: "Club", url: "https://example.com/d", presentation: "copy" }],
+    });
+    assert.deepEqual(changedSeriesFields(streamed, { ...fields, watchSurfaceEnabled: false }), { watchSurfaceEnabled: false });
+    assert.deepEqual(changedSeriesFields(streamed, { ...fields, watchMode: "event_stream" }), { watchMode: "event_stream" });
+  });
+
+  it("reads a series with no media or watch settings as the editor defaults", () => {
+    const fields = seriesEditorFields(series);
+    assert.deepEqual([fields.mediaLinksText, fields.watchMode, fields.watchSurfaceEnabled], ["", "event_stream", false]);
+  });
+
   it("gives a monthly rule the ordinal of its start date and drops it when leaving monthly", () => {
     const toMonthly = changedSeriesFields(series, { ...seriesEditorFields(series), frequency: "monthly_weekday" });
     assert.deepEqual(toMonthly.rule, { frequency: "monthly_weekday", weekday: 6, ordinal: 1, startTime: "18:00", doorsTime: "17:30" });
@@ -44,6 +63,34 @@ describe("changedSeriesFields", () => {
     assert.deepEqual(changedSeriesFields(monthly, seriesEditorFields(monthly)), {});
     assert.equal(changedSeriesFields(monthly, { ...seriesEditorFields(monthly), startTime: "19:00" }).rule?.ordinal, -1);
     assert.equal("ordinal" in changedSeriesFields(monthly, { ...seriesEditorFields(monthly), frequency: "weekly" }).rule!, false);
+  });
+});
+
+describe("shiftSeriesTimes", () => {
+  const fields = { ...seriesEditorFields(series), startTime: "20:00", doorsTime: "19:30", endTime: "22:00" };
+
+  it("moves doors and end by the same delta as the start", () => {
+    const moved = shiftSeriesTimes(fields, "20:00", "18:00");
+    assert.deepEqual([moved.startTime, moved.doorsTime, moved.endTime], ["18:00", "17:30", "20:00"]);
+  });
+
+  it("wraps past midnight both ways", () => {
+    const later = shiftSeriesTimes(fields, "20:00", "23:00");
+    assert.deepEqual([later.doorsTime, later.endTime], ["22:30", "01:00"]);
+    const earlier = shiftSeriesTimes(fields, "20:00", "00:15");
+    assert.deepEqual([earlier.doorsTime, earlier.endTime], ["23:45", "02:15"]);
+  });
+
+  it("leaves empty optional times empty", () => {
+    const moved = shiftSeriesTimes({ ...fields, doorsTime: "", endTime: "" }, "20:00", "21:00");
+    assert.deepEqual([moved.startTime, moved.doorsTime, moved.endTime], ["21:00", "", ""]);
+  });
+
+  it("shifts nothing while the start is cleared, and measures from the last real start", () => {
+    const cleared = shiftSeriesTimes(fields, "20:00", "");
+    assert.deepEqual([cleared.startTime, cleared.doorsTime, cleared.endTime], ["", "19:30", "22:00"]);
+    const retyped = shiftSeriesTimes(cleared, "20:00", "21:00");
+    assert.deepEqual([retyped.startTime, retyped.doorsTime, retyped.endTime], ["21:00", "20:30", "23:00"]);
   });
 });
 

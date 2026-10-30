@@ -1,6 +1,6 @@
 "use client";
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
@@ -12,9 +12,10 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
-import { changedSeriesFields, seriesEditorFields, seriesOverrideRows, type EditableSeries, type RepeatValue, type SeriesEditorFields } from "@/lib/event-series-editor";
+import { changedSeriesFields, seriesEditorFields, seriesOverrideRows, shiftSeriesTimes, type EditableSeries, type RepeatValue, type SeriesEditorFields } from "@/lib/event-series-editor";
 import { EditorSection, EventEditorSteps } from "./event-editor-steps";
 import { EventLocationField } from "./event-location-field";
+import { EventMediaLinksField, EventWatchFields } from "./event-media-fields";
 import { useEventEditorLeaveGuard } from "./use-event-editor-leave-guard";
 
 const noteLinkClassName = "font-medium underline-offset-4 hover:underline";
@@ -87,7 +88,15 @@ export function EventSeriesEditor({ communitySlug, eventSlug, heading, series }:
   const nightPath = `/${communitySlug}/events/${eventSlug}/edit`;
   useEffect(() => { if (status === "saved") requestLeave(() => router.replace(nightPath)); }, [nightPath, requestLeave, router, status]);
   const busy = status === "submitting" || status === "saved";
-  const text = (key: Exclude<keyof SeriesEditorFields, "frequency">) => ({ value: fields[key], onChange: (change: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { const value = change.currentTarget.value; setFields(current => ({ ...current, [key]: value })); } });
+  const text = (key: Exclude<keyof SeriesEditorFields, "frequency" | "watchMode" | "watchSurfaceEnabled">) => ({ value: fields[key], onChange: (change: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { const value = change.currentTarget.value; setFields(current => ({ ...current, [key]: value })); } });
+  // The input reads empty mid-edit, so measure from the last real start.
+  const lastStart = useRef(series.rule.startTime);
+  function changeStart(change: ChangeEvent<HTMLInputElement>) {
+    const value = change.currentTarget.value;
+    const previous = lastStart.current;
+    if (value) lastStart.current = value;
+    setFields(current => shiftSeriesTimes(current, previous, value));
+  }
   async function onSubmit(submit: FormEvent<HTMLFormElement>) {
     submit.preventDefault();
     if (busy) return;
@@ -110,7 +119,7 @@ export function EventSeriesEditor({ communitySlug, eventSlug, heading, series }:
         </EditorSection>
         <EditorSection title="Timing">
           <div className="grid gap-4 sm:grid-cols-3">
-            <Field>Starts<Input type="time" {...text("startTime")} required /></Field>
+            <Field>Starts<Input type="time" onChange={changeStart} required value={fields.startTime} /></Field>
             <Field>Doors open<Input type="time" {...text("doorsTime")} /></Field>
             <Field>Ends (optional)<Input type="time" {...text("endTime")} /></Field>
           </div>
@@ -123,6 +132,15 @@ export function EventSeriesEditor({ communitySlug, eventSlug, heading, series }:
             <Field>Banner image URL<Input {...text("bannerImageUrl")} placeholder="https://..." /></Field>
             <Field>Thumbnail image URL<Input {...text("thumbnailImageUrl")} placeholder="https://..." /></Field>
           </div>
+          <EventMediaLinksField value={fields.mediaLinksText} onChange={mediaLinksText => setFields(current => ({ ...current, mediaLinksText }))} />
+        </EditorSection>
+        <EditorSection title="Advanced">
+          <EventWatchFields
+            enabled={fields.watchSurfaceEnabled}
+            mode={fields.watchMode}
+            onEnabledChange={watchSurfaceEnabled => setFields(current => ({ ...current, watchSurfaceEnabled }))}
+            onModeChange={watchMode => setFields(current => ({ ...current, watchMode }))}
+          />
         </EditorSection>
       </div>
     </EventEditorSteps>

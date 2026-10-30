@@ -110,7 +110,7 @@ const previewSeriesEvent: EditableEvent = {
     title: "Afterglow Harbor Sessions",
     summary: "An evening of music at the harbor.",
     timezone: "America/Indiana/Indianapolis",
-    rule: { frequency: "weekly", weekday: 6, startTime: "18:00" },
+    rule: { frequency: "weekly", weekday: 6, startTime: "18:00", doorsTime: "17:30" },
     startsOn: "2099-09-12",
     state: "active",
   },
