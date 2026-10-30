@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type ActionCtx } from "../_generated/server";
 import { discordRequest } from "../_discordRest";
 import { createDiscordTimestampSet } from "../_discordTimestamps";
@@ -8,7 +8,8 @@ import { DISCORD_ID } from "../_eventConnectors";
 import { cleanPublicText, formatDiscordLineupLines } from "../_eventDiscordExport";
 import { eventPathForSlugs } from "../_eventPaths";
 import { getPublicEventBySlug, type PublicEvent } from "../_eventPublic";
-import { eventSortAt, eventSortEndAt } from "../_eventSchedule";
+import { dateOnlyEventsEnabled, eventSortAt, eventSortEndAt } from "../_eventSchedule";
+import { enqueueSyncJob } from "../_eventSync";
 import { firstSafePublicImageUrl } from "../_publicFields";
 import type { SyncKindHandler } from "./types";
 
@@ -149,6 +150,69 @@ export const pauseBoardConnector = internalMutation({
   },
 });
 
+const BOARD_LOOKBACK_MS = 7 * 24 * 3_600_000;
+const REFRESH_STAGGER_MS = 2_000;
+
+/** Queues the day's board changes: retire live messages, post events entering the window. Every change is an export_upsert, so the handler decides. */
+export const planBoardRefresh = internalMutation({
+  args: { connectorId: v.id("eventConnectors") },
+  handler: async (ctx, { connectorId }): Promise<{ upserts: number; deletes: number }> => {
+    const connector = await ctx.db.get(connectorId);
+    const counts = { upserts: 0, deletes: 0 };
+    if (!connector) return counts;
+    const now = Date.now();
+    const retired = (event: Doc<"events">) => eventSortEndAt(event) + BOARD_RETIRE_AFTER_MS < now;
+    const hasPendingJob = async (eventId: Id<"events">) =>
+      (await ctx.db.query("eventSyncJobs").withIndex("by_connectorId_eventId_state", q => q.eq("connectorId", connectorId).eq("eventId", eventId).eq("state", "pending")).first()) !== null;
+    const enqueue = async (eventId: Id<"events">, count: keyof typeof counts) => {
+      if (await hasPendingJob(eventId)) return;
+      await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, eventId, kind: "export_upsert", dueAt: now + (counts.upserts + counts.deletes) * REFRESH_STAGGER_MS });
+      counts[count]++;
+    };
+    // Message IDs are digits, which sort before `none:`; retracted rows keep theirs, so liveMessageId still filters.
+    const links = await ctx.db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connectorId).lt("externalId", "none:")).take(1000);
+    for (const link of links) {
+      // A link keyed to a held draft has no event yet.
+      const eventId = link.eventId;
+      if (!eventId || !liveMessageId(link)) continue;
+      const event = await ctx.db.get(eventId);
+      // The same cases the handler deletes for: gone, no longer public, or past retirement.
+      if (!event || retired(event) || !(await getPublicEventBySlug(ctx.db, event))?.communitySlug) await enqueue(eventId, "deletes");
+    }
+    // ponytail: the 7-day lookback misses an event that started more than 7 days ago and is still running; widen it if multi-week events appear.
+    const sortField = dateOnlyEventsEnabled() ? "sortAt" : "startAt";
+    const events = await ctx.db.query("events")
+      .withIndex(dateOnlyEventsEnabled() ? "by_communityProfileId_publicationState_eventStatus_sortAt" : "by_communityProfileId_publicationState_eventStatus_startAt", q => q
+        .eq("communityProfileId", connector.communityProfileId).eq("publicationState", "published").eq("eventStatus", "scheduled")
+        .gte(sortField, now - BOARD_LOOKBACK_MS).lte(sortField, now + BOARD_POST_AHEAD_MS))
+      .take(500);
+    for (const event of events) {
+      if (event.moderationRemovedAt !== undefined || retired(event)) continue;
+      const link = (await ctx.db.query("eventSyncLinks").withIndex("by_eventId", q => q.eq("eventId", event._id)).take(100)).find(row => row.connectorId === connectorId) ?? null;
+      if (!liveMessageId(link)) await enqueue(event._id, "upserts");
+    }
+    return counts;
+  },
+});
+
+/** The daily cron: one board_refresh per active export board. */
+export const enqueueBoardRefreshes = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    if (!boardEnabled()) return 0;
+    let enqueued = 0;
+    // ponytail: one mutation walks every board connector; paginate if boards reach the thousands.
+    for await (const connector of ctx.db.query("eventConnectors").withIndex("by_kind_target_channelId", q => q.eq("kind", "discord_board"))) {
+      if (connector.state !== "active" || connector.direction !== "export") continue;
+      const pending = await ctx.db.query("eventSyncJobs").withIndex("by_connectorId_eventId_state", q => q.eq("connectorId", connector._id).eq("eventId", undefined).eq("state", "pending")).take(20);
+      if (pending.some(job => job.kind === "board_refresh")) continue;
+      await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: connector._id, kind: "board_refresh" });
+      enqueued++;
+    }
+    return enqueued;
+  },
+});
+
 // Every request checks the flag and the channel first, so no Discord path is built from a bad target.
 function boardMessagesPath(connector: Connector): string {
   if (!boardEnabled()) throw new Error("CONNECTOR_KIND_DISABLED");
@@ -199,5 +263,9 @@ export const discordBoardHandler: SyncKindHandler = {
     const path = boardMessagesPath(connector);
     const messageId = liveMessageId(link);
     if (messageId) await send(ctx, connector, "DELETE", `${path}/${messageId}`);
+  },
+  async boardRefresh(ctx, connector): Promise<void> {
+    boardMessagesPath(connector); // Throws on the flag or a bad target before any job is queued.
+    await ctx.runMutation(internal.eventSyncKinds.discordBoard.planBoardRefresh, { connectorId: connector._id });
   },
 };

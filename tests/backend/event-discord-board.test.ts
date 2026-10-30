@@ -59,6 +59,10 @@ async function runJob(t: ReturnType<typeof convexTest>, job: { connectorId: Id<"
   await t.action(internal.eventSync.runJob, { jobId });
   return t.run((ctx) => ctx.db.get(jobId));
 }
+async function drain(t: ReturnType<typeof convexTest>) {
+  const pending = await t.run((ctx) => ctx.db.query("eventSyncJobs").withIndex("by_state_dueAt", (q) => q.eq("state", "pending")).collect());
+  for (const job of pending) await t.action(internal.eventSync.runJob, { jobId: job._id });
+}
 const linkFor = (t: ReturnType<typeof convexTest>, connectorId: Id<"eventConnectors">, eventId: Id<"events">) =>
   t.run(async (ctx) => (await ctx.db.query("eventSyncLinks").withIndex("by_eventId", (q) => q.eq("eventId", eventId)).collect()).find((link) => link.connectorId === connectorId) ?? null);
 const upsert = (t: ReturnType<typeof convexTest>, s: { connectorId: Id<"eventConnectors">; eventIds: Id<"events">[] }, index = 0) =>
@@ -172,4 +176,58 @@ it("makes no request for a non-snowflake channel", async (test) => {
   const job = await upsert(t, await seed(t, [{}], { target: { guildId: GUILD, channelId: "../../guilds/1" } }));
   assert.deepEqual(calls, []);
   assert.match(job?.lastError ?? "", /BOARD_TARGET_INVALID/);
+});
+
+it("refresh posts inside 14 days, retires after 24 hours, and keeps cancelled embeds", async (test) => {
+  const calls = fakeDiscord(test);
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  const s = await seed(t, [
+    { startAt: now + 14 * DAY - MINUTE, endAt: now + 14 * DAY + HOUR }, // posted
+    { startAt: now + 14 * DAY + MINUTE, endAt: now + 14 * DAY + 2 * HOUR }, // too far
+    { startAt: now - 2 * DAY, endAt: now - DAY + MINUTE, link: "333333333333333333" }, // kept
+    { startAt: now - 2 * DAY, endAt: now - DAY - MINUTE, link: "444444444444444444" }, // retired
+    { startAt: now + 2 * DAY, eventStatus: "cancelled" }, // not posted
+    { startAt: now + 3 * DAY, eventStatus: "cancelled", link: "555555555555555555" }, // kept
+  ]);
+  assert.equal((await runJob(t, { connectorId: s.connectorId, kind: "board_refresh" }))?.state, "done");
+  await drain(t);
+  assert.deepEqual(said(calls).sort(), [`DELETE /channels/${CHANNEL}/messages/444444444444444444`, `POST /channels/${CHANNEL}/messages`].sort());
+  // Retirement removes the message through an upsert; it is not a retraction.
+  const retired = await linkFor(t, s.connectorId, s.eventIds[3]);
+  assert.equal(retired?.state, "linked");
+  assert.ok(retired?.externalId.startsWith("none:"));
+});
+
+it("refresh is idempotent", async (test) => {
+  const calls = fakeDiscord(test);
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{}, {}]);
+  await t.mutation(internal.eventSyncKinds.discordBoard.planBoardRefresh, { connectorId: s.connectorId });
+  assert.deepEqual(await t.mutation(internal.eventSyncKinds.discordBoard.planBoardRefresh, { connectorId: s.connectorId }), { upserts: 0, deletes: 0 });
+  await drain(t);
+  assert.equal(calls.length, 2);
+  await runJob(t, { connectorId: s.connectorId, kind: "board_refresh" });
+  await drain(t);
+  assert.equal(calls.length, 2);
+});
+
+it("the daily cron enqueues one refresh per active export board", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, []);
+  await t.run(async (ctx) => {
+    const base = await ctx.db.get(s.connectorId);
+    const { _id, _creationTime, ...row } = base!;
+    await ctx.db.insert("eventConnectors", { ...row, state: "paused" });
+    await ctx.db.insert("eventConnectors", { ...row, state: "removed" });
+    await ctx.db.insert("eventConnectors", { ...row, kind: "google_calendar", target: { calendarId: "c" } });
+  });
+  const pendingRefreshes = () => t.run(async (ctx) => (await ctx.db.query("eventSyncJobs").collect()).filter((job) => job.kind === "board_refresh" && job.state === "pending").map((job) => job.connectorId));
+  assert.equal(await t.mutation(internal.eventSyncKinds.discordBoard.enqueueBoardRefreshes, {}), 1);
+  assert.equal(await t.mutation(internal.eventSyncKinds.discordBoard.enqueueBoardRefreshes, {}), 0);
+  assert.deepEqual(await pendingRefreshes(), [s.connectorId]);
+  delete process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED;
+  const off = convexTest({ schema, modules });
+  await seed(off, []);
+  assert.equal(await off.mutation(internal.eventSyncKinds.discordBoard.enqueueBoardRefreshes, {}), 0);
 });
