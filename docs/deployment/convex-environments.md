@@ -155,19 +155,23 @@ Google until the organiser removes it there.
 VRDex's Google OAuth client. Scope: both the Convex deployment (token refresh)
 and the web app (the code exchange in `/api/connectors/google/callback`). Owner:
 BASIC, who owns the OAuth client in Google Cloud. Set them on Convex with
-`npx convex env set`, and on Vercel through `google_connector_client_id` and
-`google_connector_client_secret` in `infra/terraform/vercel`.
+`npx convex env set`, on both the production and the shared development
+deployment, and on Vercel through the `TERRAFORM_GOOGLE_CONNECTOR_CLIENT_ID`
+and `TERRAFORM_GOOGLE_CONNECTOR_CLIENT_SECRET` GitHub secrets, which the
+Terraform workflow passes to `infra/terraform/vercel`.
 
 Rotation: add a new client secret to the OAuth client in the Google Cloud
-console, set it on Convex and apply it to the web app through Terraform, then
-delete the old secret in the console. The client ID does not change, so stored
+console, set it on Convex, update the GitHub secret and run the Terraform
+workflow for the `vercel` stack, redeploy the web app, then delete the old
+secret in the console. The client ID does not change, so stored
 refresh tokens keep working.
 
 The client lives in the `vrdex-production` Google Cloud project, under the
 `basicbit.net` organization and the `basic@basicbit.net` identity. It is
 `VRDex Calendar Connector`, separate from the project's existing
-`VRDex Production` client, and was created on 2026-10-30. Steps 1 to 3 below are
-done for it; step 4 and verification are not.
+`VRDex Production` client, and was created on 2026-10-30. Its ID and secret are
+set on both Convex deployments and in GitHub. Enabling the flag and
+verification are not done.
 
 The project's consent screen is External and already published, so no test users
 are needed and Testing's seven-day refresh token expiry does not apply. Until
@@ -191,8 +195,8 @@ Bootstrap, once per Google Cloud project:
    `https://staging.vrdex.net/api/connectors/google/callback`, and local
    development is `http://localhost:3000/api/connectors/google/callback`.
    Vercel preview URLs are not registered, so connecting fails there.
-4. Set the client ID and secret on the Convex deployment and through Terraform
-   for the web app, as above, then set `VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED`.
+4. Set the client ID and secret on Convex and in GitHub, as above, then set
+   `VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED`.
 
 ### Ops alerts
 
