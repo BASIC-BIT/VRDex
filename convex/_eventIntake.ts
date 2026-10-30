@@ -19,6 +19,8 @@ const submitterFor = async (db: DatabaseReader, userId: Id<"users">) => {
 
 export const EVENT_INTAKE_DRAFT_LIMIT = 20;
 export const EVENT_INTAKE_DRAFT_TTL_MS = 30 * 86_400_000;
+// The connector's source post: staff provenance on the draft, never public metadata.
+const DISCORD_MESSAGE_URL = /^https:\/\/discord\.com\/channels\//;
 const omitEmpty = (value: unknown): unknown => {
   if (value === null || value === "") return undefined;
   if (Array.isArray(value)) return value.map(omitEmpty);
@@ -143,7 +145,7 @@ export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "schedule
         ...(schedule.scheduleKind === "timed" ? { timezone: fields.timezone!, endAt: checked.endAt, doorsOpenAt: checked.doorsOpenAt } : {}),
         communityProfileId: community._id, communityName: community.displayName,
         ...(fields.summary ? { summary: fields.summary } : {}), ...(fields.venueLabel ? { venueLabel: fields.venueLabel } : {}),
-        ...(fields.sourceUrl ? { sourceUrl: fields.sourceUrl } : {}),
+        ...(fields.sourceUrl && !(draft.connectorId && DISCORD_MESSAGE_URL.test(fields.sourceUrl)) ? { sourceUrl: fields.sourceUrl } : {}),
         // A connector publishes the community's own listing, not a contribution by its authority user.
         ...(connectorId
           ? { sourceType: "community" as const, sourceLabel: "Community-submitted event", ...await submitterFor(db, actorUserId) }

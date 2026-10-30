@@ -28,16 +28,20 @@ export const beginPosterUpload = internalMutation({
     const declaration = EventPosterDeclarationSchema.parse({ contentType: args.contentType, byteLength: args.byteLength, sha256: args.sha256 });
     const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, args.draftId);
     if (draft.publishedReceiptId) throw new Error("DRAFT_PUBLISHED");
-    const active = (await Promise.all((["pending", "ready", "deleting"] as const).map(state => ctx.db.query("eventPosterSources").withIndex("by_actor_state", q => q.eq("actorUserId", args.actorUserId).eq("state", state)).take(101)))).flat();
     const reservedBytes = declaration.byteLength * 2;
-    if (active.length >= 20 || active.reduce((sum, row) => sum + row.reservedBytes, 0) + reservedBytes > 120 * 1024 * 1024) throw new Error("POSTER_QUOTA");
+    // Connector posters neither count toward nor are capped by the authority's own quota; the connector's daily run cap bounds them.
+    if (!draft.connectorId) {
+      const active = (await Promise.all((["pending", "ready", "deleting"] as const).map(state => ctx.db.query("eventPosterSources").withIndex("by_actor_connector_state", q => q.eq("actorUserId", args.actorUserId).eq("connectorId", undefined).eq("state", state)).take(101)))).flat();
+      if (active.length >= 20 || active.reduce((sum, row) => sum + row.reservedBytes, 0) + reservedBytes > 120 * 1024 * 1024) throw new Error("POSTER_QUOTA");
+    }
     const now = Date.now();
     const token = crypto.randomUUID();
     const storageKey = `profile-assets/event-posters/private/${token}/source`;
     const uploadStorageKey = `profile-assets/event-posters/private/${token}/upload`;
     const uploadExpiresAt = now + 10 * 60_000;
     const posterAssetId = await ctx.db.insert("eventPosterSources", { purpose: "event_poster", actorUserId: args.actorUserId, draftId: args.draftId, ...declaration,
-      reservedBytes, storageKey, uploadStorageKey, state: "pending", uploadedAt: now, lastActivityAt: draft.updatedAt, expiresAt: uploadExpiresAt + DAY, uploadExpiresAt });
+      reservedBytes, storageKey, uploadStorageKey, state: "pending", uploadedAt: now, lastActivityAt: draft.updatedAt, expiresAt: uploadExpiresAt + DAY, uploadExpiresAt,
+      ...(draft.connectorId ? { connectorId: draft.connectorId } : {}) });
     return { posterAssetId, storageKey, uploadStorageKey, expiresAt: uploadExpiresAt, ...declaration };
   },
 });

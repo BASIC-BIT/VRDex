@@ -1,7 +1,9 @@
 import { httpRouter } from "convex/server";
+import { ConvexError } from "convex/values";
 
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { DISCORD_SNOWFLAKE } from "./_discordIntake";
 
 // Clerk hosts the auth endpoints, so Convex no longer serves /api/auth/*.
 const http = httpRouter();
@@ -365,6 +367,73 @@ const telemetryWorker = httpAction(async (ctx, request) => {
 });
 
 http.route({ path: "/telemetry/worker", method: "POST", handler: telemetryWorker });
+
+/** 503 while Discord intake is off, 401 unless the bearer matches `DISCORD_INTAKE_SECRET`; null lets the request through. */
+function discordIntakeGate(request: Request): Response | null {
+  if (process.env.VRDEX_DISCORD_INTAKE_ENABLED !== "true") return json({ error: "disabled" }, 503);
+  const secret = process.env.DISCORD_INTAKE_SECRET;
+  const authorization = request.headers.get("authorization") ?? "";
+  const presented = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  if (!secret || !safeEqual(presented, secret)) return json({ error: "unauthorized" }, 401);
+  return null;
+}
+
+const isSnowflake = (value: unknown): value is string => typeof value === "string" && DISCORD_SNOWFLAKE.test(value);
+const readJson = (request: Request) => request.json().catch(() => null) as Promise<Record<string, unknown> | null>;
+
+http.route({ path: "/discord-intake/connectors", method: "GET", handler: httpAction(async (ctx, request) => {
+  const denied = discordIntakeGate(request);
+  if (denied) return denied;
+  const params = new URL(request.url).searchParams;
+  const guildId = params.get("guildId") ?? undefined;
+  const channelId = params.get("channelId") ?? undefined;
+  if ((channelId !== undefined && guildId === undefined) || [guildId, channelId].some(id => id !== undefined && !isSnowflake(id))) {
+    return json({ error: "invalid_request" }, 400);
+  }
+  return json({ connectors: await ctx.runQuery(internal.discordIntake.listChannelConnectors, { guildId, channelId }) });
+}) });
+
+http.route({ path: "/discord-intake/relay", method: "POST", handler: httpAction(async (ctx, request) => {
+  const denied = discordIntakeGate(request);
+  if (denied) return denied;
+  const body = await readJson(request);
+  if (body?.kind === "scheduled_event") return json({ ignored: true }, 202);
+  const { action, guildId, channelId, payload } = body ?? {};
+  if (body?.kind !== "message" || (action !== "create" && action !== "update" && action !== "delete") || !isSnowflake(guildId) || !isSnowflake(channelId)
+    || typeof payload !== "object" || payload === null) {
+    return json({ error: "invalid_request" }, 400);
+  }
+  try {
+    return json(await ctx.runMutation(internal.discordIntake.recordMessage, { action, guildId, channelId, payload: payload as never }));
+  } catch (error) {
+    if (error instanceof ConvexError && (error.data as { code?: string } | null)?.code === "DISCORD_INTAKE_INVALID") return json({ error: "invalid_request" }, 400);
+    throw error;
+  }
+}) });
+
+http.route({ path: "/discord-intake/command", method: "POST", handler: httpAction(async (ctx, request) => {
+  const denied = discordIntakeGate(request);
+  if (denied) return denied;
+  const body = await readJson(request);
+  const { command, guildId, channelId, invokerDiscordUserId, invokerHasManageGuild, options } = body ?? {};
+  if ((command !== "connect" && command !== "disconnect" && command !== "status" && command !== "autocomplete")
+    || !isSnowflake(guildId) || !isSnowflake(channelId) || !isSnowflake(invokerDiscordUserId)
+    || typeof invokerHasManageGuild !== "boolean" || typeof options !== "object" || options === null) {
+    return json({ error: "invalid_request" }, 400);
+  }
+  return json(await ctx.runAction(internal.discordIntake.handleCommand, { command, guildId, channelId, invokerDiscordUserId, invokerHasManageGuild, options: options as never }));
+}) });
+
+http.route({ path: "/discord-intake/heartbeat", method: "POST", handler: httpAction(async (ctx, request) => {
+  const denied = discordIntakeGate(request);
+  if (denied) return denied;
+  const body = await readJson(request);
+  if (typeof body?.instanceId !== "string" || !body.instanceId || typeof body.at !== "number" || !Number.isFinite(body.at)) {
+    return json({ error: "invalid_request" }, 400);
+  }
+  await ctx.runMutation(internal.discordIntake.recordHeartbeat, { instanceId: body.instanceId, at: body.at });
+  return json({ ok: true });
+}) });
 
 // --- Google Calendar push notifications (event connectors plan 08) ---
 // Imports live with the block so parallel route additions do not collide.

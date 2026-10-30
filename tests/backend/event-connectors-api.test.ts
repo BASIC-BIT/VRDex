@@ -42,7 +42,6 @@ it("validates kind, direction, Discord IDs, and uniqueness", async () => {
   await assert.rejects(create({ kind: "notion" }), /CONNECTOR_KIND_RESERVED/);
   const channel = { guildId: "123456789012345678", channelId: "223456789012345678" };
   await assert.rejects(create({ kind: "discord_board", direction: "import", target: channel }), /CONNECTOR_DIRECTION_INVALID/);
-  await assert.rejects(create({ kind: "discord_announcements", direction: "export", target: channel }), /CONNECTOR_DIRECTION_INVALID/);
   await assert.rejects(create({ kind: "discord_board", direction: "export", target: { ...channel, guildId: "123" } }), /CONNECTOR_TARGET/);
   await create({});
   await assert.rejects(create({ target: { calendarId: "club@example.com", calendarName: "Renamed" } }), /CONNECTOR_EXISTS/);
@@ -59,7 +58,7 @@ it("each kind takes exactly its own target IDs", async () => {
   await assert.rejects(create("google_calendar", "export", { calendarId: "club@example.com", guildId: guild }), /CONNECTOR_TARGET/);
   await assert.rejects(create("google_calendar", "export", { calendarId: "x".repeat(257) }), /CONNECTOR_TARGET/);
   await assert.rejects(create("discord_board", "export", { guildId: guild }), /CONNECTOR_TARGET/);
-  await assert.rejects(create("discord_announcements", "import", { guildId: guild, channelId: channel, calendarId: "c" }), /CONNECTOR_TARGET/);
+  await assert.rejects(create("discord_board", "export", { guildId: guild, channelId: channel, calendarId: "c" }), /CONNECTOR_TARGET/);
   await assert.rejects(create("discord_scheduled_events", "export", { guildId: guild, channelId: channel }), /CONNECTOR_TARGET/);
   await create("google_calendar", "export", { calendarId: "x".repeat(256) });
   await create("discord_scheduled_events", "export", { guildId: guild, guildName: "Club" });
@@ -105,7 +104,7 @@ it("update enforces the kind's allowed directions", async () => {
   await f.t.run(ctx => ctx.db.insert("externalControlProofs", { userId: f.users.integrator, assetType: "discord_guild", assetExternalId: "123456789012345678", controlLevel: "manager", state: "active", evidenceSource: "discord_oauth", verifiedAt: Date.now(), createdAt: Date.now(), updatedAt: Date.now() }));
   const board = await as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, kind: "discord_board", direction: "export", mode: "hold", target: { guildId: "123456789012345678", channelId: "223456789012345678" } });
   await assert.rejects(as.mutation(api.eventConnectors.update, { connectorId: board, direction: "bidirectional" }), /CONNECTOR_DIRECTION_INVALID/);
-  const intake = await as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, kind: "discord_announcements", direction: "import", mode: "hold", target: { guildId: "123456789012345678", channelId: "323456789012345678" } });
+  const intake = await f.insertConnector({ kind: "discord_announcements", direction: "import", mode: "hold", target: { guildId: "123456789012345678", channelId: "323456789012345678" } });
   await assert.rejects(as.mutation(api.eventConnectors.update, { connectorId: intake, direction: "export" }), /CONNECTOR_DIRECTION_INVALID/);
   await as.mutation(api.eventConnectors.update, { connectorId: intake, direction: "off" });
 });
@@ -135,6 +134,14 @@ it("the flag hides the list and blocks creation", async () => {
   const f = await connectorFixture({ flag: false });
   assert.deepEqual(await f.as("integrator").query(api.eventConnectors.listForCommunity, { communityProfileId: f.communityProfileId }), { enabled: false, connectors: [] });
   await assert.rejects(f.as("integrator").mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google }), /CONNECTORS_DISABLED/);
+});
+
+it("remove resolves both of the connector's failure alerts", async () => {
+  const f = await connectorFixture();
+  const connectorId = await f.insertConnector({ kind: "discord_announcements", direction: "import", mode: "hold", target: { guildId: "123456789012345678", channelId: "323456789012345678" } });
+  await f.t.run(async ctx => { for (const key of [`discord-intake:${connectorId}`, `connector-failures:${connectorId}`]) await ctx.db.insert("opsAlerts", { key, lastSentAt: 1 }); });
+  await f.as("integrator").mutation(api.eventConnectors.remove, { connectorId });
+  assert.ok((await f.t.run(ctx => ctx.db.query("opsAlerts").collect())).every(row => row.resolvedAt));
 });
 
 it("caps display names and refuses changes to a removed connector", async () => {

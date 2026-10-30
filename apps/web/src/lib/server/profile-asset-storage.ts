@@ -6,6 +6,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
 import { createHash } from "node:crypto";
 
@@ -319,6 +320,15 @@ export async function getProfileAssetObject(storageKey: string): Promise<StoredO
 
     throw error;
   }
+}
+
+/** A GET link to one private object that expires after `expiresInSeconds`. */
+export async function createProfileAssetReadUrl(storageKey: string, expiresInSeconds: number) {
+  const config = storageConfig();
+  if (config === null) throw new Error("Profile asset storage is not configured.");
+  // The presigner resolves a newer @smithy/types patch than client-s3, so its parameter types do not match nominally.
+  const sign = getSignedUrl as unknown as (client: S3Client, command: GetObjectCommand, options: { expiresIn: number }) => Promise<string>;
+  return sign(s3Client(config), new GetObjectCommand({ Bucket: config.bucket, Key: storageKey }), { expiresIn: expiresInSeconds });
 }
 
 /** Mutable, bounded cache objects are separate from immutable upload intents. */

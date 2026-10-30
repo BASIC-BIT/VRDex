@@ -13,6 +13,7 @@ import { GoogleCalendarConnect } from "./club-google-calendar";
 import { VrchatCalendarConnect } from "./club-vrchat-calendar";
 import { ClubAccessNotice, useClubWorkspace } from "./club-workspace";
 import { DiscordBoardConnect } from "./discord-board-connect";
+import { DiscordConnect } from "./discord-connect";
 import {
   connectedCalendarIds,
   connectorTargetName,
@@ -32,6 +33,7 @@ function ConnectorRow({
   connector,
   communitySlug,
   now,
+  pending,
   run,
   onUpdate,
   onRemove,
@@ -39,6 +41,7 @@ function ConnectorRow({
   connector: Connector;
   communitySlug: string;
   now: number;
+  pending: boolean;
   run: (action: () => Promise<unknown>) => void;
   onUpdate: (connectorId: ConnectorId, patch: ConnectorPatch) => Promise<unknown>;
   onRemove: (connectorId: ConnectorId) => Promise<unknown>;
@@ -66,7 +69,7 @@ function ConnectorRow({
       </div>
       <div className="order-last flex flex-wrap items-start gap-2 sm:order-none sm:col-start-2 sm:row-start-1">
         {state === "paused" ? (
-          <Button size="sm" onClick={() => update({ state: "active" })}>
+          <Button size="sm" disabled={pending} onClick={() => update({ state: "active" })}>
             Resume
           </Button>
         ) : null}
@@ -78,7 +81,7 @@ function ConnectorRow({
             Reconnect
           </a>
         ) : null}
-        <Button size="sm" variant="dangerGhost" onClick={() => run(() => onRemove(connectorId))}>
+        <Button size="sm" variant="dangerGhost" disabled={pending} onClick={() => run(() => onRemove(connectorId))}>
           Disconnect
         </Button>
       </div>
@@ -88,6 +91,7 @@ function ConnectorRow({
             aria-label="Direction"
             aria-describedby={help ? helpId : undefined}
             value={direction}
+            disabled={pending}
             onChange={(event) => update({ direction: event.target.value as Connector["direction"] })}
           >
             {directionOptions(kind).map((option) => (
@@ -107,6 +111,7 @@ function ConnectorRow({
             aria-label="Mode"
             className="self-start"
             value={mode}
+            disabled={pending}
             onChange={(event) => update({ mode: event.target.value as Connector["mode"] })}
           >
             {(Object.keys(MODE_LABELS) as Connector["mode"][]).map((value) => (
@@ -140,9 +145,11 @@ export function ClubIntegrationsView({
   connect?: ReactNode;
 }) {
   const [failed, setFailed] = useState(false);
+  const [pending, setPending] = useState(false);
   const run = (action: () => Promise<unknown>) => {
     setFailed(false);
-    action().catch(() => setFailed(true));
+    setPending(true);
+    action().catch(() => setFailed(true)).finally(() => setPending(false));
   };
   // notion is reserved and never renders.
   const rows = connectors.filter((connector) => connector.kind !== "notion");
@@ -164,6 +171,7 @@ export function ClubIntegrationsView({
                 connector={connector}
                 communitySlug={communitySlug}
                 now={now}
+                pending={pending}
                 run={run}
                 onUpdate={onUpdate}
                 onRemove={onRemove}
@@ -201,6 +209,7 @@ function ConnectedIntegrations({ communityProfileId, communitySlug }: { communit
         <>
           <GoogleCalendarConnect connectedCalendarIds={connectedCalendarIds(result.connectors)} />
           <DiscordBoardConnect communityProfileId={communityProfileId} />
+          <DiscordConnect communityProfileId={communityProfileId} />
         </>
       }
     />

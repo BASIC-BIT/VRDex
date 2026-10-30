@@ -32,6 +32,10 @@ langfuse_public_key = null
 langfuse_secret_key = null
 langfuse_base_url   = null
 
+# Optional. The Discord intake poster bridge token; set the same value on Convex
+# as VRDEX_DISCORD_POSTER_TOKEN (see docs/deployment/convex-environments.md).
+discord_poster_token = null
+
 # Optional. Clerk instances are per-environment: production takes the live pair,
 # preview and staging take the development instance's test pair. Leave null to
 # leave whatever is already set in the Vercel dashboard untouched.

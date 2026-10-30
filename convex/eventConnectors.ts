@@ -6,10 +6,9 @@ import {
   allowedDirections, boardEnabled, connectorDirection, connectorKind, connectorMode, connectorState, connectorTarget, connectorsEnabled,
   DISCORD_ID, requireConnectorAuthority, type ConnectorDirection, type ConnectorKind,
 } from "./_eventConnectors";
-import { enqueueSyncJob, failureAlertKey } from "./_eventSync";
+import { enqueueSyncJob, removeConnector } from "./_eventSync";
 import { MINIMUM_COMMUNITY_CONTROL_LEVEL, requireControlProof } from "./_externalControl";
 import { googleCalendarEnabled, revokeCredentialIfUnused } from "./_googleCalendar";
-import { resolveOps } from "./_opsAlerts";
 import { canManageCalendarEvents, vrchatCalendarReadiness } from "./_vrchatCalendarConnector";
 import { vrchatCalendarEnabled } from "./eventSyncKinds/vrchatCalendar";
 
@@ -30,16 +29,16 @@ function requireDirection(kind: ConnectorKind, direction: ConnectorDirection) {
 }
 
 type TargetId = (typeof TARGET_IDS)[number];
+type CreatableKind = Exclude<ConnectorKind, "notion" | "discord_announcements">;
 // Each kind names its target with exactly these IDs. Notion is reserved and never reaches this.
-const KIND_TARGET_IDS: Record<Exclude<ConnectorKind, "notion">, TargetId[]> = {
-  discord_announcements: ["guildId", "channelId"],
+const KIND_TARGET_IDS: Record<CreatableKind, TargetId[]> = {
   discord_board: ["guildId", "channelId"],
   discord_scheduled_events: ["guildId"],
   google_calendar: ["calendarId"],
   vrchat_calendar: ["groupId"],
 };
 
-function requireTarget(kind: Exclude<ConnectorKind, "notion">, target: ConnectorTarget) {
+function requireTarget(kind: CreatableKind, target: ConnectorTarget) {
   const required = KIND_TARGET_IDS[kind];
   // Only a calendar group keeps its zone; every other non-public key belongs to the sync engine.
   if (!Object.keys(target).every(key => PUBLIC_TARGET_KEYS.includes(key) || (kind === "vrchat_calendar" && key === "timezone"))) fail("CONNECTOR_TARGET");
@@ -104,7 +103,8 @@ export const create = mutation({
     requireEnabled();
     if ((await ctx.db.get(args.communityProfileId))?.profileType !== "community") fail("CONNECTOR_FORBIDDEN");
     await requireConnectorAuthority(ctx, args.communityProfileId, userId);
-    if (args.kind === "notion") return fail("CONNECTOR_KIND_RESERVED");
+    // Discord announcements connect only through the slash command or the site flow, which prove guild control.
+    if (args.kind === "notion" || args.kind === "discord_announcements") return fail("CONNECTOR_KIND_RESERVED");
     if (args.kind === "google_calendar" && !googleCalendarEnabled()) fail("CONNECTOR_KIND_DISABLED");
     if (args.kind === "discord_board" && !boardEnabled()) fail("CONNECTOR_KIND_DISABLED");
     requireDirection(args.kind, args.direction);
@@ -122,7 +122,6 @@ export const create = mutation({
     const connectorId = await ctx.db.insert("eventConnectors", {
       communityProfileId: args.communityProfileId, kind: args.kind, direction: args.direction, mode: args.mode,
       authorityUserId: userId, credentialId: args.credentialId, target,
-      quietWindowSeconds: args.kind === "discord_announcements" ? 120 : undefined,
       state: "active", createdAt: now, updatedAt: now,
     });
     if (args.direction !== "off") await reconcile(ctx, connectorId);
@@ -160,10 +159,7 @@ export const update = mutation({
 
 export const remove = mutation({ args: { connectorId: v.id("eventConnectors") }, returns: v.null(), handler: async (ctx, args) => {
   const { connector } = await authorizedConnector(ctx, args.connectorId);
-  // Links stay so a reconnect can match them; pending jobs close as connector_inactive when claimed.
-  if (connector.state !== "removed") await ctx.db.patch(connector._id, { state: "removed", updatedAt: Date.now() });
-  // A removed connector cannot recover, so close any open failure alert for it.
-  await resolveOps(ctx, failureAlertKey(connector._id));
+  await removeConnector(ctx, connector);
   if (connector.kind === "google_calendar" && connector.credentialId) await revokeCredentialIfUnused(ctx, connector.credentialId);
   return null;
 } });

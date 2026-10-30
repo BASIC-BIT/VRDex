@@ -8,6 +8,17 @@ export const EventPosterDeclarationSchema = z.strictObject({
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
+/** Discord poster attachments are fetched only from Discord's own CDN, over HTTPS. */
+export const DISCORD_CDN_HOSTS = ["cdn.discordapp.com", "media.discordapp.net"];
+export function isDiscordCdnUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && DISCORD_CDN_HOSTS.includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 const text = (max: number) => z.string().trim().max(max);
 const nullable = <T extends z.ZodType>(schema: T) => schema.nullable().optional();
 const EventIntakeEvidenceSchema = z.array(z.strictObject({ fieldPath: text(120), origin: z.enum(["text", "poster", "lookup", "calculation", "connector"]), excerpt: text(500).nullable(), assessment: z.enum(["explicit", "inferred", "conflicting"]) })).max(40);

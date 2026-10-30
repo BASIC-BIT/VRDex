@@ -2,6 +2,7 @@ import { convexTest } from "convex-test";
 import schemaModule from "../../convex/schema";
 import { api } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
+import type { DatabaseWriter } from "../../convex/_generated/server";
 import { loadEventsWithFixtureCapacity } from "./_eventCapacityFixture";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
@@ -21,6 +22,13 @@ export const connectorModules = {
 };
 const grantedBy = { tokenIdentifier: "test|root", issuer: "test", subject: "root" };
 
+/** One community role holding `permissions`, granted to a Clerk subject under the test issuer. */
+export async function grantCommunityRole(db: DatabaseWriter, communityProfileId: Id<"profiles">, subject: string, key: string, permissions: Doc<"communityRoles">["permissions"]) {
+  const now = Date.now();
+  const roleId = await db.insert("communityRoles", { communityProfileId, key, label: key, permissions, assignableRoleIds: [], state: "active", createdAt: now, updatedAt: now });
+  return db.insert("communityAuthorities", { communityProfileId, subjectTokenIdentifier: `test|${subject}`, subject: { tokenIdentifier: `test|${subject}`, issuer: "test", subject }, roleId, state: "active", grantedAt: now, updatedAt: now });
+}
+
 export async function connectorFixture(options: { flag?: boolean } = {}) {
   process.env.EVENT_DATE_ONLY_ENABLED = "true";
   process.env.CLERK_JWT_ISSUER_DOMAIN = "test";
@@ -34,10 +42,8 @@ export async function connectorFixture(options: { flag?: boolean } = {}) {
     const communityProfileId = await ctx.db.insert("profiles", { slug: "club", displayName: "Club", sortName: "club", profileType: "community", community: { categoryTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: now });
     await ctx.db.insert("profileOwners", { profileId: communityProfileId, userId: owner, roleKey: "owner", state: "active", grantedAt: now, updatedAt: now });
     await ctx.db.insert("accountFeatureGrants", { userId: admin, feature: "super_admin", state: "active", grantedBy, grantedAt: now, updatedAt: now });
-    const role = (key: string, permissions: Doc<"communityRoles">["permissions"]) => ctx.db.insert("communityRoles", { communityProfileId, key, label: key, permissions, assignableRoleIds: [], state: "active", createdAt: now, updatedAt: now });
-    const grant = async (subject: string, roleId: Id<"communityRoles">) => ctx.db.insert("communityAuthorities", { communityProfileId, subjectTokenIdentifier: `test|${subject}`, subject: { tokenIdentifier: `test|${subject}`, issuer: "test", subject }, roleId, state: "active", grantedAt: now, updatedAt: now });
-    const integratorGrant = await grant("integrator", await role("integrations", ["manage_integrations"]));
-    await grant("event-staff", await role("events", ["manage_events"]));
+    const integratorGrant = await grantCommunityRole(ctx.db, communityProfileId, "integrator", "integrations", ["manage_integrations"]);
+    await grantCommunityRole(ctx.db, communityProfileId, "event-staff", "events", ["manage_events"]);
     return { communityProfileId, integratorGrant, users: { owner, integrator, eventStaff, outsider, admin } };
   });
   const as = (subject: string) => t.withIdentity({ subject, issuer: "test", tokenIdentifier: `test|${subject}`, emailVerified: true });

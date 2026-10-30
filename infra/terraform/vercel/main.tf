@@ -53,6 +53,8 @@ locals {
     LANGFUSE_BASE_URL   = var.langfuse_base_url
   } : {}
 
+  manage_discord_poster_token = nonsensitive(var.discord_poster_token != null)
+
   # Each environment gets its own Clerk instance's pair, so these are managed as
   # two independent groups rather than one value set across targets.
   manage_clerk_production = nonsensitive(
@@ -269,6 +271,30 @@ resource "vercel_project_environment_variable" "langfuse_staging_custom" {
   custom_environment_ids = [each.value.custom_environment_id]
   sensitive              = true
   comment                = "Server-only Langfuse keys for event intake tracing."
+}
+
+resource "vercel_project_environment_variable" "discord_poster_token_standard" {
+  for_each = { for name, target in local.standard_twitch_targets : name => target if local.manage_discord_poster_token }
+
+  project_id = data.vercel_project.web.id
+  team_id    = var.vercel_team_id
+  key        = "VRDEX_DISCORD_POSTER_TOKEN"
+  value      = var.discord_poster_token
+  target     = each.value
+  sensitive  = true
+  comment    = "Bearer token Convex Discord intake runs present to the internal poster bridge."
+}
+
+resource "vercel_project_environment_variable" "discord_poster_token_staging_custom" {
+  for_each = local.manage_discord_poster_token ? var.staging_custom_environment_ids : toset([])
+
+  project_id             = data.vercel_project.web.id
+  team_id                = var.vercel_team_id
+  key                    = "VRDEX_DISCORD_POSTER_TOKEN"
+  value                  = var.discord_poster_token
+  custom_environment_ids = [each.value]
+  sensitive              = true
+  comment                = "Bearer token Convex Discord intake runs present to the internal poster bridge."
 }
 
 resource "vercel_project_environment_variable" "clerk_production" {
