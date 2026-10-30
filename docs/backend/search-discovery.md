@@ -39,6 +39,12 @@ remains supported; there is no client-side exact genre filter.
 Home discovery uses `homeDiscovery` public queries, independently of Schedule
 navigation and universal search ranking. The browser retains favorites and derives
 affinity locally; these queries neither persist nor log preference lists.
+The [October 29 Home polish](../superpowers/specs/2026-10-29-home-polish-design.md)
+keeps candidate-query lifetimes independent of favorite changes. Existing cards
+remain visible while ready replacements are assembled. A focused card waits for
+blur; an open inspector survives ordinary reranking. Revocation and errors still
+remove obsolete public content. Candidate refresh stays at five minutes and local
+expiry at one minute.
 The [approved Home direction](../superpowers/specs/2026-10-28-home-discovery-design.md)
 allows public genre assignments to inform recommendations without creating event
 or community genre assignments from booked performers.
@@ -101,6 +107,12 @@ and private identities are omitted.
 Repeated IDs are deduplicated before checking batch limits. Current field
 visibility is enforced on every public response, including after suppression or
 visibility changes.
+
+Focus can retain at most one existing profile-signal batch of up to 50 IDs for
+an outside-sample club. It does not register a pin-specific read. Event focus
+can retain at most one old candidate generation; the reviewed native case
+measured 19 retained watches. These are separate live subscription bounds, not
+three-wire-work guarantees.
 
 `favoriteLineup({ eventIds, favoriteProfileIds })` resolves complete favorite-person
 membership for at most two selected discovery cards. Raw limits are two event IDs

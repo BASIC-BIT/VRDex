@@ -7,6 +7,7 @@ export type TimelineFixture = {
   eventIds: string[];
   slotIds: string[];
   profileIds: string[];
+  lineupEntryIds: string[];
 };
 export const test = base.extend<{
   timelineFixture: TimelineFixture;
@@ -18,6 +19,7 @@ export const test = base.extend<{
     | "discovery-dense"
     | "discovery-sparse"
     | "discovery-clubs"
+    | "discovery-roster"
     | "timeline-visual"
     | "short-sets";
   timelineStartAt: number;
@@ -137,6 +139,7 @@ export const test = base.extend<{
     async (
       { request, baseURL, timelineScenario, timelineStartAt },
       provide,
+      info,
     ) => {
       if (
         !["127.0.0.1", "localhost", "[::1]"].includes(
@@ -150,11 +153,27 @@ export const test = base.extend<{
       };
       // Keep every derived profile slug inside the canonical 64-character limit.
       const runId = `playwright-timeline-${randomUUID().replaceAll("-", "").slice(0, 24)}`;
+      const expectedCounts = {
+        default: { events: 8, profiles: 2, slots: 8 },
+        prefetch: { events: 8, profiles: 2, slots: 8 },
+        detail: { events: 8, profiles: 3, slots: 87, lineupEntries: 2 },
+        discovery: { events: 2, profiles: 4, slots: 2 },
+        "discovery-dense": { events: 246, profiles: 8, slots: 5 },
+        "discovery-sparse": { events: 1, profiles: 4, slots: 1 },
+        "discovery-clubs": { events: 2, profiles: 32, slots: 2 },
+        "discovery-roster": { events: 2, profiles: 17, slots: 95 },
+        "timeline-visual": { events: 10, profiles: 5, slots: 10 },
+        "short-sets": { events: 8, profiles: 2, slots: 8 },
+      }[timelineScenario];
+      let created = false;
+      let stage = "request";
+      let responseStatus: number | null = null;
+      let primaryFailure: { error: unknown } | undefined;
       await withTimelineFixtureLease(
         process.env.PLAYWRIGHT_CONVEX_URL ??
           process.env.CONVEX_URL ??
           "http://127.0.0.1:3210",
-        async (blockAfterCleanupFailure) => {
+        async (blockAfterCleanupFailure, manifest) => {
           try {
             const response = await request.post("/api/e2e/home-timeline", {
               headers,
@@ -176,7 +195,10 @@ export const test = base.extend<{
                         : {}),
                     },
             });
+            responseStatus = response.status();
+            stage = "response";
             await expect(response).toBeOK();
+            stage = "decode";
             const value: unknown = await response.json();
             if (
               !value ||
@@ -189,15 +211,35 @@ export const test = base.extend<{
               !value.slotIds.every((id) => typeof id === "string") ||
               !("profileIds" in value) ||
               !Array.isArray(value.profileIds) ||
-              !value.profileIds.every((id) => typeof id === "string")
+              !value.profileIds.every((id) => typeof id === "string") ||
+              !("lineupEntryIds" in value) ||
+              !Array.isArray(value.lineupEntryIds) ||
+              !value.lineupEntryIds.every((id) => typeof id === "string")
             )
               throw Error("Invalid timeline fixture result");
+            stage = "manifest";
+            await manifest.recordCreated({
+              eventIds: value.eventIds,
+              slotIds: value.slotIds,
+              profileIds: value.profileIds,
+              lineupEntryIds: value.lineupEntryIds,
+            }, expectedCounts);
+            created = true;
+            stage = "body";
             await provide({
               runId,
+              lineupEntryIds: value.lineupEntryIds,
               eventIds: value.eventIds,
               slotIds: value.slotIds,
               profileIds: value.profileIds,
             });
+          } catch (error) {
+            primaryFailure = { error };
+            await info.attach("timeline-fixture-stage.json", {
+              body: JSON.stringify({ runId, stage, responseStatus, created }),
+              contentType: "application/json",
+            });
+            throw error;
           } finally {
             try {
               const cleanup = await request.delete("/api/e2e/home-timeline", {
@@ -209,47 +251,17 @@ export const test = base.extend<{
               const counts: unknown = await cleanup.json();
               // A disconnected POST can commit after DELETE reads zero. Only
               // exact owned cleanup proves the attempted create is cleared.
-              expect(counts).toEqual({
-                events:
-                  timelineScenario === "timeline-visual"
-                    ? 10
-                    : timelineScenario === "discovery-dense"
-                      ? 246
-                      : timelineScenario === "discovery-sparse"
-                        ? 1
-                        : timelineScenario === "discovery" ||
-                            timelineScenario === "discovery-clubs"
-                          ? 2
-                          : 8,
-                profiles:
-                  timelineScenario === "timeline-visual"
-                    ? 5
-                    : timelineScenario === "discovery-clubs"
-                      ? 32
-                      : timelineScenario === "discovery-dense"
-                        ? 8
-                        : timelineScenario.startsWith("discovery")
-                          ? 4
-                          : timelineScenario === "detail"
-                            ? 3
-                            : 2,
-                slots:
-                  timelineScenario === "timeline-visual"
-                    ? 10
-                    : timelineScenario === "discovery-dense"
-                      ? 5
-                      : timelineScenario === "discovery-sparse"
-                        ? 1
-                        : timelineScenario === "discovery" ||
-                            timelineScenario === "discovery-clubs"
-                          ? 2
-                          : timelineScenario === "detail"
-                            ? 87
-                            : 8,
-                ...(timelineScenario === "detail" ? { lineupEntries: 2 } : {}),
-              });
+              expect(counts).toEqual(expectedCounts);
+              if (created) await manifest.markClean();
             } catch (error) {
               blockAfterCleanupFailure();
+              if (primaryFailure) {
+                throw new AggregateError(
+                  [primaryFailure.error, error],
+                  "Timeline fixture cleanup also failed",
+                  { cause: primaryFailure.error },
+                );
+              }
               throw error;
             }
           }

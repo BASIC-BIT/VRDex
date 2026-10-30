@@ -40,6 +40,7 @@ export const create = mutation({
         v.literal("discovery-dense"),
         v.literal("discovery-sparse"),
         v.literal("discovery-clubs"),
+        v.literal("discovery-roster"),
         v.literal("timeline-visual"),
         v.literal("short-sets"),
       ),
@@ -191,6 +192,34 @@ export const create = mutation({
           }),
         );
       }
+      if (args.scenario === "discovery-roster") {
+        const original = await ctx.db.get(profileIds[1]);
+        if (!original || original.profileType !== "person") throw Error("Missing fixture performer");
+        const { _id, _creationTime, ...fields } = original;
+        void _id; void _creationTime;
+        for (let i = 0; i < 13; i++) {
+          profileIds.push(await ctx.db.insert("profiles", {
+            ...fields,
+            slug: `${args.runId}-roster${i}`,
+            displayName: i === 12 ? "SECRET ROSTER PERSON" : `Favorite performer ${String(i + 1).padStart(2, "0")} with a complete public name`,
+            sortName: `roster${i}`,
+            publicSurfacingState: i === 12 ? "suppressed" : "public",
+          }));
+        }
+        // Eighty earlier authored rows force favorite matches beyond both the
+        // old signal prefix and the first native roster page.
+        for (let i = 0; i < 93; i++) {
+          const startAt = args.startAt + 7 * 24 * h;
+          slotIds.push(await ctx.db.insert("eventSlots", {
+            eventId: eventIds[0], position: i + 1,
+            ...(i >= 80 ? { personProfileId: profileIds[4 + i - 80] } : {}),
+            startAt, endAt: startAt + h,
+            displayLabel: i < 80 ? `Authored guest ${i + 1}` : "Favorite guest",
+            roleLabel: "DJ", sourceType: "community", sourceLabel: args.runId,
+            confidence: 1, reviewState: "confirmed", updatedAt: Date.now(),
+          }));
+        }
+      }
       if (args.scenario === "discovery-dense") {
         const original = await ctx.db.get(profileIds[1]);
         if (!original || original.profileType !== "person")
@@ -309,7 +338,7 @@ export const create = mutation({
             );
         }
       }
-      return { runId: args.runId, eventIds, slotIds, profileIds };
+      return { runId: args.runId, eventIds, slotIds, profileIds, lineupEntryIds: [] };
     }
     const profiles: Id<"profiles">[] = [];
     for (const kind of args.scenario === "detail"
@@ -363,7 +392,8 @@ export const create = mutation({
       );
     }
     const eventIds: Id<"events">[] = [],
-      slotIds: Id<"eventSlots">[] = [];
+      slotIds: Id<"eventSlots">[] = [],
+      lineupEntryIds: Id<"eventLineupEntries">[] = [];
     for (let i = 0; i < 8; i++) {
       const offset =
         args.scenario === "prefetch"
@@ -458,7 +488,7 @@ export const create = mutation({
     }
     if (args.scenario === "detail")
       for (let i = 0; i < 2; i++) {
-        await ctx.db.insert("eventLineupEntries", {
+        lineupEntryIds.push(await ctx.db.insert("eventLineupEntries", {
           eventId: eventIds[3],
           clientKey: `${args.runId}-lineup-${i}`,
           position: 81 + i,
@@ -466,7 +496,7 @@ export const create = mutation({
           roleLabel: i === 1 ? "Host" : undefined,
           personProfileId: i === 0 ? profiles[1] : undefined,
           updatedAt: Date.now(),
-        });
+        }));
       }
     if (args.scenario === "timeline-visual") {
       const genres = [
@@ -560,7 +590,7 @@ export const create = mutation({
         );
       }
     }
-    return { runId: args.runId, eventIds, slotIds, profileIds: profiles };
+    return { runId: args.runId, eventIds, slotIds, profileIds: profiles, lineupEntryIds };
   },
 });
 export const cleanup = mutation({
@@ -610,6 +640,7 @@ export const cleanup = mutation({
       "hidden-community",
       "person3",
       ...Array.from({ length: 28 }, (_, i) => `pad${i}`),
+      ...Array.from({ length: 13 }, (_, i) => `roster${i}`),
     ]) {
       const p = await ctx.db
         .query("profiles")

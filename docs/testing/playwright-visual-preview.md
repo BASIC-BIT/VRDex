@@ -445,8 +445,8 @@ keep their existing timeout.
 date navigation and Back restoration, plus event and selected-set details with a
 New York URL timezone in a UTC browser. Its rollback case uses the same guarded
 fixture creator with a November 1, 2026 start instant; it checks both occurrences
-of 1:30 AM and a set crossing the offset change. Timeline detail set times include
-UTC offsets; the shared time components retain their existing defaults elsewhere.
+of 1:30 AM and a set crossing the offset change. The inspector has one timezone/hour-format indicator. Each set instant converts
+independently across DST; repeated offsets are omitted from performer rows.
 
 The logo's run-specific HTTPS `.invalid` URL passes through the real canonical
 public host projection. Only that exact image request is served original artwork
@@ -552,3 +552,113 @@ checked cold load, Browse/Back, reload, live cards, enhanced inspector/focus and
 search on both devices, rejecting page errors and creating no backend records.
 That diagnostic source is retained with its evidence rather than registered as
 an unleased automatic fixture case in CI.
+
+## Local Home fixture recovery
+
+After a successful create, the fixture writes an atomic, nonsecret ownership
+manifest before the test body. It lives in `.playwright-fixtures/<backend-hash>.json`
+under the Playwright working directory. `VRDEX_HOME_FIXTURE_MANIFEST_DIR` can
+select another durable local artifact directory. It records the backend origin,
+run ID, owner PID, event/profile/slot/lineup-entry IDs and exact expected cleanup
+counts. Detail runs include their two authored lineup-entry IDs. It contains no
+tokens, secrets or public response snapshots.
+
+Verified exact cleanup removes the manifest. Failed or interrupted cleanup keeps
+it and the blocking temporary lease. An unresolved manifest also blocks a new
+fixture if the OS temporary lease has disappeared. Neither PID age nor a reset,
+HTTP success alone, zero counts or a missing temporary lock proves cleanup.
+There is no automatic lease deletion or takeover.
+
+For recovery, first verify the original worker has stopped and inspect only that
+manifest and lease. Restore the same anonymous local backend origin and gated web
+helper configuration. Use the existing authenticated
+`DELETE /api/e2e/home-timeline` with only the recorded `runId`; the route and
+backend independently enforce loopback, enablement, credentials and exact
+ownership. Compare the response with every recorded expected count. Only exact
+verified cleanup permits removing that manifest and lease. If a reset may have
+committed cleanup or counts differ, retain both artifacts and inspect those
+exact owned IDs against the same backend before authorizing manual recovery.
+Do not reseed, delete foreign records, weaken gates or infer success from zeros.
+The local credential value stays in the request environment, outside artifacts.
+
+The manifest/lease/reset boundary tests use actual child processes and local HTTP
+connections. They cover interruption before cleanup, durable ownership after loss
+of a temporary lock, exact cleanup removal, disconnected creates and cleanup
+resets both before and after commit.
+
+A create that loses its response may have no successful-create manifest. Keep its
+lease and original error, then establish that the original backend operation has
+finished before checking exact run-owned records. Zero cleanup counts alone do
+not rule out a late commit. Manual lease release must compare its complete owner
+contents immediately before removal. Temporary inspection, if explicitly
+approved, stays internal, read-only, guarded and limited to that exact run; remove
+it, regenerate functions and verify it is unavailable before continuing.
+The fixture attaches nonsecret create stage and HTTP status on failure. A second
+cleanup error preserves the primary exception as its cause.
+
+## Home polish measurement
+
+The October 29 polish uses the five native behavior cases in
+`home-discovery.flow.spec.ts` for slow geometry, failed initial load/Retry,
+inspector and reading-position retention, complete large-roster names and usable
+cold search. These remain in the `@flow` CI lane.
+
+`home-polish-performance.flow.spec.ts` is a manual `@measurement` harness:
+
+```bash
+HOME_MEASUREMENT_REVISION=feature pnpm --filter web exec playwright test home-polish-performance.flow.spec.ts --project=desktop-chromium --project=mobile-chromium --workers=2
+```
+
+Use one explicit local backend/web owner and the normal exclusive fixture lease.
+The harness prewarms Home and hydrates a disposable context before measuring a
+fresh browser context, then repeated navigation in that context and a bounded
+1500ms hold of real transport
+frames. Both revisions use the same fixture writer, device, assets, system TLS
+flag and server prewarm. Heavy checks run afterward.
+
+Artwork routing can disable HTTP cache in Playwright. "Warm" therefore means
+repeated navigation in the same context, not guaranteed HTTP cache hits. Pending
+images can be lazy or offscreen; they are not evidence of a network failure or
+unready section.
+
+Readiness times start at document initialization and exclude request/TTFB and
+compiler startup. The fixed test clock carries its monotonic time across
+navigations, so the harness records and subtracts each document's origin and
+checks times against its observed window. Image inventory distinguishes loaded,
+pending, failed and absent images. A card without an image can be a legitimate
+fallback. Raw layout shifts include recent-input flags; CLS excludes those
+recent-input shifts. One observation per phase is local evidence, not a latency
+SLA. Subscription registration counts describe protocol work separately from
+logical scheduler limits.
+
+### October 29 combined verification
+
+The local evidence covers 146 distinct desktop/mobile behavior cases and 18
+native visual cases through preserved failed runs plus focused passing reruns.
+Storybook passed 30/30. All 16 affected native and 18 affected Storybook baselines
+were visually reviewed before acceptance, with existing thresholds.
+
+Canonical web/backend types, web/Markdown lint, generated verification and web
+and Storybook builds passed. The web build required the documented system TLS
+flag. Default Node file-isolated commands failed under this harness; separate
+real-file processes produced 1011 passing web cases across the full inventory
+and scoped MCP timeout rerun. Backend initially passed 2302/2303; the unrelated
+cleanup timing file passed 9/9 serially afterward. Raw failures remain evidence.
+
+The paired local measurement completed all ordinary and dense section loads.
+Ordinary feature CLS was zero; dense schedule readiness was about 19–24 seconds
+on both revisions, with pending offscreen/lazy artwork and legitimate fallback
+cards. One feature slow desktop dense observation had CLS 0.131625. This is not
+proof of faster cold loading or zero movement for arbitrary content.
+
+Across all four matched fixture/device cases, a favorite action registered
+16 event-candidate, two club-candidate and two event-signal subscriptions on the
+baseline, and zero of those on the feature. Both registered one profile-signal
+batch; the feature also registered one selected-card membership batch. These
+are protocol registrations, separate from logical first-value scheduling and
+backend query execution.
+
+Full command outputs, raw observations, coverage composition, VLM notes and
+recovery proofs are retained at
+`/workspace/previews/vrdex-home-polish/task-7` in the execution workspace.
+The controller owns whole-branch review and selected browser/visual CI.

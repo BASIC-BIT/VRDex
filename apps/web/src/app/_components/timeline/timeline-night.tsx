@@ -331,7 +331,12 @@ export function TimelineNight({
                 )}
                 <button
                   aria-label={`Remove ${item.kind === "unavailable" ? "unavailable item" : (item.slot?.displayLabel ?? item.event.title)} from My night`}
-                  onClick={() => actions.onSave(item.reference)}
+                  onClick={() => {
+                    document
+                      .querySelector<HTMLElement>('[aria-label="Timeline chart"]')
+                      ?.focus({ preventScroll: true });
+                    actions.onSave(item.reference);
+                  }}
                 >
                   <X size={14} />
                 </button>

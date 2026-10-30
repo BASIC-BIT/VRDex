@@ -157,13 +157,16 @@ test.describe("Home schedule images @visual @snapshot @fixture", () => {
         .getByLabel("Overlap", { exact: true }),
     ).toHaveCount(2);
 
+    // Save controls can scroll the canvas into view. Capture a fixed useful
+    // anchor through the same native navigation on both devices.
+    await page.getByRole("button", { name: "Now", exact: true }).click();
     await capture(page, "night");
   });
   test("empty range is settled", async ({ page }) => {
     await page.goto(`/?at=${Date.UTC(2026, 10, 5, 12)}`);
     await expect(
-      page.getByText("No events in this range", { exact: true }),
-    ).toBeVisible();
+      page.getByLabel("Schedule data state", { exact: true }),
+    ).toContainText("No events in this range");
     await capture(page, "empty");
   });
   test("failed range keeps search and Retry usable", async ({ page }) => {

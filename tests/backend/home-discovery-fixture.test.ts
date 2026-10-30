@@ -474,3 +474,23 @@ it("outside-sample club fixture preserves gates, candidate exclusion and exact o
     assert.deepEqual(await t.mutation(api.e2eHomeTimeline.cleanup, { secret: args.secret, runId: args.runId }), { events: 0, profiles: 0, slots: 0 });
   } finally { process.env = before; }
 });
+
+
+it("large selected roster exposes all twelve favorites beyond eighty rows and exactly cleans owned IDs", async () => {
+  const original = { ...process.env };
+  try {
+    Object.assign(process.env, { CONVEX_CLOUD_URL: "http://127.0.0.1:3210", VRDEX_ENABLE_E2E_HELPERS: "true", VRDEX_E2E_CONVEX_SECRET: "test-secret", VERCEL_ENV: "development" });
+    const t = convexTest({ schema, modules });
+    const args = { secret: "test-secret", runId: "playwright-timeline-roster001", startAt: Date.UTC(2026, 9, 26, 21), scenario: "discovery-roster" as const };
+    const fixture = await t.mutation(api.e2eHomeTimeline.create, args);
+    assert.equal(fixture.eventIds.length, 2);
+    assert.equal(fixture.profileIds.length, 17);
+    assert.equal(fixture.slotIds.length, 95);
+    assert.deepEqual(fixture.lineupEntryIds, []);
+    const matches = await t.query(api.homeDiscovery.favoriteLineup, { eventIds: [fixture.eventIds[0]], favoriteProfileIds: fixture.profileIds.slice(4) });
+    assert.equal(matches.items[0]?.performers.length, 12);
+    assert.ok(!JSON.stringify(matches).includes("SECRET"));
+    assert.deepEqual(await t.mutation(api.e2eHomeTimeline.cleanup, { secret: args.secret, runId: args.runId }), { events: 2, profiles: 17, slots: 95 });
+    for (const id of [...fixture.eventIds, ...fixture.profileIds, ...fixture.slotIds]) assert.equal(await t.run(ctx => ctx.db.get(id)), null);
+  } finally { process.env = original; }
+});

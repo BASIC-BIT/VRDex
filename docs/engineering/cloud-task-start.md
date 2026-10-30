@@ -23,7 +23,13 @@ node --version
 pnpm --version
 ```
 
-Node must be version 24 and pnpm must match `package.json`. If the activation
+Node must be version 24 and pnpm must match `package.json`. If an older published
+activation helper omits system TLS support, explicitly export
+`NEXT_TURBOPACK_EXPERIMENTAL_USE_SYSTEM_TLS_CERTS=1` before `pnpm build:web`.
+Preserve proxy/CA settings and TLS verification. A Google Fonts TLS error with
+that flag absent is an activation gap, not a reason to change application fonts.
+
+If the activation
 file or required helpers are absent, report the incomplete published setup
 before choosing a recovery route.
 

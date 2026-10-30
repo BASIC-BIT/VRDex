@@ -42,7 +42,7 @@ to `/search?q=BASICBIT&view=dj`. Whitespace-only root queries stay on public
 Home. `/lookup/suggest`, legacy bulk lookup and permission-scoped private seed
 access remain unchanged. Public Home/search do not read lookup recents or
 request private suggestions. `/discover?q=aurora` redirects to standard search.
-Home also includes the continuous Schedule, Agenda, nonmodal event details,
+Home also includes the continuous Schedule, nonmodal event details,
 browser-local My night and private DJ/club favorites. No sign-in is required.
 Without JavaScript, the interactive schedule is hidden and GET search and
 Discovery remain usable. Home also shows poster-led event and club
@@ -194,6 +194,9 @@ public clubs, outside both 12-club samples. It owns exactly two events, 32 profi
 and two slots; the same lease, ownership checks and cleanup verification apply.
 This exercises retaining one existing favorite-profile watch while its club
 control has focus, releasing it on blur and still removing revoked public data.
+The `discovery-roster` scenario owns two events, seventeen profiles and ninety-five
+slots. Twelve public favorites follow eighty unlinked authored rows, alongside
+one hidden control, to verify complete wrapped summaries and exact cleanup.
 The `timeline-visual` scenario adds two score-separated future recommendations
 to the original eight Schedule events. It owns ten events, five profiles and ten
 slots. Only its new DJ/club IDs are favorites, preserving original Schedule
@@ -204,7 +207,15 @@ dates must not bypass it. Reuse this helper
 for Home checks; do not seed public-query responses or
 add unrelated records manually.
 Cleanup retries one connection reset. HTTP errors or unconfirmed cleanup counts
-still preserve the blocking lease.
+still preserve the blocking lease and durable ownership manifest. See
+[exact local fixture recovery](../testing/playwright-visual-preview.md#local-home-fixture-recovery).
+
+The [October 29 Home polish design](../superpowers/specs/2026-10-29-home-polish-design.md)
+supersedes Agenda, full-height My night lanes and roster-prefix discovery labels.
+Schedule uses public lanes with a 376px minimum, 94px pitch and 78px bars.
+My night uses 50px lanes and 44px bars. Date-only and open-end records retain
+authored markers without invented intervals. Old `scheduleView=agenda` URLs
+remain usable and lose that parameter on the next navigation update.
 
 `eventTimeline.listPublic` pages event identities only. Its compatible
 `TimelineEvent` shape starts with empty `slots` and `performers` and an initial

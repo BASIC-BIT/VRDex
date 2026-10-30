@@ -218,6 +218,7 @@ it("detail scenario owns and exactly cleans dense slots, hidden person and untim
     const args={secret:"test-secret",runId:"playwright-timeline-detail000",startAt:Date.UTC(2026,9,26,21)};
     const result=await t.mutation(api.e2eHomeTimeline.create,{...args,scenario:"detail"});
     assert.equal(result.slotIds.length,87);assert.equal(result.profileIds.length,3);
+    assert.equal(result.lineupEntryIds.length, 2);
     const row=await t.run(ctx=>ctx.db.get(result.eventIds[3]));
     assert.equal(row?.posterImageUrl,"/api/e2e/fixture-assets/fixture-orbit-timeline-poster");
     const canonical = await t.run(async ({db})=>getPublicEventBySlug(db,await db.get(result.eventIds[3])));

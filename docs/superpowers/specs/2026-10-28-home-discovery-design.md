@@ -5,6 +5,12 @@ Status: BASIC approved the corrected visual recommendation direction on October
 choices in the [plan](../plans/2026-10-28-home-discovery.md) are author defaults
 for plan review, not additional decisions attributed to BASIC.
 
+The approved [October 29 Home polish](2026-10-29-home-polish-design.md) supersedes
+this document's Agenda, control, personal-lane, loading and discovery presentation
+details where they differ. Its complete selected-card favorite membership and
+stable refresh rules replace prefix-based labels. Public visibility, authored
+times and bounded recommendation sampling still apply.
+
 ## Approved direction
 
 Locked direction from BASIC: discovery is for visually finding interesting

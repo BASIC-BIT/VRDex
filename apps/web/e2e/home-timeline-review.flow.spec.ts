@@ -95,7 +95,7 @@ test.describe("timeline review regressions @flow @fixture", () => {
     await page.screenshot({ path: info.outputPath("ongoing-identity.png") });
   });
 
-  for (const action of ["Agenda", "Favorites only", "date"]) {
+  for (const action of ["Later", "Favorites only", "date"]) {
     test(`Back restores the pending pan before ${action}`, async ({ page }) => {
       const initial = TIMELINE_NOW - HOUR;
       await page.goto(`/?at=${initial}`);
@@ -114,6 +114,9 @@ test.describe("timeline review regressions @flow @fixture", () => {
           .fill("2026-10-28");
       else
         await page.getByRole("button", { name: action, exact: true }).click();
+      if (action === "Later")
+        await expect.poll(() => new URL(page.url()).searchParams.get("at"))
+          .toBe(String(initial + HOUR + 3 * HOUR));
       await page.goBack();
       await expect
         .poll(() => new URL(page.url()).searchParams.get("at"))
@@ -174,12 +177,15 @@ test.describe("compact personal planning @flow @fixture", () => {
       path: info.outputPath("compact-overlap.png"),
       fullPage: true,
     });
-    await bars
-      .first()
-      .getByRole("button", { name: /^Remove interest:/ })
-      .focus();
+    const remove = isMobile
+      ? page.getByRole("region", { name: "My night", exact: true })
+          .getByRole("button", { name: "Remove Glasshouse Sessions from My night", exact: true })
+      : bars.first().getByRole("button", { name: /^Remove interest:/ });
+    await remove.focus();
+    const removalScrollY = await page.evaluate(() => scrollY);
     await page.keyboard.press("Enter");
     await expect(bars).toHaveCount(1);
+    expect(await page.evaluate(() => scrollY)).toBe(removalScrollY);
     await expect(
       page.getByRole("region", { name: "Timeline chart" }),
     ).toBeFocused();
@@ -197,7 +203,7 @@ test.describe("compact personal planning @flow @fixture", () => {
       });
       await panel
         .getByRole("button", {
-          name: "Add Neon Harbor to My night",
+          name: "Interested: Neon Harbor",
           exact: true,
         })
         .tap();
@@ -281,7 +287,7 @@ test.describe("compact personal planning @flow @fixture", () => {
         exact: true,
       });
       await panel
-        .getByRole("button", { name: "Favorite Aurora", exact: true })
+        .getByRole("button", { name: "Favorite: Aurora", exact: true })
         .first()
         .tap();
       await panel.getByRole("button", { name: "Close", exact: true }).tap();
@@ -342,7 +348,7 @@ test.describe("compact personal planning @flow @fixture", () => {
       await expect(
         page
           .getByRole("region", { name: "Event details", exact: true })
-          .getByRole("button", { name: "Favorite Aurora", exact: true })
+          .getByRole("button", { name: "Favorite: Aurora", exact: true })
           .first(),
       ).toBeVisible();
       await page.screenshot({ path: info.outputPath("touch-set-panel.png") });
@@ -408,7 +414,7 @@ test.describe("compact personal planning @flow @fixture", () => {
         exact: true,
       });
       await panel
-        .getByRole("button", { name: "Add Aurora to My night", exact: true })
+        .getByRole("button", { name: "Interested: Aurora", exact: true })
         .tap();
       await panel.getByRole("button", { name: "Close", exact: true }).tap();
     } else {
@@ -446,7 +452,7 @@ test.describe("compact personal planning @flow @fixture", () => {
       });
       await expect(
         panel.getByRole("button", {
-          name: "Aurora: Included in ORBIT: Interstellar Bassline Orchestra",
+          name: "Included with event: Aurora",
           exact: true,
         }),
       ).toBeDisabled();
@@ -770,7 +776,7 @@ test.describe("authored short-set interactions @flow @fixture", () => {
         );
         const selected = panel.locator('[data-selected="true"]');
         await selected
-          .getByRole("button", { name: "Favorite Aurora", exact: true })
+          .getByRole("button", { name: "Favorite: Aurora", exact: true })
           .tap();
         expect(
           await page.evaluate(
@@ -782,7 +788,7 @@ test.describe("authored short-set interactions @flow @fixture", () => {
         ).toEqual([]);
         await selected
           .getByRole("button", {
-            name: `Add ${label} to My night`,
+            name: `Interested: ${label}`,
             exact: true,
           })
           .tap();

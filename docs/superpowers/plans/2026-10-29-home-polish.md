@@ -220,4 +220,6 @@ Implementation defaults needing review are called out in the spec: when ready
 recommendations replace focused cards; ongoing/future projection semantics;
 date-level untimed markers; and Next event limited to a known loaded target.
 The approved prototype does not establish production behavior for those data
-boundaries. No product implementation has begun on this branch.
+boundaries. Tasks 1–6 are implemented and reviewed on this branch. Task 7
+records combined verification, exact recovery and measured evidence; the
+controller owns whole-branch review, one PR and selected browser/visual CI.

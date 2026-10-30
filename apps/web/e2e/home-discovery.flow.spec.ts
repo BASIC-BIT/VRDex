@@ -79,7 +79,7 @@ test.describe("Home discovery @flow @fixture", () => {
     await expect(card).toHaveCount(0);
     await expect(discover.getByRole("link", { name: "Open Low Tide", exact: true })).toHaveCount(0);
   });
-  test("cold and slow discovery reserve card geometry and settle immediately", async ({ page, isMobile }, info) => {
+  test("slowHomeKeepsItsFootprint", async ({ page, isMobile }, info) => {
     if (!isMobile) await page.setViewportSize({ width: 1280, height: 800 });
     let held = true;
     const messages: (() => void)[] = [];
@@ -93,6 +93,15 @@ test.describe("Home discovery @flow @fixture", () => {
     const shell = discover.getByTestId("discovery-placeholder").first();
     await expect(shell).toHaveCount(1);
     const shellBounds = await shell.boundingBox();
+    const geometry = () => page.evaluate(() => ({
+      footerDocumentY: (document.querySelector("footer")?.getBoundingClientRect().top ?? 0) + scrollY,
+      scheduleDocumentY: (document.querySelector("[data-home-schedule]")?.getBoundingClientRect().top ?? 0) + scrollY,
+      discoveryDocumentY: (document.querySelector('[aria-label="Discover"]')?.getBoundingClientRect().top ?? 0) + scrollY,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: innerWidth,
+      scrollY,
+    }));
+    const before = await geometry();
     await expect(discover.getByRole("status")).toHaveText("Loading");
     await expect(discover.getByRole("status")).toHaveCount(1);
     await page.getByRole("combobox", { name: "Search VRDex", exact: true }).fill("Aurora");
@@ -103,13 +112,16 @@ test.describe("Home discovery @flow @fixture", () => {
     await expect(discover).toHaveAttribute("aria-busy", "false");
     await expect(discover.getByTestId("discovery-placeholder")).toHaveCount(0);
     const readyBounds = await discover.getByTestId("discovery-event-card").first().boundingBox();
+    const after = await geometry();
+    expect(Math.abs(after.footerDocumentY - before.footerDocumentY)).toBeLessThanOrEqual(1);
+    expect(after.documentWidth).toBeLessThanOrEqual(after.viewportWidth);
     expect(readyBounds?.width).toBe(shellBounds?.width);
     expect(readyBounds?.height).toBe(shellBounds?.height);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await expect.poll(() => discover.locator("img").evaluateAll(images => images.every(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0))).toBe(true);
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: info.outputPath("ready-home.png"), fullPage: true });
-    await info.attach("loading-geometry.json", { body: JSON.stringify({ shellBounds, readyBounds, releaseToReadyMs: performance.now() - releasedAt }), contentType: "application/json" });
+    await info.attach("loading-geometry.json", { body: JSON.stringify({ before, after, shellBounds, readyBounds, releaseToReadyMs: performance.now() - releasedAt }), contentType: "application/json" });
     if (!isMobile) {
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.screenshot({ path: info.outputPath("ready-home-1440.png"), fullPage: true });
@@ -845,7 +857,7 @@ test.describe("dense Home discovery @flow @fixture", () => {
     await other.close();
   });
 
-  test("inspectorOutlivesRecommendationMembership", async ({
+  test("warmFavoriteUpdateKeepsInspectorAndReadingPosition", async ({
     page,
     timelineFixture,
   }, info) => {
@@ -868,6 +880,8 @@ test.describe("dense Home discovery @flow @fixture", () => {
       panel.getByRole("heading", { name: "Distant Horizons", exact: true }),
     ).toBeVisible();
     const beforeFavorite = queries.result();
+    const beforeScrollY = await page.evaluate(() => scrollY);
+    const beforePanel = await panel.boundingBox();
     const favoriteStart = performance.now();
     await panel
       .getByRole("button", {
@@ -882,6 +896,8 @@ test.describe("dense Home discovery @flow @fixture", () => {
     await expect(panel.getByText("Loading events", { exact: true })).toHaveCount(0);
     await page.screenshot({ path: info.outputPath("detail-short-content.png") });
     const afterFavorite = queries.result();
+    expect(await page.evaluate(() => scrollY)).toBe(beforeScrollY);
+    expect(await panel.boundingBox()).toEqual(beforePanel);
     // Cached first values complete logical reads before wire revalidation.
     // Preserve the cold bound; report the warm protocol burst separately.
     for (const method of ["listEvents", "listClubs", "eventSignals"]) expect(afterFavorite.counts[`homeDiscovery:${method}`]).toBe(beforeFavorite.counts[`homeDiscovery:${method}`]);
@@ -1052,5 +1068,80 @@ test.describe("outside-sample focused discovery club @flow @fixture", () => {
       expect(queries.result().totalAdditions).toBe(before.totalAdditions);
     }
     await info.attach("outside-sample-pin.json", { body: JSON.stringify({ sampleSizes: samples.map(sample => sample.items.length), excludedFavorite: true, beforeBounds, beforeScroll, before, retained, after: queries.result(), revoke }, null, 2), contentType: "application/json" });
+  });
+});
+
+test.describe("Home initial transport integration @flow @fixture", () => {
+  test.use({ timelineScenario: "discovery" });
+  test("failedInitialLoadSettlesWithRetry", async ({ page, timelineFixture }, info) => {
+    await page.clock.setFixedTime(TIMELINE_NOW);
+    await initializeDiscovery(page, timelineFixture);
+    const transport = await discoveryTransportFailure(page);
+    transport.setFailure(true);
+    await page.goto("/");
+    const discover = page.getByRole("region", { name: "Discover", exact: true });
+    await expect(discover.getByRole("button", { name: "Retry", exact: true })).toBeVisible({ timeout: 20000 });
+    await expect(discover).toHaveAttribute("aria-busy", "false");
+    await expect(discover.getByRole("status")).toContainText("Unavailable");
+    await expect(discover.getByRole("status")).not.toContainText("Loading");
+    await expect(discover.getByTestId("discovery-event-card")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
+    await page.screenshot({ path: info.outputPath("failed-initial-home.png"), fullPage: true });
+    transport.setFailure(false);
+    await discover.getByRole("button", { name: "Retry", exact: true }).click();
+    await usableDiscovery(page);
+    await expect(discover).toHaveAttribute("aria-busy", "false");
+  });
+  test("coldSearchRemainsUsable", async ({ page, timelineFixture }, info) => {
+    await page.clock.setFixedTime(TIMELINE_NOW);
+    await initializeDiscovery(page, timelineFixture);
+    let held = true;
+    const messages: (() => void)[] = [];
+    await page.routeWebSocket("**/api/**/sync", socket => {
+      const server = socket.connectToServer();
+      server.onMessage(message => { if (held) messages.push(() => socket.send(message)); else socket.send(message); });
+    });
+    await page.goto("/");
+    const search = page.getByRole("combobox", { name: "Search VRDex", exact: true });
+    await search.fill("Aurora");
+    await expect(search).toHaveValue("Aurora");
+    await expect(page.getByRole("region", { name: "Discover", exact: true })).toHaveAttribute("aria-busy", "true");
+    await page.screenshot({ path: info.outputPath("cold-usable-search.png"), fullPage: true });
+    held = false; messages.splice(0).forEach(send => send());
+    await search.press("Enter");
+    await expect(page).toHaveURL(/\/search\?q=Aurora/);
+    await expect(page.getByRole("combobox", { name: "Search VRDex", exact: true })).toHaveValue("Aurora");
+  });
+});
+
+test.describe("complete selected Home roster @flow @fixture", () => {
+  test.use({ timelineScenario: "discovery-roster" });
+  test("allFavoriteNamesSurviveLargeRoster", async ({ page, timelineFixture }, info) => {
+    await page.clock.setFixedTime(TIMELINE_NOW);
+    await initializeDiscovery(page, timelineFixture, timelineFixture.profileIds.slice(4));
+    const queries = observeDiscoveryQueries(page);
+    await page.goto("/");
+    const discover = await usableDiscovery(page);
+    const card = discover.getByTestId("discovery-event-card").filter({ has: page.getByRole("link", { name: "Open ORBIT", exact: true }) });
+    const people = card.getByLabel("Favorite people", { exact: true });
+    for (let index = 1; index <= 12; index++)
+      await expect(people).toContainText(`Favorite performer ${String(index).padStart(2, "0")} with a complete public name`);
+    await expect(discover).not.toContainText("SECRET");
+    const geometry = await people.evaluate(element => ({
+      height: element.getBoundingClientRect().height,
+      lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: innerWidth,
+    }));
+    expect(geometry.height).toBeGreaterThan(geometry.lineHeight * 2);
+    expect(geometry.scrollHeight).toBeLessThanOrEqual(geometry.clientHeight + 1);
+    expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
+    await expect.poll(() => queries.result().pending).toBe(0);
+    expect(queries.result().favoriteLineupBounds.maxEvents).toBe(2);
+    expect(queries.result().favoriteLineupBounds.maxFavorites).toBe(13);
+    await page.screenshot({ path: info.outputPath("complete-wrapped-favorite-roster.png"), fullPage: true });
+    await info.attach("large-roster.json", { body: JSON.stringify({ fixture: { events: 2, profiles: 17, slots: 95, precedingNonfavoriteRows: 80, publicFavorites: 12, hiddenControl: 1 }, geometry, discovery: queries.result() }, null, 2), contentType: "application/json" });
   });
 });
