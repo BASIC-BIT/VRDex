@@ -136,6 +136,9 @@ again at once. Current alarms:
   The body names the series ID and the error. Each series runs on its own, so
   the others still materialise. The next successful run for that series
   resolves it.
+- `series_materialize_failed:all`: that cron could not list the active series,
+  so no series ran. The body names the error. The next run that lists them
+  resolves it.
 
 Gateway and Google watch alarms in later plans use the same path.
 
@@ -150,10 +153,10 @@ shows as a failed function in the Convex logs.
 `VRDEX_RECURRING_EVENTS_ENABLED` turns recurring events on when set to `true`.
 Scope: the Convex deployment environment, all deployments. Default: unset,
 which means off. Owner: BASIC. It is not a secret, so there is nothing to
-rotate; change it with `npx convex env set VRDEX_RECURRING_EVENTS_ENABLED`.
+rotate; change it with `npx convex env set VRDEX_RECURRING_EVENTS_ENABLED true`.
 It gates creating and editing series and the daily `materialize event series`
-cron. Turning it off stops new series and stops the cron; nights already
-created stay in place as plain events.
+cron. Turning it off stops new series and stops the cron. Nights already
+created stay in place as events and keep their `seriesId` and series link.
 
 ## Locked Decision
 

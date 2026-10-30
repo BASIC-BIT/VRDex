@@ -291,12 +291,12 @@ A series owns the schedule of a repeating night. Each night is an ordinary `even
 
 | Status | Decision |
 | --- | --- |
-| Locked decision | A series owns schedule, title, world or venue, and community. A night owns lineup, poster, and any one-off override. |
+| Locked decision | A series owns schedule, title, world or venue, and community. A night owns lineup, poster, and any one-off override of summary or time. |
 | Locked decision | Editing a night changes only that night and records what changed as overrides. Editing the series changes every upcoming night that has not overridden that field. |
 | Locked decision | Connector exports create a real series on Google Calendar and Discord, and VRChat gets occurrences. Not built: `eventSyncLinks` has no `seriesId` yet, so VRDex series are not linked and connectors see each night as a plain event. |
 | Current recommendation | Nights are real `events` rows materialised sixty days ahead. |
 | Current recommendation | Rules are a fixed set (weekly, every two weeks, monthly on the nth or last weekday), not free RRULE. |
-| Current recommendation | A night whose merged times would not fit keeps its times for that edit, with no override recorded. |
+| Current recommendation | A night whose merged times would not fit keeps its times, and the skipped fields become overrides so it shows `Reset to series`. |
 | Current recommendation | Stream programmes are copied once and never fanned out. |
 
 ### Series records
@@ -304,18 +304,21 @@ A series owns the schedule of a repeating night. Each night is an ordinary `even
 `eventSeries` fields:
 
 - `communityProfileId`, `title`, `summary`, `timezone`, `venueLabel`, `worldSlug`, `mediaLinks`, `watchMode`, `watchSurfaceEnabled`, `bannerImageUrl`, `thumbnailImageUrl`, and `sourceUrl`, with the same shapes as on `events`
+- `sourceLabel`, copied from the first night at creation and onto each new night. It is not series-owned: it never fans out and is never an override
 - `rule`: `frequency` (`weekly`, `biweekly`, `monthly_weekday`), `weekday` (`0` to `6`, `0` is Sunday), `ordinal` (monthly only: `1` to `4`, or `-1` for the last weekday), and `startTime`, optional `endTime`, and optional `doorsTime` as `HH:MM` wall-clock times in the series `timezone`
 - `startsOn`, optional `endsOn` (inclusive), and optional `count` (`1` to `520`, counted from `startsOn`); when both bounds are set, the first one reached ends generation; `endsOn` may not precede `startsOn` when set, and the `Ends` date enforces this with a native `min` (the event date in the form, `startsOn` in the series editor). The exception: `eventSeries.end` can leave `endsOn` before `startsOn` on a series that has not started yet, and `seriesUpdatePatch` validates only the changed bounds
 - `horizonDays`: `60` on every new series, stored so it can vary per series later without a migration
 - `authorityUserId`, `state` (`active`, `ended`, `removed`), `createdAt`, and `updatedAt`
 
-A `doorsTime` later than `startTime` falls on the previous day. An `endTime` at or before `startTime` falls on the next day. The biweekly anchor is the first matching weekday on or after `startsOn`. Indexes: `by_communityProfileId_state` and `by_state`.
+A `doorsTime` later than `startTime` falls on the previous day, so overnight doors are legal. An `endTime` at or before `startTime` falls on the next day. The biweekly anchor is the first matching weekday on or after `startsOn`. Indexes: `by_communityProfileId_state` and `by_state`.
 
 ### Occurrence fields
 
-`events` gains `seriesId`, `occurrenceDate` (the local date the rule produced), and `overrides` (the series-owned field names this night has set itself). An event with `seriesId` is an occurrence.
+`events` gains `seriesId`, `occurrenceDate` (the local date the rule produced), `overrides` (the series-owned field names this night has set itself), and `seriesRetiredAt` (when an edit to an active series retired this night). An event with `seriesId` is an occurrence. Moving a night to another community clears all four, because a series stays inside its community.
 
-`by_seriesId_occurrenceDate` is unique by convention. Convex has no unique index, so the materialiser looks the key up before it adopts or creates on any date. An unpublished night keeps its key, so its date is not recreated.
+`by_seriesId_occurrenceDate` is unique by convention. Convex has no unique index, so the materialiser looks the key up before it adopts or creates on any date. An unpublished night keeps its key, so its date is never created a second time.
+
+`seriesRetiredAt` separates a night the series retired from one staff unpublished. Only retirement on an `active` series sets it, and any publish clears it, so a published night never carries it.
 
 ### Series-owned and night-owned fields
 
@@ -324,7 +327,7 @@ A `doorsTime` later than `startTime` falls on the previous day. An `endTime` at 
 | Series | `title`, `summary`, `timezone`, `venueLabel`, `worldSlug`, `mediaLinks`, `watchMode`, `watchSurfaceEnabled`, `bannerImageUrl`, `thumbnailImageUrl`, `sourceUrl`, plus `startAt`, `doorsOpenAt`, and `endAt` from the rule times |
 | Night | `notes`, lineup and slots, poster artwork |
 
-Any series-owned field can become an override on a night. `SERIES_OWNED_EVENT_FIELDS` is the canonical list.
+The locked split names summary and time, and the rule is wider in practice: any series-owned field can become an override on a night. `SERIES_OWNED_EVENT_FIELDS` is the canonical list.
 
 ### Creating a series
 
@@ -340,13 +343,13 @@ A series starts from a published timed event that is not already in a series. Th
 
 The window runs from the later of `startsOn` and today, both in the series `timezone`, through the date `horizonDays` ahead. For each rule date, in order:
 
-1. Skip the date if its `seriesId` plus `occurrenceDate` key exists.
+1. If the date's `seriesId` plus `occurrenceDate` key exists, skip it, first returning a retired night (see Ending and removing).
 2. Adopt a matching standalone event.
 3. Skip the date if the rule start does not exist that day (see Daylight saving).
 4. Skip the date if the rule start has passed.
 5. Create a published night with the series-owned fields, empty night-owned fields, and empty `overrides`.
 
-A series world that is missing or unpublished leaves the night without a world link and does not fail the run. Each series runs in its own transaction. A failure raises the `series_materialize_failed:` alert described in [Convex environments](../deployment/convex-environments.md), and the next success resolves it.
+A series world that is missing or unpublished leaves the night without a world link and does not fail the run. Each series runs in its own transaction. In the daily run, a failure raises the `series_materialize_failed:` alert described in [Convex environments](../deployment/convex-environments.md), and the next success resolves it. When materialisation runs inside a create or an edit, a failure fails that mutation instead.
 
 ### Adoption
 
@@ -372,21 +375,21 @@ Rule times resolve through `resolveEventLocalTime`.
 
 Browser, API, and MCP saves and contributor edits (`updateActorContribution`) all record overrides. Each series-owned field the save changed is added to `overrides`, and `worldSlug` is added when the linked published world changed. A save never removes an override, so typing the series value back in leaves the field overridden.
 
-`eventSeries.resetOverride` clears one field and copies the series value back. It requires `manage_events` and rejects a timed night that has started. A time the night's other times or slots cannot take stays overridden.
+`eventSeries.resetOverride` clears one field and copies the series value back. It requires `manage_events`, rejects a night that has started, including a date-only night whose date has passed, and rejects a moderation-removed night with `REMOVED_EVENT`. A reset that cannot apply, because the night's other times or slots cannot take the series time or the rule start does not exist that day, throws. The transaction rolls back, so the time and the override stay, and the note shows the generic error.
 
 On a night, `Part of a series.` and `Edit this night` always show. `Edit the series` is hidden unless the series is `active` and the flag is on. `Reset to series` is hidden under the same condition and also needs a `startAt` still in the future. `Where` resets `venueLabel` and `worldSlug` together.
 
 ### Editing a series
 
-`eventSeries.update` patches the series row. A `timezone` change counts as a change to all three time fields, and a rule time change counts as a change to its time field. On an `active` series it then runs, in order: retirement when the rule, `endsOn`, or `count` changed (see Ending and removing), fan-out, and materialisation.
+`eventSeries.update` patches the series row. A `timezone` change counts as a change to all three time fields, and a rule time change counts as a change to its time field. An edit that changes `startTime` or `doorsTime` is rejected when doors would open more than 12 hours before the start; creation has no such limit. In the series editor, changing `Starts` moves `Doors open` and `Ends (optional)` by the same delta, wrapping past midnight, and either can be retyped afterwards. On an `active` series it then runs, in order: retirement when the rule, `endsOn`, or `count` changed (see Ending and removing), fan-out, and materialisation.
 
 Fan-out reaches every published night that has not started, where a date-only night counts as upcoming through its own date. It skips moderation-removed nights, and on each night it skips that night's overrides. Time fields are skipped on a date-only night.
 
 - Timed slots store absolute times, so a night whose start moves has its slots moved by the same delta.
 - Overridden `doorsOpenAt` and `endAt` move by that delta too, so doors set an hour before the start stay an hour before it.
-- If the merged times would still fail the editor's checks (doors after start, end at or before start, a slot outside the new bounds), the night keeps all its times for that edit and no override is recorded. A warning is logged, and non-time fields still apply.
+- If the merged times would still fail the editor's checks (doors after start, end at or before start, a slot outside the new bounds), the night keeps all its times and the time fields that edit would have changed become overrides, so `Reset to series` appears and later edits stop targeting them. A warning is logged, and non-time fields still apply.
 
-An `ended` or `removed` series accepts only series-row edits: no fan-out, no retirement, no materialisation. The series editor is reachable only while `Edit the series` shows, and it does not offer `mediaLinks`, `watchMode`, or `watchSurfaceEnabled`, which `eventSeries.update` accepts.
+An `ended` or `removed` series accepts only series-row edits: no fan-out, no retirement, no materialisation. The series editor is reachable only while `Edit the series` shows, and it does not offer `count`, which `eventSeries.update` accepts.
 
 ### Ending and removing
 
@@ -394,10 +397,12 @@ An `ended` or `removed` series accepts only series-row edits: no fan-out, no ret
 
 Retirement never touches a started night and never hard-deletes:
 
-- A bare night is unpublished to `draft_private` and keeps its key.
+- A bare night is unpublished to `draft_private` and keeps its key. On an `active` series it also gets `seriesRetiredAt`.
 - A night with overrides, a lineup entry, or a slot stays published as a plain event, with `seriesId`, `occurrenceDate`, and `overrides` cleared.
 
 An edit to an active series retires by the same rule, but only the nights the new rule or bounds no longer schedule. `removed` also hides the series page and drops the series link from its nights.
+
+Retiring is reversible while the series is active. When materialisation reaches a date whose night has `seriesRetiredAt`, the rule's start is still ahead, the night's own start has not passed, and the night is not moderation-removed, it reapplies every series-owned field the night has not overridden and republishes it, keeping its URL and short link. So clearing `Ends`, raising `count`, or reverting a rule restores the nights. A night staff unpublished has no marker and stays unpublished.
 
 ### Stream programmes
 

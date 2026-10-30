@@ -13,8 +13,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
   `vrdex_event_create`, which makes the new event the first night of a weekly,
   every-two-weeks, or monthly series. `repeat` requires `timezone`, and its
   `weekday` must be the local weekday of `startAt`. `ApiEventWriteResponse`
-  gains an optional `seriesId`, which MCP replays return unchanged. The update
-  contract does not accept `repeat`
+  gains an optional `seriesId`, which MCP replays return unchanged. The public
+  event detail also gains an optional `seriesId`. `repeat` on update is
+  ignored, not rejected.
 
 - fixed hosted MCP URL media submissions returning a tool error after creating a
   private gallery proposal. The output validator accepts gallery results and
