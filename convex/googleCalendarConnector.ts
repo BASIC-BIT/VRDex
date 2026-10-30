@@ -9,7 +9,8 @@ import { applyEventCandidate, candidateFromConnectorFields, type ApplyEventCandi
 import { eventPathForRecord } from "./_eventPaths";
 import { connectorsEnabled, requireConnectorAuthority } from "./_eventConnectors";
 import { enqueueSyncJob } from "./_eventSync";
-import { ensureWatch, googleCalendarEnabled, googleTarget, listCalendars as fetchCalendars, withGoogleToken, type GoogleCalendarEvent } from "./_googleCalendar";
+import { ensureWatch, googleCalendarEnabled, googleTarget, listCalendars as fetchCalendars, reportStaleWatches, withGoogleToken, type GoogleCalendarEvent } from "./_googleCalendar";
+import { notifyOps, resolveOps } from "./_opsAlerts";
 import { fieldsFromGoogleEvent, outsideImportWindow } from "./eventSyncKinds/googleCalendar";
 
 export const readCredential = internalQuery({
@@ -203,11 +204,14 @@ export const enqueuePoll = internalMutation({
   handler: (ctx, { connectorId }) => enqueuePollOnce(ctx, connectorId),
 });
 
-async function importingConnectors(db: DatabaseReader) {
+async function googleConnectors(db: DatabaseReader) {
   if (!connectorsEnabled() || !googleCalendarEnabled()) return [];
   // ponytail: reads every google_calendar connector; add a by_kind_state index when they pass a few hundred.
-  const connectors = await db.query("eventConnectors").withIndex("by_kind_target_channelId", q => q.eq("kind", "google_calendar")).collect();
-  return connectors.filter(c => c.state === "active" && (c.direction === "import" || c.direction === "bidirectional"));
+  return await db.query("eventConnectors").withIndex("by_kind_target_channelId", q => q.eq("kind", "google_calendar")).collect();
+}
+
+async function importingConnectors(db: DatabaseReader) {
+  return (await googleConnectors(db)).filter(c => c.state === "active" && (c.direction === "import" || c.direction === "bidirectional"));
 }
 
 // The safety net under push: a lost notification or a dead channel costs at most one interval.
@@ -223,16 +227,35 @@ export const watchedConnectors = internalQuery({
   handler: ctx => importingConnectors(ctx.db),
 });
 
+export const allGoogleConnectors = internalQuery({
+  args: {},
+  handler: ctx => googleConnectors(ctx.db),
+});
+
+// `error` is a code; it reaches the settings page and the ops alert email.
+export const recordWatchError = internalMutation({
+  args: { connectorId: v.id("eventConnectors"), error: v.string() },
+  handler: (ctx, { connectorId, error }) => ctx.db.patch(connectorId, { lastError: error, updatedAt: Date.now() }),
+});
+
 const DAY_MS = 86_400_000;
 
 // Channels last seven days; renew any with a day or less left, and open one where none exists.
+// The staleness check runs after the renewals, so a renewal that just failed is what gets reported.
 export const renewWatches = internalAction({
   args: {},
   handler: async ctx => {
     for (const connector of await ctx.runQuery(internal.googleCalendarConnector.watchedConnectors, {})) {
       const { watchChannelId, watchExpiresAt } = connector.target;
-      if (!watchChannelId || (watchExpiresAt ?? 0) - Date.now() <= DAY_MS) await ensureWatch(ctx, connector, true);
+      if (watchChannelId && (watchExpiresAt ?? 0) - Date.now() > DAY_MS) continue;
+      try {
+        await ensureWatch(ctx, connector, true);
+      } catch (error) {
+        await ctx.runMutation(internal.googleCalendarConnector.recordWatchError, { connectorId: connector._id, error: (error instanceof Error ? error.message : String(error)).slice(0, 500) });
+      }
     }
+    const connectors = await ctx.runQuery(internal.googleCalendarConnector.allGoogleConnectors, {});
+    await reportStaleWatches(connectors, Date.now(), alert => notifyOps(ctx, alert), key => resolveOps(ctx, key));
   },
 });
 

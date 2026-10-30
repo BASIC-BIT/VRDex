@@ -176,6 +176,37 @@ export async function ensureWatch(ctx: ActionCtx, connector: Doc<"eventConnector
   });
 }
 
+export type OpsAlert = { key: string; subject: string; body: string };
+
+const STALE_MS = 7 * 86_400_000;
+const isoOrNone = (ms: number | undefined) => ms === undefined ? "none" : new Date(ms).toISOString();
+
+const isStaleWatch = (connector: Doc<"eventConnectors">, now: number) => {
+  const { state, direction, createdAt, target: { watchExpiresAt, watchRenewedAt } } = connector;
+  if (state !== "active" || (direction !== "import" && direction !== "bidirectional")) return false;
+  return (watchExpiresAt ?? now) < now || now - (watchRenewedAt ?? createdAt) >= STALE_MS;
+};
+
+// Every connector that is not stale resolves, eligible or not, so an alert closes when its connector goes needs_reauth, paused, or removed.
+export async function reportStaleWatches(connectors: Doc<"eventConnectors">[], now: number, notify: (alert: OpsAlert) => Promise<void>, resolve: (key: string) => Promise<void>): Promise<number> {
+  let sent = 0;
+  for (const connector of connectors) {
+    if (connector.kind !== "google_calendar") continue;
+    const key = `google_watch_renewal_stale:${connector._id}`;
+    if (!isStaleWatch(connector, now)) {
+      await resolve(key);
+      continue;
+    }
+    const { watchExpiresAt, watchRenewedAt } = connector.target;
+    await notify({
+      key, subject: "Google Calendar watch renewal stale",
+      body: `Connector ${connector._id} for community profile ${connector.communityProfileId}. Watch expires ${isoOrNone(watchExpiresAt)}, last renewed ${isoOrNone(watchRenewedAt)}. Last error: ${connector.lastError ?? "none"}`,
+    });
+    sent++;
+  }
+  return sent;
+}
+
 // writer, so a later direction change to export still works on any calendar offered.
 export async function listCalendars(token: string): Promise<Array<{ id: string; summary: string; primary?: boolean }>> {
   const calendars: Array<{ id: string; summary: string; primary?: boolean }> = [];

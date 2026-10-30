@@ -146,7 +146,8 @@ export const googleCalendarHandler: SyncKindHandler = {
     const today = new Date(Date.now()).toISOString().slice(0, 10);
     const list = await withGoogleToken(ctx, credentialId, token => listAll(token, calendarId, { timeMin: `${today}T00:00:00Z`, timeMax: `${addDays(today, 90)}T00:00:00Z` }));
     await ctx.runMutation(internal.googleCalendarConnector.reconcileItems, { connectorId: connector._id, items: list.items, calendarTimeZone: list.timeZone });
-    await ensureWatch(ctx, connector, false);
+    // ponytail: a rejected watch must not fail a reconcile whose imports committed; the 15-minute poll, daily renewal, and stale alert cover it.
+    await ensureWatch(ctx, connector, false).catch(() => undefined);
   },
 
   async exportUpsert(ctx, connector, event, link) {

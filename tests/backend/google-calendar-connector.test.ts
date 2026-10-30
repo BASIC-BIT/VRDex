@@ -7,7 +7,7 @@ import { candidateFromConnectorFields } from "../../convex/_eventCandidateApply"
 import { carriedFieldsHash } from "../../convex/_eventConnectors";
 import { api, internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
-import { watchChannelToken, type GoogleCalendarEvent, type GoogleEventBody } from "../../convex/_googleCalendar";
+import { reportStaleWatches, watchChannelToken, type GoogleCalendarEvent, type GoogleEventBody, type OpsAlert } from "../../convex/_googleCalendar";
 import { fieldsFromGoogleEvent } from "../../convex/eventSyncKinds/googleCalendar";
 import { EVENT_URL, fakeFetch, googleItem, modules, NOW, schema, seedEvent, seedGoogleConnector, runSyncJob, setupEnv, SITE } from "./_googleCalendarFixture";
 
@@ -444,6 +444,19 @@ describe("google calendar import", () => {
   });
 
   // Ruling C1: the runner's generic step queues both before the kind links `matched`.
+  it("a rejected watch does not fail a reconcile whose imports committed", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "import" });
+    const fake = fakeFetch(({ url }) => url.pathname.endsWith("/watch")
+      ? new Response("", { status: 500 })
+      : Response.json({ items: [googleItem()], timeZone: "America/New_York" }));
+    const job = await runSyncJob(t, { connectorId, kind: "reconcile" });
+    fake.restore();
+    assert.equal(job.state, "done");
+    assert.equal((await t.run((ctx) => ctx.db.get(connectorId)))!.target.watchChannelId, undefined);
+    assert.ok((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).some((j) => j.kind === "import_item"));
+  });
+
   it("reconcile queues exports for unlinked upcoming events", async () => {
     const t = convexTest({ schema, modules });
     const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "export" });
@@ -605,6 +618,16 @@ describe("google calendar watch channels", () => {
     assert.equal(await pendingPolls(t), 0);
   });
 
+  it("ignores a valid token on the current channel of a removed or paused connector", async () => {
+    const t = convexTest({ schema, modules });
+    for (const [state, channelId] of [["removed", "chan-1"], ["paused", "chan-2"]] as const) {
+      const { connectorId } = await seedGoogleConnector(t, { direction: "import", state, target: { calendarId: "cal-1", watchChannelId: channelId } });
+      const response = await notify(t, { "x-goog-channel-id": channelId, "x-goog-channel-token": await watchChannelToken(connectorId, channelId), "x-goog-resource-state": "exists" });
+      assert.equal(response.status, 200);
+    }
+    assert.equal((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).length, 0);
+  });
+
   it("rejects a token whose connector id is not one", async () => {
     const t = convexTest({ schema, modules });
     const response = await notify(t, { "x-goog-channel-id": "chan-1", "x-goog-channel-token": await watchChannelToken("not-an-id", "chan-1"), "x-goog-resource-state": "exists" });
@@ -651,6 +674,98 @@ describe("google calendar watch channels", () => {
     await seedGoogleConnector(t, { direction: "import", state: "needs_reauth" });
     await t.mutation(internal.googleCalendarConnector.enqueuePolls, {});
     assert.equal(await pendingPolls(t), 2);
+  });
+});
+
+describe("google calendar watch staleness alert", () => {
+  beforeEach(setupEnv);
+  const DAY = 86_400_000;
+  const connector = (id: string, fields: { direction?: string; state?: string; target?: Record<string, unknown>; createdAt?: number }) => ({
+    _id: id, kind: "google_calendar", direction: fields.direction ?? "import", state: fields.state ?? "active",
+    communityProfileId: "community-1", target: { calendarId: "cal-1", ...fields.target }, createdAt: fields.createdAt ?? NOW - 30 * DAY, updatedAt: NOW,
+  }) as unknown as Doc<"eventConnectors">;
+  const alertKey = (connectorId: string) => `google_watch_renewal_stale:${connectorId}`;
+  const opsAlert = (t: TestConvex<typeof schema>, connectorId: string) =>
+    t.run((ctx) => ctx.db.query("opsAlerts").withIndex("by_key", (q) => q.eq("key", alertKey(connectorId))).unique());
+  const sends = (t: TestConvex<typeof schema>) => t.run(async (ctx) =>
+    (await ctx.db.system.query("_scheduled_functions").collect()).filter((fn) => fn.name.includes("opsAlertEmail")).map((fn) => (fn.args[0] as { subject: string; body: string })));
+
+  it("alerts on an expired or unrenewed watch, resolves every other connector, and counts the alerts", async () => {
+    const sent: OpsAlert[] = [];
+    const resolved: string[] = [];
+    const count = await reportStaleWatches([
+      connector("expired", { target: { watchExpiresAt: NOW - 1, watchRenewedAt: NOW - DAY } }),
+      connector("unrenewed", { direction: "bidirectional", target: { watchExpiresAt: NOW + DAY, watchRenewedAt: NOW - 7 * DAY } }),
+      connector("never-watched", { target: {} }),
+      connector("healthy", { target: { watchExpiresAt: NOW + 6 * DAY, watchRenewedAt: NOW - DAY } }),
+      connector("export-only", { direction: "export", target: { watchExpiresAt: NOW - 1 } }),
+      connector("needs-reauth", { state: "needs_reauth", target: { watchExpiresAt: NOW - 1 } }),
+      connector("new-no-watch-yet", { target: {}, createdAt: NOW - DAY }),
+    ], NOW, async (alert) => { sent.push(alert); }, async (key) => { resolved.push(key); });
+    assert.equal(count, 3);
+    assert.deepEqual(sent.map((alert) => alert.key), [
+      "google_watch_renewal_stale:expired",
+      "google_watch_renewal_stale:unrenewed",
+      "google_watch_renewal_stale:never-watched",
+    ]);
+    assert.ok(sent.every((alert) => alert.subject === "Google Calendar watch renewal stale"));
+    assert.match(sent[0].body, /expired/);
+    assert.deepEqual(resolved, [
+      "google_watch_renewal_stale:healthy",
+      "google_watch_renewal_stale:export-only",
+      "google_watch_renewal_stale:needs-reauth",
+      "google_watch_renewal_stale:new-no-watch-yet",
+    ]);
+  });
+
+  it("names the connector, community, watch times, and last error in the body", async () => {
+    const sent: OpsAlert[] = [];
+    await reportStaleWatches([{ ...connector("expired", { target: { watchExpiresAt: NOW - 1, watchRenewedAt: NOW - DAY } }), lastError: "GOOGLE_API_500" }], NOW, async (alert) => { sent.push(alert); }, async () => {});
+    for (const part of ["expired", "community-1", new Date(NOW - 1).toISOString(), new Date(NOW - DAY).toISOString(), "GOOGLE_API_500"]) assert.ok(sent[0].body.includes(part), part);
+  });
+
+  it("one failed renewal is recorded and alerted, the others renew, and every other alert closes", async () => {
+    const t = convexTest({ schema, modules });
+    const expired = { watchChannelId: "old-chan", watchResourceId: "old-res", watchExpiresAt: NOW - 1, watchRenewedAt: NOW - 8 * DAY };
+    const failing = await seedGoogleConnector(t, { direction: "import", target: { calendarId: "cal-1", ...expired } });
+    const renewed = await seedGoogleConnector(t, { direction: "import", target: { calendarId: "cal-2", ...expired } });
+    const removed = await seedGoogleConnector(t, { direction: "import", state: "removed", target: { calendarId: "cal-3", ...expired } });
+    await t.run(async (ctx) => {
+      for (const { connectorId } of [renewed, removed]) await ctx.db.insert("opsAlerts", { key: alertKey(connectorId), lastSentAt: NOW - DAY });
+    });
+    const fake = fakeFetch(({ url }) => {
+      if (url.pathname.endsWith("/stop")) return new Response(null, { status: 204 });
+      return url.pathname.includes("/cal-1/") ? new Response('{"error":"secret body"}', { status: 500 }) : Response.json({ resourceId: "new-res", expiration: String(NOW + 7 * DAY) });
+    });
+    await t.action(internal.googleCalendarConnector.renewWatches, {});
+    fake.restore();
+    assert.equal((await t.run((ctx) => ctx.db.get(failing.connectorId)))!.lastError, "GOOGLE_API_500");
+    assert.equal((await t.run((ctx) => ctx.db.get(renewed.connectorId)))!.target.watchRenewedAt, NOW);
+    assert.equal((await t.run((ctx) => ctx.db.get(removed.connectorId)))!.target.watchRenewedAt, NOW - 8 * DAY);
+    assert.equal((await opsAlert(t, failing.connectorId))?.resolvedAt, undefined);
+    assert.equal((await opsAlert(t, renewed.connectorId))?.resolvedAt, NOW);
+    assert.equal((await opsAlert(t, removed.connectorId))?.resolvedAt, NOW);
+    const emails = await sends(t);
+    assert.deepEqual(emails.map((email) => email.subject).sort(), [
+      "[VRDex ops] Google Calendar watch renewal stale",
+      `[VRDex ops] Resolved: ${alertKey(removed.connectorId)}`,
+      `[VRDex ops] Resolved: ${alertKey(renewed.connectorId)}`,
+    ].sort());
+    const alert = emails.find((email) => email.subject.endsWith("stale"))!;
+    assert.ok(alert.body.includes(failing.connectorId) && alert.body.includes("GOOGLE_API_500"));
+    assert.ok(!alert.body.includes("secret body"));
+  });
+
+  it("does nothing while the kind flag is off", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "import", target: { calendarId: "cal-1", watchExpiresAt: NOW - 1 } });
+    process.env.VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED = "false";
+    const fake = fakeFetch(() => Response.json({ resourceId: "new-res", expiration: String(NOW + 7 * DAY) }));
+    await t.action(internal.googleCalendarConnector.renewWatches, {});
+    fake.restore();
+    assert.equal(fake.calls.length, 0);
+    assert.equal(await opsAlert(t, connectorId), null);
+    assert.equal((await sends(t)).length, 0);
   });
 });
 

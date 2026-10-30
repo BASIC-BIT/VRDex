@@ -315,6 +315,7 @@ Google Calendar is a `google_calendar` connector on the [connector tables](#conn
 - Imports enter as intake candidates, like every other connector import.
 - Exports end the Google description with the VRDex event URL.
 - An inbound Google cancellation flags the link `external_deleted`; it never cancels the VRDex event.
+- The daily watch renewal emails ops when an active importing connector's watch has expired or has gone seven days without renewing (`google_watch_renewal_stale:`), and resolves the alert once the connector is no longer stale, including when it leaves `active`.
 
 ## Connectors
 
