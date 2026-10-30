@@ -8,6 +8,7 @@ import { carriedFieldsHash } from "../../convex/_eventConnectors";
 import { api, internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { reportStaleWatches, watchChannelToken, type GoogleCalendarEvent, type GoogleEventBody, type OpsAlert } from "../../convex/_googleCalendar";
+import { correctionFields } from "../../convex/eventCorrections";
 import { fieldsFromGoogleEvent } from "../../convex/eventSyncKinds/googleCalendar";
 import { EVENT_URL, fakeFetch, googleItem, modules, NOW, schema, seedEvent, seedGoogleConnector, runSyncJob, setupEnv, SITE } from "./_googleCalendarFixture";
 
@@ -270,9 +271,51 @@ describe("google calendar mapping and export", () => {
 
   it("recreates a linked copy Google no longer has", async () => {
     const { job, link, calls } = await linkedExport({}, ({ method }) => method === "PATCH" ? new Response("", { status: 404 }) : Response.json(googleItem({ id: "created-2" })));
-    assert.deepEqual(calls.map((c) => c.method), ["PATCH", "POST"]);
+    assert.deepEqual(calls.map((c) => c.method), ["GET", "PATCH", "POST"]);
     assert.equal(job.state, "done");
     assert.equal(link.externalId, "created-2");
+  });
+
+  it("recreates a linked copy the read-back cannot find", async () => {
+    for (const status of [404, 410]) {
+      const { link, calls } = await linkedExport({}, ({ method }) => method === "GET" ? new Response("", { status }) : Response.json(googleItem({ id: "created-2" })));
+      assert.deepEqual(calls.map((c) => c.method), ["GET", "POST"]);
+      assert.equal(link.externalId, "created-2");
+    }
+  });
+
+  const patchOf = (calls: Array<{ method: string; body: unknown }>) => calls.find((c) => c.method === "PATCH")!.body as Record<string, unknown>;
+  const rich = "x".repeat(500);
+
+  it("keeps Google's longer description and location on a re-export of an unchanged event", async () => {
+    const item = googleItem({ description: rich, location: "V".repeat(150) });
+    const { link, calls } = await linkedExport({ summary: "x".repeat(240), venueLabel: "V".repeat(120) }, () => Response.json(item));
+    const patch = patchOf(calls);
+    assert.equal(patch.description, `${rich}\n\n${EVENT_URL}`);
+    assert.equal("location" in patch, false);
+    const echoed = fieldsFromGoogleEvent({ ...item, ...patch } as GoogleCalendarEvent, "America/New_York", SITE);
+    assert.equal(carriedFieldsHash("google_calendar", echoed), link.lastExportedHash);
+  });
+
+  it("leaves a description that already ends with the event URL as it is", async () => {
+    const description = `<p>${rich}</p><br><a href="${EVENT_URL}">${EVENT_URL}</a>`;
+    const { calls } = await linkedExport({ summary: "x".repeat(240) }, () => Response.json(googleItem({ description })));
+    assert.equal(patchOf(calls).description, description);
+  });
+
+  it("a VRDex summary edit overwrites the description, and a venue edit the location", async () => {
+    const { calls } = await linkedExport({ summary: "A new summary.", venueLabel: "New Hall" }, () => Response.json(googleItem({ description: rich })));
+    assert.equal(patchOf(calls).description, `A new summary.\n\n${EVENT_URL}`);
+    assert.equal(patchOf(calls).location, "New Hall");
+  });
+
+  it("keeps a three-day all-day item's end, until VRDex moves the date", async () => {
+    const days = googleItem({ start: { date: "2026-11-07" }, end: { date: "2026-11-10" } });
+    const dateOnly = { scheduleKind: "date_only" as const, startAt: undefined, endAt: undefined };
+    const unchanged = patchOf((await linkedExport(dateOnly, () => Response.json(days))).calls);
+    assert.deepEqual(["start" in unchanged, "end" in unchanged], [false, false]);
+    const moved = patchOf((await linkedExport({ ...dateOnly, eventDate: "2026-11-08" }, () => Response.json(days))).calls);
+    assert.deepEqual(moved.end, { date: "2026-11-09", dateTime: null, timeZone: null });
   });
 
   it("round-trips an event in the fall-back hour", async () => {
@@ -457,6 +500,116 @@ describe("google calendar import", () => {
     assert.ok((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).some((j) => j.kind === "import_item"));
   });
 
+  it("a bad item goes to its own job and the sync token still moves", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "import", target: { calendarId: "cal-1", syncToken: "tok-0" } });
+    const eventId = await seedEvent(t, communityProfileId);
+    await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId, eventId, externalId: "g1", state: "linked", createdAt: NOW, updatedAt: NOW }));
+    const zone = "Customized Time Zone";
+    const badZone = googleItem({ id: "g-tz", start: { dateTime: "2026-11-09T20:00:00-05:00", timeZone: zone }, end: { dateTime: "2026-11-09T23:00:00-05:00", timeZone: zone } });
+    const badTitle = googleItem({ summary: "X", updated: "2026-11-02T11:59:59.000Z" });
+    const good = googleItem({ id: "g2", summary: "Fresh Night", start: { dateTime: "2026-11-10T20:00:00-05:00" }, end: { dateTime: "2026-11-10T23:00:00-05:00" } });
+    const fake = fakeFetch(() => Response.json({ items: [badZone, badTitle, good], nextSyncToken: "tok-1", timeZone: "America/New_York" }));
+    const poll = await runSyncJob(t, { connectorId, kind: "import_poll" });
+    fake.restore();
+    assert.equal(poll.state, "done");
+    assert.equal((await t.run((ctx) => ctx.db.get(connectorId)))!.target.syncToken, "tok-1");
+    assert.ok((await t.run((ctx) => ctx.db.query("eventSyncLinks").collect())).some((link) => link.externalId === "g2"));
+    const queued = (await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((job) => job.kind === "import_item");
+    assert.deepEqual(queued.map((job) => [job.state, job.payload]), [["pending", { item: badZone, calendarTimeZone: "America/New_York" }], ["pending", { item: badTitle, calendarTimeZone: "America/New_York" }]]);
+    await t.action(internal.eventSync.runJob, { jobId: queued[0]._id });
+    const retried = (await t.run((ctx) => ctx.db.get(queued[0]._id)))!;
+    assert.deepEqual([retried.state, retried.attempts], ["pending", 1]);
+  });
+
+  it("reconcile queues only what the import window allows", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "import" });
+    const instance = (id: string, date: string) => googleItem({ id, summary: "Club Night", recurringEventId: "series-1", start: { dateTime: `${date}T20:00:00-05:00` }, end: { dateTime: `${date}T23:00:00-05:00` } });
+    const fake = fakeFetch(({ url }) => url.pathname.endsWith("/watch")
+      ? Response.json({ resourceId: "res-1", expiration: String(NOW + 604_800_000) })
+      : Response.json({ items: [instance("near", "2026-12-30"), instance("far", "2027-01-20")], timeZone: "America/New_York" }));
+    await runSyncJob(t, { connectorId, kind: "reconcile" });
+    fake.restore();
+    const jobs = (await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((j) => j.kind === "import_item");
+    assert.deepEqual(jobs.map((j) => (j.payload as { item: GoogleCalendarEvent }).item.id), ["near"]);
+  });
+
+  it("never imports private or confidential items, and still flags their cancellation", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "import", mode: "hold", target: { calendarId: "cal-1", syncToken: "tok-0" } });
+    const day = (date: string) => ({ start: { dateTime: `${date}T20:00:00-05:00` }, end: { dateTime: `${date}T23:00:00-05:00` } });
+    const items = [
+      googleItem({ id: "g-private", visibility: "private", summary: "Dentist", ...day("2026-11-09") }),
+      googleItem({ id: "g-confidential", visibility: "confidential", summary: "Therapy", ...day("2026-11-10") }),
+      googleItem({ id: "g-public", visibility: "public", summary: "Club Night", ...day("2026-11-11") }),
+    ];
+    const fake = fakeFetch(() => Response.json({ items, nextSyncToken: "tok-1", timeZone: "America/New_York" }));
+    await runSyncJob(t, { connectorId, kind: "import_poll" });
+    fake.restore();
+    assert.deepEqual((await t.run((ctx) => ctx.db.query("eventSyncLinks").collect())).map((link) => link.externalId), ["g-public"]);
+    const eventId = await seedEvent(t, communityProfileId);
+    const linkId = await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId, eventId, externalId: "g1", state: "linked", createdAt: NOW, updatedAt: NOW }));
+    assert.equal(await applyImport(t, connectorId, googleItem({ status: "cancelled", visibility: "private", updated: "2026-11-02T11:59:59.000Z" })), "flagged");
+    assert.equal((await t.run((ctx) => ctx.db.get(linkId)))!.state, "external_deleted");
+  });
+
+  it("does not link a Google item to an event that is not public", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "import" });
+    await seedEvent(t, communityProfileId, { publicationState: "draft_private" });
+    const fake = fakeFetch(({ url }) => url.pathname.endsWith("/watch")
+      ? Response.json({ resourceId: "res-1", expiration: String(NOW + 604_800_000) })
+      : Response.json({ items: [googleItem()], timeZone: "America/New_York" }));
+    await runSyncJob(t, { connectorId, kind: "reconcile" });
+    fake.restore();
+    assert.equal((await t.run((ctx) => ctx.db.query("eventSyncLinks").collect())).length, 0);
+    assert.ok((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).some((j) => j.kind === "import_item"));
+  });
+
+  it("flags a cancelled held item, and a restored one goes back behind its draft", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, staffUserId } = await seedGoogleConnector(t, { direction: "import" });
+    const linkId = await t.run(async (ctx) => {
+      const draftId = await ctx.db.insert("eventIntakeDrafts", { actorUserId: staffUserId, connectorId, version: 1, fields: { title: "Held" }, provenance: [], createdAt: NOW, updatedAt: NOW, expiresAt: NOW + 86_400_000 });
+      return await ctx.db.insert("eventSyncLinks", { connectorId, draftId, externalId: "g1", state: "linked", createdAt: NOW, updatedAt: NOW });
+    });
+    assert.equal(await applyImport(t, connectorId, googleItem({ status: "cancelled" })), "flagged");
+    assert.equal((await t.run((ctx) => ctx.db.get(linkId)))!.state, "external_deleted");
+    assert.equal(await applyImport(t, connectorId, googleItem({ updated: "2026-11-02T11:30:00.000Z" })), "skipped_pending_draft");
+    assert.equal((await t.run((ctx) => ctx.db.get(linkId)))!.state, "linked");
+  });
+
+  it("a restored item relinks, and exports resume", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "bidirectional" });
+    const eventId = await seedEvent(t, communityProfileId);
+    const linkId = await t.run((ctx) => ctx.db.insert("eventSyncLinks", {
+      connectorId, eventId, externalId: "g1", state: "external_deleted", externalUpdatedAt: Date.parse("2026-11-02T10:00:00.000Z"),
+      lastExportedHash: carriedFieldsHash("google_calendar", fieldsFromGoogleEvent(googleItem(), "America/New_York", SITE)), createdAt: NOW, updatedAt: NOW,
+    }));
+    assert.equal(await applyImport(t, connectorId, googleItem({ updated: "2026-11-02T11:59:59.000Z" })), "skipped_echo");
+    assert.equal((await t.run((ctx) => ctx.db.get(linkId)))!.state, "linked");
+    const fake = fakeFetch(() => Response.json(googleItem()));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId });
+    fake.restore();
+    assert.ok(fake.calls.some((c) => c.method === "PATCH"));
+  });
+
+  it("a venue past the import cap still echoes", async () => {
+    for (const mode of ["hold", "autopublish"] as const) {
+      const t = convexTest({ schema, modules });
+      // A space at the cap: the read-back trims it, so the hash must too.
+      const venue = "V".repeat(119) + " " + "V".repeat(30);
+      const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "bidirectional", mode });
+      const eventId = await seedEvent(t, communityProfileId, { venueLabel: venue });
+      const lastExportedHash = await t.run(async (ctx) => carriedFieldsHash("google_calendar", await correctionFields(ctx.db, (await ctx.db.get(eventId))!)));
+      await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId, eventId, externalId: "g1", state: "linked", lastExportedHash, createdAt: NOW, updatedAt: NOW }));
+      assert.equal(await applyImport(t, connectorId, googleItem({ location: venue, updated: "2026-11-02T11:59:59.000Z" })), "skipped_echo");
+      assert.equal((await t.run((ctx) => ctx.db.get(eventId)))!.venueLabel, venue);
+    }
+  });
+
   it("reconcile queues exports for unlinked upcoming events", async () => {
     const t = convexTest({ schema, modules });
     const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "export" });
@@ -560,6 +713,17 @@ describe("google calendar listing", () => {
     assert.equal((await t.run((ctx) => ctx.db.query("eventSyncLinks").collect())).length, 1);
   });
 
+  it("asks Google for default events on every list, sync token or not", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "import", target: { calendarId: "cal-1", syncToken: "stale-token" } });
+    const fake = fakeFetch(({ url }) => url.searchParams.has("syncToken")
+      ? new Response("", { status: 410 })
+      : Response.json({ items: [], nextSyncToken: "fresh-token", timeZone: "America/New_York" }));
+    await runSyncJob(t, { connectorId, kind: "import_poll" });
+    fake.restore();
+    assert.deepEqual(fake.calls.map((c) => [c.url.searchParams.has("syncToken"), c.url.searchParams.get("eventTypes")]), [[true, "default"], [false, "default"]]);
+  });
+
   it("gives up with a code on a list that never ends", async () => {
     const t = convexTest({ schema, modules });
     const { connectorId } = await seedGoogleConnector(t, { direction: "import" });
@@ -586,6 +750,31 @@ describe("google calendar watch channels", () => {
     assert.equal((await notify(t, headers)).status, 200);
     assert.equal((await notify(t, headers)).status, 200);
     assert.equal(await pendingPolls(t), 1);
+  });
+
+  it("delays a notification's poll so a burst of them shares it", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "import" });
+    await t.mutation(internal.googleCalendarConnector.enqueuePoll, { connectorId });
+    const [job] = await t.run((ctx) => ctx.db.query("eventSyncJobs").collect());
+    assert.equal(job.dueAt, NOW + 30_000);
+  });
+
+  it("reconcile reopens an expired channel and leaves a live one", async () => {
+    const t = convexTest({ schema, modules });
+    const channel = { watchChannelId: "chan-1", watchResourceId: "res-1" };
+    const dead = await seedGoogleConnector(t, { direction: "import", target: { calendarId: "cal-1", ...channel, watchExpiresAt: NOW - 1 } });
+    const live = await seedGoogleConnector(t, { direction: "import", target: { calendarId: "cal-2", ...channel, watchExpiresAt: NOW + 86_400_000 } });
+    const fake = fakeFetch(({ url }) => {
+      if (url.pathname.endsWith("/stop")) return new Response(null, { status: 204 });
+      if (url.pathname.endsWith("/watch")) return Response.json({ resourceId: "res-2", expiration: String(NOW + 604_800_000) });
+      return Response.json({ items: [], timeZone: "UTC" });
+    });
+    await runSyncJob(t, { connectorId: dead.connectorId, kind: "reconcile" });
+    await runSyncJob(t, { connectorId: live.connectorId, kind: "reconcile" });
+    fake.restore();
+    assert.deepEqual(fake.calls.filter((c) => c.url.pathname.endsWith("/watch")).map((c) => c.url.pathname), ["/calendar/v3/calendars/cal-1/events/watch"]);
+    assert.equal((await t.run((ctx) => ctx.db.get(dead.connectorId)))!.target.watchResourceId, "res-2");
   });
 
   it("rejects a bad token", async () => {
@@ -763,11 +952,27 @@ describe("google calendar watch staleness alert", () => {
     const fake = fakeFetch(({ url }) => { throw new TypeError(`fetch failed: ${url.href} ${calendarId}`); });
     await t.action(internal.googleCalendarConnector.renewWatches, {});
     fake.restore();
+    // A transport failure is not a 401: no refresh follows it.
+    assert.deepEqual(fake.calls.map((c) => c.url.hostname + c.url.pathname), [`www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/watch`]);
     const connector = (await t.run((ctx) => ctx.db.get(connectorId)))!;
     assert.deepEqual([connector.state, connector.lastError], ["active", "GOOGLE_API_UNREACHABLE"]);
     const [alert] = await sends(t);
     assert.ok(alert.body.includes("GOOGLE_API_UNREACHABLE"));
     assert.ok(!alert.body.includes(calendarId));
+  });
+
+  it("keeps a fetch that throws synchronously to a code", async () => {
+    const t = convexTest({ schema, modules });
+    const calendarId = "organiser@example.com";
+    const { connectorId } = await seedGoogleConnector(t, { direction: "import", target: { calendarId, watchExpiresAt: NOW - 1 } });
+    const original = globalThis.fetch;
+    globalThis.fetch = () => { throw new TypeError(`invalid ${calendarId}`); };
+    try {
+      await t.action(internal.googleCalendarConnector.renewWatches, {});
+    } finally {
+      globalThis.fetch = original;
+    }
+    assert.equal((await t.run((ctx) => ctx.db.get(connectorId)))!.lastError, "GOOGLE_API_UNREACHABLE");
   });
 
   it("keeps a rejected token refresh to a code and leaves the connector active", async () => {
@@ -920,5 +1125,132 @@ describe("google calendar connect", () => {
     assert.deepEqual(await as("staff").action(api.googleCalendarConnector.listCalendars, { credentialId }), [{ id: "cal-1", summary: "Events", primary: true }]);
     fake.restore();
     assert.equal(await t.query(api.googleCalendarConnector.enabled, {}), true);
+  });
+});
+
+describe("google calendar credential lifecycle", () => {
+  beforeEach(setupEnv);
+  const DAY = 86_400_000;
+  const reauthKey = (credentialId: string) => `google_reauth:${credentialId}`;
+  const reauthAlert = (t: TestConvex<typeof schema>, credentialId: string) =>
+    t.run((ctx) => ctx.db.query("opsAlerts").withIndex("by_key", (q) => q.eq("key", reauthKey(credentialId))).unique());
+  const as = (t: TestConvex<typeof schema>, subject: string) => t.withIdentity({ subject, issuer: "test", tokenIdentifier: `test|${subject}`, emailVerified: true });
+  const grant = { accessToken: "a", refreshToken: "rt", expiresAt: NOW + 3_600_000, scopes: [], externalAccountId: "organiser@example.com" };
+  const refused = () => fakeFetch(({ url }) => url.pathname === "/token" ? Response.json({ error: "invalid_grant" }, { status: 400 }) : new Response("", { status: 401 }));
+  const sibling = (t: TestConvex<typeof schema>, first: Awaited<ReturnType<typeof seedGoogleConnector>>, state: Doc<"eventConnectors">["state"]) => t.run((ctx) => ctx.db.insert("eventConnectors", {
+    communityProfileId: first.communityProfileId, kind: "google_calendar", direction: "export", mode: "hold", authorityUserId: first.staffUserId,
+    credentialId: first.credentialId, target: { calendarId: "cal-2" }, state, createdAt: NOW, updatedAt: NOW,
+  }));
+
+  it("Disconnect revokes a credential nothing else uses", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, credentialId } = await seedGoogleConnector(t, { direction: "import" });
+    await as(t, "staff").mutation(api.eventConnectors.remove, { connectorId });
+    assert.equal((await t.run((ctx) => ctx.db.get(credentialId)))!.state, "revoked");
+  });
+
+  it("Disconnect keeps a shared credential until its last connector goes", async () => {
+    const t = convexTest({ schema, modules });
+    const first = await seedGoogleConnector(t, { direction: "import" });
+    const other = await sibling(t, first, "active");
+    await as(t, "staff").mutation(api.eventConnectors.remove, { connectorId: first.connectorId });
+    assert.equal((await t.run((ctx) => ctx.db.get(first.credentialId)))!.state, "active");
+    await as(t, "staff").mutation(api.eventConnectors.remove, { connectorId: other });
+    assert.equal((await t.run((ctx) => ctx.db.get(first.credentialId)))!.state, "revoked");
+  });
+
+  it("a refused grant emails ops with IDs only, and reconnecting closes the alert", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId, credentialId, staffUserId } = await seedGoogleConnector(t, { direction: "import" });
+    const fake = refused();
+    await runSyncJob(t, { connectorId, kind: "import_poll" });
+    fake.restore();
+    assert.equal((await reauthAlert(t, credentialId))?.resolvedAt, undefined);
+    assert.ok(await reauthAlert(t, credentialId));
+    const emails = await t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect()).filter((fn) => fn.name.includes("opsAlertEmail")).map((fn) => fn.args[0] as { subject: string; body: string }));
+    assert.deepEqual(emails.map((email) => email.subject), ["[VRDex ops] Google Calendar connector needs reconnecting"]);
+    assert.ok(emails[0].body.includes(connectorId) && emails[0].body.includes(communityProfileId));
+    assert.ok(!emails[0].body.includes("cal-1") && !emails[0].body.includes("GOOGLE"));
+    await t.action(internal.googleCalendarConnector.storeCredential, { actorUserId: staffUserId, communitySlug: "basic-nights", connectorId, ...grant });
+    assert.equal((await reauthAlert(t, credentialId))?.resolvedAt, NOW);
+  });
+
+  it("a refused grant no connector is using sends no alert", async () => {
+    const t = convexTest({ schema, modules });
+    const { credentialId } = await seedGoogleConnector(t, { direction: "import", state: "removed" });
+    await t.mutation(internal.googleCalendarConnector.markNeedsReauth, { credentialId, error: "GOOGLE_REAUTH_REQUIRED" });
+    assert.equal(await reauthAlert(t, credentialId), null);
+  });
+
+  it("the reauth alert stays open while another connector on the credential is still parked", async () => {
+    const t = convexTest({ schema, modules });
+    const first = await seedGoogleConnector(t, { direction: "import" });
+    await sibling(t, first, "active");
+    const fake = refused();
+    await runSyncJob(t, { connectorId: first.connectorId, kind: "import_poll" });
+    fake.restore();
+    await t.action(internal.googleCalendarConnector.storeCredential, { actorUserId: first.staffUserId, communitySlug: "basic-nights", connectorId: first.connectorId, ...grant });
+    const alert = await reauthAlert(t, first.credentialId);
+    assert.ok(alert);
+    assert.equal(alert.resolvedAt, undefined);
+    assert.equal((await t.run((ctx) => ctx.db.get(first.credentialId)))!.state, "active");
+  });
+
+  it("removing the last connector closes the reauth alert with the revoke", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, credentialId } = await seedGoogleConnector(t, { direction: "import" });
+    const fake = refused();
+    await runSyncJob(t, { connectorId, kind: "import_poll" });
+    fake.restore();
+    await as(t, "staff").mutation(api.eventConnectors.remove, { connectorId });
+    assert.equal((await reauthAlert(t, credentialId))?.resolvedAt, NOW);
+  });
+
+  const pendingReconciles = (t: TestConvex<typeof schema>) =>
+    t.run(async (ctx) => (await ctx.db.query("eventSyncJobs").collect()).filter((j) => j.kind === "reconcile" && j.state === "pending").length);
+
+  it("the daily sweep queues one reconcile per importing connector", async () => {
+    const t = convexTest({ schema, modules });
+    await seedGoogleConnector(t, { direction: "import" });
+    await seedGoogleConnector(t, { direction: "bidirectional" });
+    await seedGoogleConnector(t, { direction: "export" });
+    await seedGoogleConnector(t, { direction: "import", state: "paused" });
+    await t.mutation(internal.googleCalendarConnector.dailySweep, {});
+    await t.mutation(internal.googleCalendarConnector.dailySweep, {});
+    assert.equal(await pendingReconciles(t), 2);
+  });
+
+  it("the daily sweep does nothing with either flag off", async () => {
+    for (const flag of ["VRDEX_EVENT_CONNECTORS_ENABLED", "VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED"]) {
+      process.env.VRDEX_EVENT_CONNECTORS_ENABLED = "true";
+      process.env.VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED = "true";
+      const t = convexTest({ schema, modules });
+      const { credentialId } = await seedGoogleConnector(t, { direction: "import", state: "removed" });
+      await seedGoogleConnector(t, { direction: "import" });
+      await t.run((ctx) => ctx.db.patch(credentialId, { createdAt: NOW - 2 * DAY }));
+      process.env[flag] = "false";
+      await t.mutation(internal.googleCalendarConnector.dailySweep, {});
+      assert.equal(await pendingReconciles(t), 0);
+      assert.equal((await t.run((ctx) => ctx.db.get(credentialId)))!.state, "active");
+    }
+  });
+
+  it("the daily sweep retires only a day-old Google credential no live connector uses", async () => {
+    const t = convexTest({ schema, modules });
+    const live = await seedGoogleConnector(t, { direction: "import" });
+    const removed = await seedGoogleConnector(t, { direction: "import", state: "removed" });
+    const ids = await t.run(async (ctx) => {
+      const { _id, _creationTime, ...row } = (await ctx.db.get(live.credentialId))!;
+      await ctx.db.patch(live.credentialId, { createdAt: NOW - 2 * DAY });
+      await ctx.db.patch(removed.credentialId, { createdAt: NOW - 2 * DAY });
+      return {
+        abandoned: await ctx.db.insert("connectorCredentials", { ...row, createdAt: NOW - 2 * DAY }),
+        recent: await ctx.db.insert("connectorCredentials", { ...row, createdAt: NOW - DAY + 1 }),
+        notion: await ctx.db.insert("connectorCredentials", { ...row, provider: "notion", createdAt: NOW - 2 * DAY }),
+      };
+    });
+    await t.mutation(internal.googleCalendarConnector.dailySweep, {});
+    const states = await t.run(async (ctx) => Promise.all([live.credentialId, removed.credentialId, ids.abandoned, ids.recent, ids.notion].map(async (id) => (await ctx.db.get(id))!.state)));
+    assert.deepEqual(states, ["active", "revoked", "revoked", "active", "active"]);
   });
 });

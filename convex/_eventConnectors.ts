@@ -106,7 +106,8 @@ export function carriedFieldsHash(kind: ConnectorKind, fields: EventIntakeFields
     if (dateOnly && (key === "start" || key === "end" || key === "doors" || key === "timezone")) return [];
     // Only a true timeTba is meaningful; false and absent both mean a timed event.
     if (key === "timeTba" && !dateOnly) return [];
-    const item = canonicalIntakeValue(fields[key]);
+    // The owner path allows a longer venue than intake and import do; hash what a round trip through either keeps.
+    const item = canonicalIntakeValue(key === "venueLabel" ? fields.venueLabel?.trim().slice(0, 120) : fields[key]);
     return item === undefined ? [] : [[key, item]];
   });
   return sha256Hex(JSON.stringify(pairs));

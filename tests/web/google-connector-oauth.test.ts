@@ -22,14 +22,21 @@ it("accepts only a cookie whose state matches the query", () => {
   assert.equal(readStateCookie(cookie, null), null);
 });
 
+const PRIMARY_CALENDAR = "https://www.googleapis.com/calendar/v3/users/me/calendarList/primary";
 const tokenFetch = (token: Record<string, unknown>): typeof fetch => async (input) =>
-  String(input).endsWith("/tokeninfo") ? Response.json({ sub: "google-sub-1" }) : Response.json(token);
+  String(input) === PRIMARY_CALENDAR ? Response.json({ id: "organiser@example.com" }) : Response.json(token);
 
-it("exchanges a code and reads the account subject", async () => {
+it("exchanges a code and reads the primary calendar ID", async () => {
+  const token = tokenFetch({ access_token: "a", refresh_token: "rt", expires_in: 3600, scope: GOOGLE_CONNECTOR_SCOPES.join(" ") });
+  let authorization: string | null = null;
   const result = await exchangeGoogleCode({ code: "c", redirectUri: "r", clientId: "i", clientSecret: "s",
-    fetchImplementation: tokenFetch({ access_token: "a", refresh_token: "rt", expires_in: 3600, scope: GOOGLE_CONNECTOR_SCOPES.join(" ") }) });
+    fetchImplementation: async (input, init) => {
+      if (String(input) === PRIMARY_CALENDAR) authorization = new Headers(init?.headers).get("authorization");
+      return token(input, init);
+    } });
   assert.equal(result.refreshToken, "rt");
-  assert.equal(result.externalAccountId, "google-sub-1");
+  assert.equal(result.externalAccountId, "organiser@example.com");
+  assert.equal(authorization, "Bearer a");
 });
 
 it("refuses a grant missing a required scope", async () => {
@@ -42,11 +49,13 @@ it("refuses a grant without a refresh token", async () => {
     fetchImplementation: tokenFetch({ access_token: "a", expires_in: 3600, scope: GOOGLE_CONNECTOR_SCOPES.join(" ") }) }), /GOOGLE_REFRESH_TOKEN_MISSING/);
 });
 
-it("refuses a token without an account subject and never echoes Google's answer", async () => {
-  const fetchImplementation: typeof fetch = async (input) => String(input).endsWith("/tokeninfo")
-    ? Response.json({ aud: "secret-detail" })
+it("refuses a grant with no readable primary calendar and never echoes Google's answer", async () => {
+  const withAnswer = (answer: () => Response): typeof fetch => async (input) => String(input) === PRIMARY_CALENDAR
+    ? answer()
     : Response.json({ access_token: "a", refresh_token: "rt", expires_in: 3600, scope: GOOGLE_CONNECTOR_SCOPES.join(" ") });
-  await assert.rejects(exchangeGoogleCode({ code: "c", redirectUri: "r", clientId: "i", clientSecret: "s", fetchImplementation }), /^Error: GOOGLE_ACCOUNT_UNKNOWN$/);
+  for (const answer of [() => Response.json({ kind: "secret-detail" }), () => new Response("secret-detail", { status: 200 }), () => Response.json({ id: "x" }, { status: 403 })]) {
+    await assert.rejects(exchangeGoogleCode({ code: "c", redirectUri: "r", clientId: "i", clientSecret: "s", fetchImplementation: withAnswer(answer) }), /^Error: GOOGLE_ACCOUNT_UNKNOWN$/);
+  }
   await assert.rejects(exchangeGoogleCode({ code: "c", redirectUri: "r", clientId: "i", clientSecret: "s",
     fetchImplementation: async () => Response.json({ error: "invalid_grant", error_description: "code c" }, { status: 400 }) }), /^Error: GOOGLE_TOKEN_400$/);
 });

@@ -118,9 +118,10 @@ Google Calendar sync is the `google_calendar` connector kind; see [Connectors](.
 
 Inbound import rules:
 
-- Imports enter as intake candidates, not silently published canonical events.
+- Imports enter as intake candidates. In `hold` mode they wait as drafts for staff; in `autopublish` mode they publish through the same validation.
 - Only title, start, end, summary, and location carry. Poster, world, and lineup never move.
-- Past items and recurring instances more than 60 days ahead are not imported.
+- Past items and recurring instances more than 60 days ahead are not imported. A daily reconcile moves the 60-day window forward.
+- Only regular events import. Items marked private or confidential, and birthdays, out-of-office, working location, and Gmail-derived entries, are skipped.
 - A Google cancellation flags the sync link `external_deleted`; it never cancels the VRDex event.
 - Attendees, reminders, private notes, and hidden calendar metadata are never imported.
 
@@ -133,4 +134,3 @@ Self-hosted operators that enable Google Calendar sync or import will need their
 - final multi-provider calendar abstraction
 - full event-subscription preference UI
 - importing private calendar data before reviewed import workflows and provenance rules are ready
-- publishing imported candidates directly into canonical events

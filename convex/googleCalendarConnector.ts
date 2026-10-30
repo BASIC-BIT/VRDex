@@ -8,8 +8,8 @@ import type { EventIntakeDecision, EventIntakeFields } from "../packages/api-con
 import { applyEventCandidate, candidateFromConnectorFields, type ApplyEventCandidateOutcome } from "./_eventCandidateApply";
 import { eventPathForRecord } from "./_eventPaths";
 import { connectorsEnabled, requireConnectorAuthority } from "./_eventConnectors";
-import { enqueueSyncJob } from "./_eventSync";
-import { ensureWatch, googleCalendarEnabled, googleTarget, listCalendars as fetchCalendars, reportStaleWatches, withGoogleToken, type GoogleCalendarEvent } from "./_googleCalendar";
+import { enqueueSyncJob, eventIsPublic } from "./_eventSync";
+import { credentialConnectors, ensureWatch, googleCalendarEnabled, googleReauthKey, googleTarget, listCalendars as fetchCalendars, reportStaleWatches, revokeCredentialIfUnused, withGoogleToken, type GoogleCalendarEvent } from "./_googleCalendar";
 import { notifyOps, resolveOps } from "./_opsAlerts";
 import { fieldsFromGoogleEvent, outsideImportWindow } from "./eventSyncKinds/googleCalendar";
 
@@ -32,12 +32,12 @@ export const markNeedsReauth = internalMutation({
   args: { credentialId: v.id("connectorCredentials"), error: v.string() },
   handler: async (ctx, { credentialId, error }) => {
     const now = Date.now();
-    // ponytail: reads every google_calendar connector; add a by_credentialId index when they pass a few hundred.
-    const connectors = await ctx.db.query("eventConnectors").withIndex("by_kind_target_channelId", q => q.eq("kind", "google_calendar")).collect();
-    for (const connector of connectors) {
-      if (connector.credentialId !== credentialId || connector.state === "removed") continue;
-      await ctx.db.patch(connector._id, { state: "needs_reauth", lastError: error, updatedAt: now });
-    }
+    const connectors = await credentialConnectors(ctx.db, credentialId);
+    for (const connector of connectors) await ctx.db.patch(connector._id, { state: "needs_reauth", lastError: error, updatedAt: now });
+    if (connectors.length) await notifyOps(ctx, {
+      key: googleReauthKey(credentialId), subject: "Google Calendar connector needs reconnecting",
+      body: connectors.map(connector => `Connector ${connector._id} for community profile ${connector.communityProfileId}`).join("\n"),
+    });
   },
 });
 
@@ -48,7 +48,7 @@ export const exportContext = internalQuery({
     if (!siteUrl) throw new Error("SITE_URL_MISSING");
     const [connector, event] = await Promise.all([ctx.db.get(connectorId), ctx.db.get(eventId)]);
     if (!connector || !event) throw new Error("CONNECTOR_EXPORT_CONTEXT");
-    return { eventUrl: siteUrl.replace(/\/$/, "") + await eventPathForRecord(ctx.db, event), ...googleTarget(connector) };
+    return { eventUrl: siteUrl.replace(/\/$/, "") + await eventPathForRecord(ctx.db, event), siteUrl, ...googleTarget(connector) };
   },
 });
 
@@ -81,7 +81,7 @@ async function matchEvent(db: DatabaseReader, connector: Doc<"eventConnectors">,
   if (!title || !eventDate) return null;
   const events = await db.query("events").withIndex("by_communityProfileId_eventDate", q => q.eq("communityProfileId", connector.communityProfileId).eq("eventDate", eventDate)).take(50);
   for (const event of events) {
-    if (!event.slug || event.title.trim().slice(0, 120).trim().toLowerCase() !== title) continue;
+    if (!event.slug || !eventIsPublic(event) || event.title.trim().slice(0, 120).trim().toLowerCase() !== title) continue;
     const links = await db.query("eventSyncLinks").withIndex("by_eventId", q => q.eq("eventId", event._id)).take(100);
     if (!links.some(link => link.connectorId === connector._id)) return event;
   }
@@ -103,15 +103,21 @@ export const applyImport = internalMutation({
 
     // Google's cancelled never cancels a VRDex event; staff see the flag instead.
     if (item.status === "cancelled") {
-      if (!link?.eventId) return "skipped";
+      if (!link) return "skipped";
       const seen = { lastImportedAt: now, externalUpdatedAt: updatedMs, updatedAt: now };
-      // VRDex's own cancellation or retraction coming back.
-      if ((await db.get(link.eventId))?.eventStatus === "cancelled" || link.state === "vrdex_retracted") {
+      // VRDex's own cancellation or retraction coming back. A held draft's link has no event: staff see the flag and the draft stays theirs.
+      if ((link.eventId && (await db.get(link.eventId))?.eventStatus === "cancelled") || link.state === "vrdex_retracted") {
         await db.patch(link._id, seen);
         return "cancel_echo";
       }
       await db.patch(link._id, { ...seen, state: "external_deleted" });
       return "flagged";
+    }
+
+    // The organiser restored it, so exports may touch it again.
+    if (link?.state === "external_deleted") {
+      await db.patch(link._id, { state: "linked", updatedAt: now });
+      link = { ...link, state: "linked" };
     }
 
     const fields = fieldsFromGoogleEvent(item, args.calendarTimeZone, siteUrl());
@@ -167,6 +173,13 @@ export const reconcileItems = internalMutation({
   },
 });
 
+export const enqueueImportItem = internalMutation({
+  args: { connectorId: v.id("eventConnectors"), item: v.any(), calendarTimeZone: v.string() },
+  handler: async (ctx, { connectorId, item, calendarTimeZone }) => {
+    await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, kind: "import_item", payload: { item, calendarTimeZone } });
+  },
+});
+
 export const patchGoogleTarget = internalMutation({
   args: {
     connectorId: v.id("eventConnectors"),
@@ -192,12 +205,14 @@ export const notifyTarget = internalQuery({
   },
 });
 
-// Google sends a burst of notifications per change; one pending poll covers them all.
-async function enqueuePollOnce(ctx: MutationCtx, connectorId: Id<"eventConnectors">) {
+async function enqueueOnce(ctx: MutationCtx, connectorId: Id<"eventConnectors">, kind: "import_poll" | "reconcile", dueAt?: number) {
   const pending = await ctx.db.query("eventSyncJobs").withIndex("by_connectorId_eventId_state", q => q.eq("connectorId", connectorId).eq("eventId", undefined).eq("state", "pending")).collect();
-  if (pending.some(job => job.kind === "import_poll")) return;
-  await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, kind: "import_poll" });
+  if (pending.some(job => job.kind === kind)) return;
+  await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, kind, dueAt });
 }
+
+// Google sends a burst of notifications per change; a job leaves pending in milliseconds, so the delay is what lets one poll cover them all.
+const enqueuePollOnce = (ctx: MutationCtx, connectorId: Id<"eventConnectors">) => enqueueOnce(ctx, connectorId, "import_poll", Date.now() + 30_000);
 
 export const enqueuePoll = internalMutation({
   args: { connectorId: v.id("eventConnectors") },
@@ -239,6 +254,24 @@ export const recordWatchError = internalMutation({
 });
 
 const DAY_MS = 86_400_000;
+
+// Incremental sync only returns changed items, so a recurring instance past the 60-day window at connect would never import; the daily reconcile rolls the window forward.
+// The same pass retires credentials from abandoned connects: Connect stores one before the staffer picks a calendar.
+export const dailySweep = internalMutation({
+  args: {},
+  handler: async ctx => {
+    // googleConnectors is empty with a flag off, which would read below as every credential being unused.
+    if (!connectorsEnabled() || !googleCalendarEnabled()) return;
+    for (const connector of await importingConnectors(ctx.db)) await enqueueOnce(ctx, connector._id, "reconcile");
+    const now = Date.now();
+    const inUse = new Set((await googleConnectors(ctx.db)).filter(connector => connector.state !== "removed").map(connector => connector.credentialId));
+    // ponytail: connectorCredentials has no index, so this scans the table once a day; add by_provider_state if it outgrows that.
+    for (const credential of await ctx.db.query("connectorCredentials").collect()) {
+      if (credential.provider !== "google" || credential.state !== "active" || credential.createdAt > now - DAY_MS || inUse.has(credential._id)) continue;
+      await ctx.db.patch(credential._id, { state: "revoked", updatedAt: now });
+    }
+  },
+});
 
 // Channels last seven days; renew any with a day or less left, and open one where none exists.
 // The staleness check runs after the renewals, so a renewal that just failed is what gets reported.
@@ -295,12 +328,7 @@ export const insertCredential = internalMutation({
       if (previous?.externalAccountId !== grant.externalAccountId) delete target.syncToken;
       await ctx.db.patch(connector._id, { credentialId, authorityUserId: actorUserId, state: "active", lastError: undefined, target, updatedAt: now });
       if (connector.direction !== "off") await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: connector._id, kind: "reconcile" });
-      if (previous && previous.state !== "revoked") {
-        // A credential can serve connectors in several communities its owner staffs, so this reads every google_calendar connector.
-        // ponytail: same full scan as markNeedsReauth; a by_credentialId index fixes both when they pass a few hundred.
-        const siblings = await ctx.db.query("eventConnectors").withIndex("by_kind_target_channelId", q => q.eq("kind", "google_calendar")).collect();
-        if (!siblings.some(row => row.credentialId === previous._id && row.state !== "removed")) await ctx.db.patch(previous._id, { state: "revoked", updatedAt: now });
-      }
+      if (previous) await revokeCredentialIfUnused(ctx, previous._id);
     }
     return credentialId;
   },

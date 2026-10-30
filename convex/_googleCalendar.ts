@@ -1,7 +1,8 @@
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { ActionCtx } from "./_generated/server";
+import type { ActionCtx, DatabaseReader, MutationCtx } from "./_generated/server";
 import { connectorKey, decryptSecret, encryptSecret } from "./_connectorCrypto";
+import { resolveOps } from "./_opsAlerts";
 
 const API = "https://www.googleapis.com/calendar/v3";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -10,11 +11,11 @@ export type GoogleEventDateTime = { date?: string; dateTime?: string; timeZone?:
 export type GoogleCalendarEvent = {
   id: string; status: "confirmed" | "tentative" | "cancelled"; updated: string;
   summary?: string; description?: string; location?: string;
-  start?: GoogleEventDateTime; end?: GoogleEventDateTime; recurringEventId?: string;
+  start?: GoogleEventDateTime; end?: GoogleEventDateTime; recurringEventId?: string; visibility?: "default" | "public" | "private" | "confidential";
 };
 // Only what the mapper reads travels into mutations and job payloads: no attendee emails stored, and no user-defined
 // extendedProperties keys that Convex's field-name rules would reject and stall the poll before its sync token is stored.
-const ITEM_FIELDS = ["id", "status", "updated", "summary", "description", "location", "start", "end", "recurringEventId"] as const;
+const ITEM_FIELDS = ["id", "status", "updated", "summary", "description", "location", "start", "end", "recurringEventId", "visibility"] as const;
 const pickItem = (item: GoogleCalendarEvent) =>
   Object.fromEntries(ITEM_FIELDS.filter(key => item[key] !== undefined).map(key => [key, item[key]])) as GoogleCalendarEvent;
 export type GoogleEventBody = Required<Pick<GoogleCalendarEvent, "summary" | "description" | "location" | "start" | "end" | "status">>;
@@ -42,10 +43,12 @@ export function googleTarget(connector: Doc<"eventConnectors">): { credentialId:
 }
 
 // A rejected fetch can quote the URL, and a primary calendar's ID is the organiser's email.
-function reach(url: URL | string, init: RequestInit): Promise<Response> {
-  return fetch(url, init).catch(() => {
+async function reach(url: URL | string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
     throw new GoogleApiError(0, "GOOGLE_API_UNREACHABLE");
-  });
+  }
 }
 
 // JSON.parse errors quote the body, so a malformed answer becomes a code. A body cut off mid-read lands here too.
@@ -124,7 +127,8 @@ const eventsPath = (calendarId: string) => `/calendars/${encodeURIComponent(cale
 
 export async function listEvents(token: string, calendarId: string, params: { syncToken?: string; pageToken?: string; timeMin?: string; timeMax?: string }): Promise<{ items: GoogleCalendarEvent[]; nextPageToken?: string; nextSyncToken?: string; timeZone: string }> {
   const page = await google<{ items?: GoogleCalendarEvent[]; nextPageToken?: string; nextSyncToken?: string; timeZone: string }>(token, "GET", eventsPath(calendarId), {
-    query: { ...params, singleEvents: "true", maxResults: "250" },
+    // Without eventTypes Google also returns birthdays, out-of-office, working location, and Gmail-derived entries.
+    query: { ...params, singleEvents: "true", maxResults: "250", eventTypes: "default" },
   });
   return { ...page, items: (page.items ?? []).map(pickItem) };
 }
@@ -133,8 +137,12 @@ export function insertEvent(token: string, calendarId: string, body: GoogleEvent
   return google(token, "POST", eventsPath(calendarId), { body });
 }
 
-// A patch may null the start/end member it switches away from, so the body is looser than an insert.
-export function patchEvent(token: string, calendarId: string, eventId: string, body: Record<keyof GoogleEventBody, unknown>): Promise<GoogleCalendarEvent> {
+export async function getEvent(token: string, calendarId: string, eventId: string): Promise<GoogleCalendarEvent> {
+  return pickItem(await google(token, "GET", `${eventsPath(calendarId)}/${encodeURIComponent(eventId)}`));
+}
+
+// A patch may null the start/end member it switches away from or omit a member to keep Google's, so the body is looser than an insert.
+export function patchEvent(token: string, calendarId: string, eventId: string, body: Partial<Record<keyof GoogleEventBody, unknown>>): Promise<GoogleCalendarEvent> {
   return google(token, "PATCH", `${eventsPath(calendarId)}/${encodeURIComponent(eventId)}`, { body });
 }
 
@@ -166,8 +174,8 @@ export async function watchChannelToken(connectorId: string, channelId: string):
 
 export async function ensureWatch(ctx: ActionCtx, connector: Doc<"eventConnectors">, force: boolean): Promise<void> {
   if (connector.direction !== "import" && connector.direction !== "bidirectional") return;
-  const { watchChannelId, watchResourceId } = connector.target;
-  if (!force && watchChannelId) return;
+  const { watchChannelId, watchResourceId, watchExpiresAt } = connector.target;
+  if (!force && watchChannelId && (watchExpiresAt ?? 0) > Date.now()) return;
   const { credentialId, calendarId } = googleTarget(connector);
   const id = crypto.randomUUID();
   const created = await withGoogleToken(ctx, credentialId, async token => {
@@ -181,6 +189,22 @@ export async function ensureWatch(ctx: ActionCtx, connector: Doc<"eventConnector
     connectorId: connector._id,
     target: { watchChannelId: id, watchResourceId: created.resourceId, watchExpiresAt: created.expiration, watchRenewedAt: Date.now() },
   });
+}
+
+export const googleReauthKey = (credentialId: Id<"connectorCredentials">) => "google_reauth:" + credentialId;
+
+// A credential can serve connectors in several communities its owner staffs.
+// ponytail: reads every google_calendar connector; a by_credentialId index fixes this when they pass a few hundred.
+export async function credentialConnectors(db: DatabaseReader, credentialId: Id<"connectorCredentials">) {
+  const connectors = await db.query("eventConnectors").withIndex("by_kind_target_channelId", q => q.eq("kind", "google_calendar")).collect();
+  return connectors.filter(row => row.credentialId === credentialId && row.state !== "removed");
+}
+
+// Local only: the grant stays live at Google. The reauth alert closes once no connector on the credential is still parked.
+export async function revokeCredentialIfUnused(ctx: MutationCtx, credentialId: Id<"connectorCredentials">): Promise<void> {
+  const connectors = await credentialConnectors(ctx.db, credentialId);
+  if (!connectors.some(row => row.state === "needs_reauth")) await resolveOps(ctx, googleReauthKey(credentialId));
+  if (!connectors.length && (await ctx.db.get(credentialId))?.state === "active") await ctx.db.patch(credentialId, { state: "revoked", updatedAt: Date.now() });
 }
 
 export type OpsAlert = { key: string; subject: string; body: string };

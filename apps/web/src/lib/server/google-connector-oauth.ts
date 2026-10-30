@@ -49,6 +49,18 @@ async function postForm(fetchImplementation: typeof fetch, url: string, body: Re
   throw new Error(`${failure}_RESPONSE`);
 }
 
+// Only decides whether a sync token survives a reconnect, and the granted calendar scope can always read it. Every failure is one code.
+async function primaryCalendarId(fetchImplementation: typeof fetch, accessToken: string): Promise<string> {
+  try {
+    const response = await fetchImplementation("https://www.googleapis.com/calendar/v3/users/me/calendarList/primary", { headers: { authorization: `Bearer ${accessToken}` } });
+    const { id } = (response.ok ? await response.json() : {}) as { id?: unknown };
+    if (typeof id === "string" && id) return id;
+  } catch {
+    // fall through to the code below
+  }
+  throw new Error("GOOGLE_ACCOUNT_UNKNOWN");
+}
+
 export async function exchangeGoogleCode(input: { code: string; redirectUri: string; clientId: string; clientSecret: string; fetchImplementation?: typeof fetch }): Promise<{ accessToken: string; refreshToken: string; expiresAt: number; scopes: string[]; externalAccountId: string }> {
   const fetchImplementation = input.fetchImplementation ?? fetch;
   const token = await postForm(fetchImplementation, "https://oauth2.googleapis.com/token", {
@@ -59,10 +71,7 @@ export async function exchangeGoogleCode(input: { code: string; redirectUri: str
   if (typeof refreshToken !== "string" || !refreshToken) throw new Error("GOOGLE_REFRESH_TOKEN_MISSING");
   const scopes = typeof scope === "string" ? scope.split(" ").filter(Boolean) : [];
   if (!GOOGLE_CONNECTOR_SCOPES.every(required => scopes.includes(required))) throw new Error("GOOGLE_SCOPES_MISSING");
-  // No openid scope means no ID token, so tokeninfo is the only place the account id comes from.
-  const { sub } = await postForm(fetchImplementation, "https://oauth2.googleapis.com/tokeninfo", { access_token: accessToken }, "GOOGLE_TOKENINFO");
-  if (typeof sub !== "string" || !sub) throw new Error("GOOGLE_ACCOUNT_UNKNOWN");
-  return { accessToken, refreshToken, expiresAt: Date.now() + expiresIn * 1000, scopes, externalAccountId: sub };
+  return { accessToken, refreshToken, expiresAt: Date.now() + expiresIn * 1000, scopes, externalAccountId: await primaryCalendarId(fetchImplementation, accessToken) };
 }
 
 export const integrationsPath = (communitySlug: string) => `/account/communities/${encodeURIComponent(communitySlug)}/integrations`;

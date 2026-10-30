@@ -107,8 +107,11 @@ generated with `openssl rand -base64 32` and set with
 Convex environment, never in git or Terraform state.
 
 Rotation: replacing the value makes every stored connector token unreadable, so
-each OAuth connector must be reconnected from the Integrations page. The `v1:`
-prefix leaves room for a dual-key rotation later.
+each OAuth connector must be disconnected and connected again from the
+Integrations page; Reconnect only shows on a connector in `needs_reauth`, and
+these stay `active`. The same key signs Google Calendar watch channels, so
+existing channels stop authenticating until the new connection opens one. The
+`v1:` prefix leaves room for a dual-key rotation later.
 
 ### Google Calendar connector
 
@@ -117,6 +120,14 @@ when set to `true`, together with `VRDEX_EVENT_CONNECTORS_ENABLED`. Scope: the
 Convex deployment environment only. Default: unset, which means off. Owner:
 BASIC. Pause or disconnect every Google Calendar connector before turning it
 off: with live connectors their jobs fail and the connector failure alarm fires.
+
+Crons, all inert with either flag off: a 15-minute poll, a daily watch renewal,
+and a daily sweep. The sweep queues a `reconcile` for each active importing
+connector, which moves the 60-day recurring import window forward, and marks
+`revoked` any Google credential over a day old with no live connector, which is
+what an abandoned Connect leaves. Disconnecting the last connector on a
+credential revokes it the same way. Revoking is local: the grant stays live at
+Google until the organiser removes it there.
 
 `GOOGLE_CONNECTOR_CLIENT_ID` and `GOOGLE_CONNECTOR_CLIENT_SECRET` (secret) are
 VRDex's Google OAuth client. Scope: both the Convex deployment (token refresh)
@@ -171,6 +182,11 @@ again at once. Current alarms:
   after five failed deliveries to PostHog. The email names the row ID, event
   name, attempt count, and creation time only. The next delivered row resolves
   it.
+
+- `google_reauth:` plus the credential ID: Google refused a credential's grant,
+  so its connectors went to `needs_reauth`. The email names the connector and
+  community profile IDs. Reconnecting or removing the last parked connector on
+  that credential resolves it.
 
 Gateway, Google watch, and recurrence alarms in later plans use the same path.
 

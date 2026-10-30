@@ -7,7 +7,7 @@ import {
   DISCORD_ID, requireConnectorAuthority, type ConnectorDirection, type ConnectorKind,
 } from "./_eventConnectors";
 import { enqueueSyncJob, failureAlertKey } from "./_eventSync";
-import { googleCalendarEnabled } from "./_googleCalendar";
+import { googleCalendarEnabled, revokeCredentialIfUnused } from "./_googleCalendar";
 import { resolveOps } from "./_opsAlerts";
 
 type ConnectorTarget = Infer<typeof connectorTarget>;
@@ -138,5 +138,6 @@ export const remove = mutation({ args: { connectorId: v.id("eventConnectors") },
   if (connector.state !== "removed") await ctx.db.patch(connector._id, { state: "removed", updatedAt: Date.now() });
   // A removed connector cannot recover, so close any open failure alert for it.
   await resolveOps(ctx, failureAlertKey(connector._id));
+  if (connector.kind === "google_calendar" && connector.credentialId) await revokeCredentialIfUnused(ctx, connector.credentialId);
   return null;
 } });

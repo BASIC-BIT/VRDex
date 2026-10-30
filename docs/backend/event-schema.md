@@ -312,10 +312,14 @@ Published cancelled events remain reachable by direct URL and export `STATUS:CAN
 Google Calendar is a `google_calendar` connector on the [connector tables](#connectors):
 
 - It carries title, start, end, summary, and venue label (as the Google `location`). Poster, world, and lineup never move.
-- Imports enter as intake candidates, like every other connector import.
+- Imports enter as intake candidates, like every other connector import. `listEvents` sends `eventTypes=default`, and items marked `private` or `confidential` are skipped, so personal entries never import.
+- A poll applies items one at a time. An item that throws moves to its own `import_item` job, so it retries and alarms alone and the sync token still advances.
+- A linked export reads the Google item first. Where the clipped read-back already equals VRDex's value, Google's longer description, location, or all-day span stays; the description keeps or gains the event URL line.
+- `dailySweep` queues a `reconcile` for each active importing connector, moving the 60-day recurring window forward, and revokes any Google credential over a day old with no live connector.
 - Exports end the Google description with the VRDex event URL.
-- An inbound Google cancellation flags the link `external_deleted`; it never cancels the VRDex event.
+- An inbound Google cancellation flags the link `external_deleted`, on a held draft's link too; it never cancels the VRDex event. A later non-cancelled item sets the link back to `linked`.
 - The daily watch renewal emails ops when an active importing connector's watch has expired or has gone seven days without renewing (`google_watch_renewal_stale:`), and resolves the alert once the connector is no longer stale, including when it leaves `active`.
+- A refused grant parks the credential's connectors as `needs_reauth` and emails ops (`google_reauth:`). The alert resolves when no connector on the credential is still parked.
 
 ## Connectors
 
@@ -333,7 +337,7 @@ The settings page manages connectors through `convex/eventConnectors.ts`, a brow
 - `listForCommunity` returns the community's connectors, oldest first, without removed ones.
 - `create` takes a community profile, kind, direction, mode, target, and optional credential, and makes the caller the authority user. The profile must be a community (`CONNECTOR_FORBIDDEN`). `notion` is reserved (`CONNECTOR_KIND_RESERVED`); the direction must be one the kind allows (`discord_announcements` imports and `discord_board` exports, and every kind can be `off`), else `CONNECTOR_DIRECTION_INVALID`; the target must carry exactly the kind's IDs (`guildId` and `channelId` for `discord_announcements` and `discord_board`, `guildId` for `discord_scheduled_events`, `calendarId` for `google_calendar`, and `groupId` with an optional `calendarId` for `vrchat_calendar`), Discord IDs must be 17 to 20 digits, calendar and group IDs at most 256 characters, and each display name at most 100 characters (`CONNECTOR_TARGET`); a credential must be the caller's own and `active` (`CONNECTOR_CREDENTIAL`); and a live connector of the same kind and target IDs is `CONNECTOR_EXISTS`. `discord_announcements` gets a 120 second quiet window. A direction other than `off` queues a `reconcile`.
 - `update` changes direction, mode, or `quietWindowSeconds` (an integer from 30 to 600, else `CONNECTOR_QUIET_WINDOW`), and throws `CONNECTOR_REMOVED` on a removed connector. Moving an active connector to a new direction other than `off` queues a `reconcile`. `state: "active"` resumes a `paused` connector only (else `CONNECTOR_RESUME_INVALID`): the caller becomes the authority user, `lastError` clears, and a `reconcile` is queued. It never clears `needs_reauth`; reconnecting the provider does that.
-- `remove` marks the connector `removed`, keeps its links, and resolves its `connector-failures:` ops alert. Its pending jobs close as `connector_inactive` when claimed.
+- `remove` marks the connector `removed`, keeps its links, and resolves its `connector-failures:` ops alert. Its pending jobs close as `connector_inactive` when claimed. Removing the last `google_calendar` connector on a credential revokes that credential locally.
 
 The link is both the dedupe key and the echo guard. After a successful export the runner stores `externalId`, `lastExportedAt`, and `lastExportedHash`, the carried-field hash of what it sent; an inbound change with the same hash is the export coming back and is ignored. When the kind matched an external item an import had already linked (for example to a held draft), the runner adopts that link row instead of adding a second one for the same `externalId`. Deleting an export sets the link `vrdex_retracted`; kinds set `external_deleted` themselves on import. A link keyed to a held draft that is still pending blocks exports for that event.
 
