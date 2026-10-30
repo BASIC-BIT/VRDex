@@ -69,3 +69,12 @@ export type GoogleCalendar = FunctionReturnType<typeof api.googleCalendarConnect
 export function primaryFirst(calendars: readonly GoogleCalendar[]): GoogleCalendar[] {
   return [...calendars].sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)));
 }
+
+export function connectedCalendarIds(connectors: readonly Pick<Connector, "kind" | "target">[]): string[] {
+  return connectors.flatMap(({ kind, target }) =>
+    kind === "google_calendar" && target.calendarId ? [target.calendarId] : []);
+}
+
+export function pickableCalendars(calendars: readonly GoogleCalendar[], connectedIds: readonly string[]) {
+  return calendars.filter((calendar) => !connectedIds.includes(calendar.id));
+}

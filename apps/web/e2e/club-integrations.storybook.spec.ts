@@ -10,6 +10,7 @@ test("integrations list connectors with direction, mode, and state controls @sto
   await expect(page.getByText("Needs reconnecting", { exact: true })).toBeVisible();
   await expect(page.getByText("Missing Access", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Resume" })).toHaveCount(1);
+  await expect(page.getByText("Reconnect", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Disconnect" })).toHaveCount(5);
   const directions = page.getByRole("combobox", { name: "Direction" });
   await expect(directions.nth(1).locator("option")).toHaveText(["Export", "Off"]);
@@ -68,6 +69,8 @@ test("a Google row that needs reconnecting links back through OAuth @storybook-v
   await expect(page.getByRole("link", { name: "Reconnect" })).toHaveAttribute("href", "/api/connectors/google/start?community=afterhours&connectorId=google");
   await expect(page.getByRole("combobox", { name: "Direction" }).locator("option")).toHaveText(["Import", "Export", "Both", "Off"]);
   await expect(page.getByRole("button", { name: "Disconnect" })).toBeVisible();
+  await expect(page.getByText("Needs reconnecting", { exact: true })).toBeVisible();
+  await expect(page.getByText("GOOGLE_REAUTH_REQUIRED")).toHaveCount(0);
   await capture(page, "google-reconnect");
 });
 
@@ -76,6 +79,21 @@ test("a failed Google connect shows the error notice @storybook-visual", async (
   await expect(page.getByRole("alert")).toHaveText("Google Calendar did not connect. Try again.");
   await expect(page.getByRole("link", { name: "Connect Google Calendar" })).toBeVisible();
   await capture(page, "google-failed");
+});
+
+test("an empty calendar list shows the error notice and Connect, not a blank select @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-integrations--google-no-calendars&viewMode=story");
+  await expect(page.getByRole("alert")).toHaveText("Google Calendar did not connect. Try again.");
+  await expect(page.getByRole("link", { name: "Connect Google Calendar" })).toBeVisible();
+  await expect(page.getByRole("combobox")).toHaveCount(0);
+  await capture(page, "google-no-calendars");
+});
+
+test("a failed connect still shows its notice when Connect is switched off @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-integrations--google-disabled-failed&viewMode=story");
+  await expect(page.getByRole("alert")).toHaveText("Google Calendar did not connect. Try again.");
+  await expect(page.getByRole("link", { name: "Connect Google Calendar" })).toHaveCount(0);
+  await capture(page, "google-disabled-failed");
 });
 
 test("Save is disabled while the request runs and a failure can be retried @storybook-visual", async ({ page }) => {

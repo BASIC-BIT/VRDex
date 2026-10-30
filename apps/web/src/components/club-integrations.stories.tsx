@@ -44,7 +44,7 @@ const calendars: GoogleCalendar[] = [
   { id: "late@group.calendar.google.com", summary: "Late night sets and guest DJ rotations across every Afterhours stage" },
 ];
 
-type GooglePreview = { calendars?: GoogleCalendar[]; failed?: boolean; saveFails?: boolean };
+type GooglePreview = { calendars?: GoogleCalendar[]; enabled?: boolean; failed?: boolean; saveFails?: boolean };
 function Preview({ connectors = fixtures, google }: { connectors?: Connector[]; google?: GooglePreview }) {
   const [rows, setRows] = useState(connectors);
   const [picker, setPicker] = useState(google?.calendars);
@@ -56,6 +56,7 @@ function Preview({ connectors = fixtures, google }: { connectors?: Connector[]; 
         connect={google ? (
           <GoogleCalendarConnectView
             communitySlug="afterhours"
+            enabled={google.enabled ?? true}
             failed={google.failed ?? false}
             calendars={picker}
             onSave={async (target, direction) => {
@@ -108,3 +109,5 @@ export const GoogleReconnect: Story = {
   },
 };
 export const GoogleConnectFailed: Story = { args: { connectors: [], google: { failed: true } } };
+export const GoogleNoCalendars: Story = { args: { connectors: [], google: { calendars: [] } } };
+export const GoogleDisabledFailed: Story = { args: { connectors: [], google: { enabled: false, failed: true } } };

@@ -12,6 +12,7 @@ import { cn } from "@/lib/cn";
 import { GoogleCalendarConnect } from "./club-google-calendar";
 import { ClubAccessNotice, useClubWorkspace } from "./club-workspace";
 import {
+  connectedCalendarIds,
   connectorTargetName,
   directionOptions,
   DIRECTION_HELP,
@@ -46,6 +47,8 @@ function ConnectorRow({
   const synced = syncedLabel(connector.lastSyncedAt, now);
   const help = DIRECTION_HELP[direction];
   const update = (patch: ConnectorPatch) => run(() => onUpdate(connectorId, patch));
+  // The state label and Reconnect already say this; lastError would only add an internal code.
+  const reconnect = kind === "google_calendar" && state === "needs_reauth";
   return (
     <li className="grid gap-4 py-5 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto]">
       <div className="min-w-0">
@@ -57,7 +60,7 @@ function ConnectorRow({
           </span>
           {synced ? <span className="text-muted">{synced}</span> : null}
         </p>
-        {lastError ? <p className="mt-1 break-words text-sm text-muted">{lastError}</p> : null}
+        {lastError && !reconnect ? <p className="mt-1 break-words text-sm text-muted">{lastError}</p> : null}
       </div>
       <div className="order-last flex flex-wrap items-start gap-2 sm:order-none sm:col-start-2 sm:row-start-1">
         {state === "paused" ? (
@@ -65,7 +68,7 @@ function ConnectorRow({
             Resume
           </Button>
         ) : null}
-        {kind === "google_calendar" && state === "needs_reauth" ? (
+        {reconnect ? (
           <a
             href={`/api/connectors/google/start?community=${encodeURIComponent(communitySlug)}&connectorId=${encodeURIComponent(connectorId)}`}
             className={buttonVariants({ size: "sm" })}
@@ -183,7 +186,7 @@ function ConnectedIntegrations({ communityProfileId, communitySlug }: { communit
     <ClubIntegrationsView
       communitySlug={communitySlug}
       connectors={result.connectors}
-      connect={<GoogleCalendarConnect />}
+      connect={<GoogleCalendarConnect connectedCalendarIds={connectedCalendarIds(result.connectors)} />}
       now={now}
       onUpdate={(connectorId, patch) => update({ connectorId, ...patch })}
       onRemove={(connectorId) => remove({ connectorId })}
