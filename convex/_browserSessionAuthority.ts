@@ -65,3 +65,13 @@ export async function requireActiveVerifiedEmailUser(
 
   return user;
 }
+
+/** Negative guard for internal deployment operations, not a grant of admin authority.
+ * Internal-function dispatch must enforce deployment credentials separately.
+ * Reject every browser identity, including one without a mirrored users row.
+ */
+export async function rejectBrowserIdentityForDeploymentOperation(ctx: BrowserSessionCtx) {
+  if (await ctx.auth.getUserIdentity()) {
+    throw Error("Deployment operator required; impersonation is forbidden");
+  }
+}

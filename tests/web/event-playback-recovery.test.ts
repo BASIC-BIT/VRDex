@@ -110,3 +110,51 @@ test("Twitch provider Play can recover autoplay denial while explicit pause and 
     assert.equal(player.callbacks.size, 0);
   } finally { owner.close(); fixture.restore(); }
 });
+test('legacy rollback preserves audio preference without loading full video, and explicit Video permits playback',async()=>{
+ const {createRetainedPlaybackAdapter}=await import('../../apps/web/src/lib/event-playback-adapters');const fixture=dom();
+ try{const audio=createRetainedPlaybackAdapter(request,fixture.mount,()=>{},{mode:'audio'});assert.equal(await audio.play(),false);assert.equal(fixture.nodes.length,0);audio.dispose();
+ const video=createRetainedPlaybackAdapter(request,fixture.mount,()=>{},{mode:'video'});assert.equal(await video.play(),true);assert.equal(fixture.nodes.length,1);video.dispose();}finally{fixture.restore();}
+});
+
+test("relay rollout preserves profile and event direct video while audio never loads video", async () => {
+  const { createRetainedPlaybackAdapter } = await import('../../apps/web/src/lib/event-playback-adapters');
+  const { profilePlaybackRequest, eventPlaybackRequest } = await import('../../apps/web/src/lib/event-playback-request');
+  const fixture = dom(); let admissions = 0;
+  const relay = { open: async () => { admissions++; return {kind:'unavailable',reason:'unavailable'}; } } as unknown as import('../../apps/web/src/lib/relay-playback-adapter').RelayPlaybackClient;
+  try {
+    for (const url of ['https://stream.vrcdn.live/live/basicbit.mp4', 'https://stream.vrcdn.live/live/basicbit.live.mp4', 'vrcdn:basicbit']) {
+      const profile = profilePlaybackRequest({id:'profile',slug:'dj',displayName:'DJ',outboundLinks:[{type:'vrcdn',url}]}, 'basicbit');
+      const event = eventPlaybackRequest({id:'event',slug:'show',title:'Show',watchSurfaceEnabled:true,startAt:1,mediaLinks:[{type:'watch',label:'Watch',url,presentation:'open'}],slots:[]} as never);
+      for (const request of [profile,event]) {
+        assert.ok(request);
+        if (request.kind !== 'vrcdn') throw Error('expected vrcdn');
+        const before = admissions, nodes = fixture.nodes.length;
+        const audio = createRetainedPlaybackAdapter(request,fixture.mount,()=>{},{mode:'audio',relay});
+        if (request.transport === 'video') {
+          assert.equal(await audio.play(),false); assert.equal(fixture.nodes.length,nodes); audio.dispose();
+          const video = createRetainedPlaybackAdapter(request,fixture.mount,()=>{},{mode:'video',relay});
+          assert.equal(await video.play(),true); assert.equal(fixture.nodes.at(-1)?.src,url); video.dispose();
+          assert.equal(admissions,before);
+        } else { await audio.play(); assert.equal(admissions,before+1); audio.dispose(); }
+      }
+    }
+  } finally { fixture.restore(); }
+});
+
+test("profile EOF requires explicit fresh playback while event EOF remains paused", async () => {
+  const fixture = dom();
+  const owner = new EventPlaybackOwner((value, notify) => createEventPlaybackAdapter(value, fixture.mount, notify));
+  const profile: PlaybackRequest = {kind:"vrcdn",profileId:"profile",profileSlug:"dj",title:"DJ - VRDex",href:"/dj",sourceId:"Alpha",src:"/direct.mp4",transport:"video"};
+  try {
+    await owner.play(profile);
+    const video = fixture.nodes[0];
+    video.dispatchEvent(new Event("ended"));
+    assert.equal(owner.getSnapshot().status,"unavailable");
+    assert.equal(owner.getSnapshot().unavailableReason,"ended");
+    await owner.play(profile);
+    assert.equal(fixture.nodes.length,2);
+    assert.equal(video.removed,true);
+    assert.equal(owner.getSnapshot().status,"playing");
+    assert.equal(owner.getSnapshot().unavailableReason,undefined);
+  } finally {owner.close();fixture.restore();}
+});

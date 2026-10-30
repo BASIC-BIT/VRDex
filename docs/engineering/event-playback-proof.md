@@ -186,3 +186,23 @@ MPEG-TS files and removes them after its actual FFmpeg processes close. A
 simultaneous-server regression verifies that closing one server leaves the
 other's files and stream usable. Historical child counts above tracked the
 launcher and were weaker evidence than the final actual-process cleanup check.
+
+## Linux CI audio prerequisite
+
+The composed browser lane checks `pactl info` and usable sinks before playback.
+It reuses an existing backend; otherwise it starts a job-owned PulseAudio null
+sink behind a private cookie-authenticated Unix socket. An `always()` cleanup
+stops only that owned daemon. This provides an audio clock for Web Audio tests
+without changing browser autoplay or sandbox policy. The job logs before/after
+backend state; actual Firefox resume and decoded playback must still pass.
+Manual-engine evidence includes trusted activation, AudioContext resume/state
+changes, media capabilities, network requests and a context trace. Retry tracing
+borrows a chunk from the runner's session rather than starting a second session.
+
+Independent review corrections separate same-source identity decisions from
+Play/Pause and mode requests. Successful rebind authority can be retained while
+installed identity waits for a visible session commit; refresh cannot publish
+uninstalled metadata. Pause does not resume media, newer selection supersedes old
+identity, and hidden completion cannot switch current DJ. Selecting the existing
+mode preserves legacy playback. PiP capability and action both use the retained
+owner's actual video element; adapters without that element expose no PiP utility.

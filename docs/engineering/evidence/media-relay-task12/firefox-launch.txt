@@ -1,0 +1,31 @@
+Standalone Playwright Firefox 150.0.2 (revision 1522) launch, no application loaded.
+Content/RDD/GPU sandbox environment switches did not resolve launch timeout.
+2026-10-29T02:42:22.459Z pw:browser <launching> /workspace/.cache/ms-playwright/firefox-1522/firefox/firefox -no-remote -headless -profile /tmp/playwright_firefoxdev_profile-60QrSM -juggler-pipe -silent
+2026-10-29T02:42:22.468Z pw:browser <launched> pid=92803
+2026-10-29T02:42:22.502Z pw:browser [pid=92803][err] *** You are running in headless mode.
+2026-10-29T02:42:22.633Z pw:browser [pid=92803][err] [92841] Sandbox: writing /proc/self/uid_map: EROFS
+2026-10-29T02:42:22.700Z pw:browser [pid=92803][out] Crash Annotation GraphicsCriticalError: |[0][GFX1-]: RenderCompositorSWGL failed mapping default framebuffer, no dt (t=0.231992) [GFX1-]: RenderCompositorSWGL failed mapping default framebuffer, no dt
+2026-10-29T02:42:37.460Z pw:browser [pid=92803] <gracefully close start>
+2026-10-29T02:42:37.460Z pw:browser [pid=92803] <kill>
+2026-10-29T02:42:37.461Z pw:browser [pid=92803] <will force kill>
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+browserType.launch: Timeout 15000ms exceeded.
+Call log:
+[2m  - <launching> /workspace/.cache/ms-playwright/firefox-1522/firefox/firefox -no-remote -headless -profile /tmp/playwright_firefoxdev_profile-60QrSM -juggler-pipe -silent[22m
+[2m  - <launched> pid=92803[22m
+[2m  - [pid=92803][err] *** You are running in headless mode.[22m
+[2m  - [pid=92803][err] [92841] Sandbox: writing /proc/self/uid_map: EROFS[22m
+[2m  - [pid=92803][out] Crash Annotation GraphicsCriticalError: |[0][GFX1-]: RenderCompositorSWGL failed mapping default framebuffer, no dt (t=0.231992) [GFX1-]: RenderCompositorSWGL failed mapping default framebuffer, no dt[22m
+
+    at /workspace/VRDex/apps/web/[eval1]:1:65
+    at async node:internal/modules/esm/loader:224:26 {
+  name: 'TimeoutError'
+}
+
+Node.js v24.19.0
+undefined
+/workspace/VRDex/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: node --input-type=module -e import {firefox} from "@playwright/test"; const b=await firefox.launch({timeout:15000}); console.log(await b.version()); await b.close();

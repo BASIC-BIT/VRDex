@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { VrcdnPlayerControls } from "./vrcdn-player-controls";
 
@@ -141,3 +141,14 @@ export const Connecting: Story = {
     </ControlsFrame>
   ),
 };
+
+function NativeControls({ audio = false }: { audio?: boolean }) {
+  const [mode, setMode] = useState<"video" | "audio">(audio ? "audio" : "video");
+  const [pip, setPip] = useState(false);
+  return <ControlsFrame>
+    {mode === "audio" && <div className="flex h-full items-center justify-center bg-media text-white/70"><span className="text-5xl" aria-hidden="true">♫</span></div>}
+    <VrcdnPlayerControls label="DJ Aurora" connected fullscreen={false} muted={false} paused={false} volume={0.8} volumeSettable mode={mode} onModeChange={setMode} pipSupported pipActive={pip} onTogglePip={() => setPip(!pip)} onToggleFullscreen={noop} onToggleMute={noop} onTogglePlay={noop} onVolumeChange={noop} />
+  </ControlsFrame>;
+}
+export const NativeVideo: Story = { render: () => <NativeControls /> };
+export const AudioOnly: Story = { render: () => <NativeControls audio /> };

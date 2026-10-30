@@ -10,6 +10,10 @@ const eslintConfig = defineConfig([
     // Default ignores of eslint-config-next:
     ".next/**",
     "storybook-static/**",
+    // Browser evidence includes binary MPEG-TS segments with a .ts suffix.
+    "playwright-artifacts/**",
+    "playwright-report*/**",
+    "test-results*/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

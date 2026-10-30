@@ -4,10 +4,10 @@ import { EventPlaybackOwner } from "@/lib/event-playback-owner";
 import { useEventPlaybackSnapshot } from "./event-playback-provider";
 import { EventCompactPlayer } from "./event-compact-player";
 
-function CompactFixture() {
+function CompactFixture({ audio = false, profile = false }: { audio?: boolean; profile?: boolean }) {
   const mount = useRef<HTMLDivElement>(null);
-  const [owner] = useState(() => new EventPlaybackOwner(() => ({
-    play: async () => true, pause() {}, setVolume() {}, setMuted() {}, update() {}, dispose() {},
+  const [owner] = useState(() => new EventPlaybackOwner((_request, notify) => ({
+    play: async () => { notify({ metadata: { displayName: "DJ Aurora", artworkAssetId: null, artworkRevision: null } }); return true; }, setMode: async () => true, pause() {}, setVolume() {}, setMuted() {}, update() {}, dispose() {},
   })));
   const state = useEventPlaybackSnapshot(owner);
   useEffect(() => {
@@ -15,12 +15,17 @@ function CompactFixture() {
     const poster = document.createElement("div");
     poster.className = "aspect-video bg-[linear-gradient(135deg,#2b3a55,#8a93a5)]";
     mount.current?.append(poster);
-    void owner.play({ kind: "vrcdn", eventId: "story", eventSlug: "story", title: "Harbor Sessions", href: "/", startAt: Date.now() - 1000, sourceId: "DJ Aurora", src: "", transport: "mpegts" });
+    void owner.setMode(audio ? "audio" : "video");
+    if (profile) void owner.play({ kind: "vrcdn", profileId: "aurora", profileSlug: "aurora", title: "DJ Aurora - VRDex", href: "/aurora", sourceId: "Aurora", src: "", transport: "mpegts" });
+    else void owner.play({ kind: "vrcdn", eventId: "story", eventSlug: "story", title: "Harbor Sessions", href: "/", startAt: Date.now() - 1000, sourceId: "DJ Aurora", src: "", transport: "mpegts" });
     return () => { owner.close(); poster.remove(); };
-  }, [owner]);
+  }, [owner, audio, profile]);
   return <EventCompactPlayer owner={owner} state={state} mount={mount} />;
 }
 const meta = { title: "Media/Persistent event player", component: CompactFixture, parameters: { layout: "fullscreen" } } satisfies Meta<typeof CompactFixture>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Compact: Story = {};
+
+export const AudioOnly: Story = { args: { audio: true } };
+export const ProfileAudio: Story = { args: { audio: true, profile: true } };

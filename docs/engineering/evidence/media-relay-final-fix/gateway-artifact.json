@@ -1,0 +1,18 @@
+{
+  "proof": "actual extracted gateway ZIP; local AWS HTTP protocol fixtures and control RPC double; no AWS access",
+  "gatewaySha256": "76b1ad086dc15c163dbd82b21206acd1c16c27fca14ed9fbd94dcdcfc7dbdd52",
+  "gatewayZipSha256": "FokViZ80PqgbrzzDOEzXSQozj2GzWhmbgP4GAwfL2FA=",
+  "sourceCap": 1,
+  "sequentialSources": 6,
+  "statuses": [
+    200,
+    200,
+    200,
+    200,
+    200,
+    200
+  ],
+  "secrets": 2,
+  "reads": 6,
+  "demands": 6
+}

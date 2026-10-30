@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "target": "local",
+  "releaseEligible": false,
+  "partialDiskBoundVerified": false,
+  "providerCalls": 0,
+  "measurement": {
+    "ticksPerSecond": 100,
+    "pageBytes": 4096,
+    "scope": "owned process tree including source generators"
+  },
+  "startedAt": "2026-10-29T01:38:02.615Z",
+  "durationMs": 20164,
+  "options": {
+    "target": "local",
+    "sources": 2,
+    "bitrate": 3000000,
+    "duration": 20,
+    "deadline": 40,
+    "keyframe": 2,
+    "output": "/workspace/VRDex/docs/engineering/evidence/media-relay-task11/normal"
+  },
+  "metrics": {
+    "maxActiveSources": 2,
+    "upstreamBytes": 15195672,
+    "videoBytes": 13406844,
+    "audioBytes": 638072,
+    "cpuSeconds": 2.799796,
+    "cpuPeakPercent": 437.50000000000006,
+    "memoryPeakBytes": 141062144,
+    "diskPeakBytes": 8269816,
+    "partialDiskPeakBytes": 0,
+    "tmpDiskPeakBytes": 0,
+    "queuePeak": 2,
+    "reconnects": 2,
+    "recoveredSources": 2,
+    "coldStartupMs": 2219,
+    "warmStartupMs": 3225,
+    "uploadCacheHits": 60,
+    "audienceRequests": 70,
+    "audienceReplayBytes": 13314912,
+    "storageOperations": {
+      "PUT": 70,
+      "HEAD": 0,
+      "GET": 35,
+      "LIST": 1,
+      "DELETE": 0
+    },
+    "uploadedBytes": 14065886,
+    "publicationCallbacks": 35
+  },
+  "cleanup": {
+    "childrenAlive": 0,
+    "scratchBytes": 0
+  },
+  "failures": [],
+  "diagnostics": [
+    "[vost#0:0/libx264 @ 0x55b9d98e7ec0] Error submitting a packet to the muxer: Immediate exit requested\n    Last message repeated 1 times\n[out#0/mp4 @ 0x55b9d98e7640] Error muxing a packet\n[out#0/mp4 @ 0x55b9d98e7640] Task finished with error code: -1414092869 (Immediate exit requested)\n[out#0/mp4 @ 0x55b9d98e7640] Terminating thread with return code -1414092869 (Immediate exit requested)\n",
+    "[vost#0:0/libx264 @ 0x56261394eec0] Error submitting a packet to the muxer: Immediate exit requested\n    Last message repeated 1 times\n[out#0/mp4 @ 0x56261394e640] Error muxing a packet\n[out#0/mp4 @ 0x56261394e640] Task finished with error code: -1414092869 (Immediate exit requested)\n[out#0/mp4 @ 0x56261394e640] Terminating thread with return code -1414092869 (Immediate exit requested)\n",
+    "[out#0/mp4 @ 0x55b9d98e7640] Error writing trailer: Immediate exit requested\n[out#0/mp4 @ 0x55b9d98e7640] Error closing file: Immediate exit requested\n",
+    "[out#0/mp4 @ 0x56261394e640] Error writing trailer: Immediate exit requested\n[out#0/mp4 @ 0x56261394e640] Error closing file: Immediate exit requested\n"
+  ],
+  "limitations": [
+    "Synthetic loopback, no AWS/provider/billing calls. Storage operation counts are local adapter transport calls, not billed operations.",
+    "CPU and RSS cover proof process and descendants, including source generators; Kernel tick/page sizes obtained with getconf. No isolated Fargate capacity conclusion.",
+    "Disk peaks are sampled; partial includes .tmp and segments not yet observed in a completed playlist. No enforced partial-disk quota: hosted release blocked.",
+    "Transfer counts measure loopback HTTP payload bytes for one synthetic audience per rendition plus separate replay bytes, not CDN traffic.",
+    "Hosted transport, remote throttling, native playlist cadence, phone behavior and strict CDN traffic ceilings remain unproven."
+  ]
+}

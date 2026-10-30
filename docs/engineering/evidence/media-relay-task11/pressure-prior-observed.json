@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "target": "local",
+  "releaseEligible": false,
+  "providerCalls": 0,
+  "startedAt": "2026-10-29T01:19:37.743Z",
+  "durationMs": 12167,
+  "options": {
+    "target": "local",
+    "sources": 2,
+    "bitrate": 8000000,
+    "duration": 12,
+    "deadline": 25,
+    "keyframe": 60,
+    "output": "/tmp/relay-task11-pressure"
+  },
+  "metrics": {
+    "maxActiveSources": 2,
+    "upstreamBytes": 24422008,
+    "videoBytes": 0,
+    "audioBytes": 0,
+    "cpuSeconds": 0.820877,
+    "memoryPeakBytes": 107687936,
+    "diskPeakBytes": 24935358,
+    "partialDiskPeakBytes": 24507832,
+    "queuePeak": 0,
+    "reconnects": 0,
+    "recoveredSources": 0,
+    "coldStartupMs": 0,
+    "warmStartupMs": 0,
+    "uploadCacheHits": 0,
+    "storageOperations": {
+      "PUT": 0,
+      "HEAD": 0,
+      "GET": 0,
+      "LIST": 1,
+      "DELETE": 0
+    },
+    "uploadedBytes": 0,
+    "publicationCallbacks": 0
+  },
+  "cleanup": {
+    "childrenAlive": 0,
+    "scratchBytes": 0
+  },
+  "failures": [
+    "not all sources became ready",
+    "reconnect recovery unproven"
+  ],
+  "diagnostics": [
+    "[vost#0:0/libx264 @ 0x556bd172cec0] Error submitting a packet to the muxer: Immediate exit requested\n    Last message repeated 1 times\n[out#0/mp4 @ 0x556bd172c640] Error muxing a packet\n[out#0/mp4 @ 0x556bd172c640] Task finished with error code: -1414092869 (Immediate exit requested)\n",
+    "[out#0/mp4 @ 0x556bd172c640] Terminating thread with return code -1414092869 (Immediate exit requested)\n",
+    "[vost#0:0/libx264 @ 0x55baf8f0cec0] Error submitting a packet to the muxer: Immediate exit requested\n    Last message repeated 1 times\n[out#0/mp4 @ 0x55baf8f0c640] Error muxing a packet\n[out#0/mp4 @ 0x55baf8f0c640] Task finished with error code: -1414092869 (Immediate exit requested)\n[out#0/mp4 @ 0x55baf8f0c640] Terminating thread with return code -1414092869 (Immediate exit requested)\n",
+    "[out#0/mp4 @ 0x556bd172c640] Error writing trailer: Immediate exit requested\n[out#0/mp4 @ 0x556bd172c640] Error closing file: Immediate exit requested\n",
+    "[out#0/mp4 @ 0x55baf8f0c640] Error writing trailer: Immediate exit requested\n[out#0/mp4 @ 0x55baf8f0c640] Error closing file: Immediate exit requested\n"
+  ],
+  "limitations": [
+    "Synthetic loopback, no AWS/provider/billing calls. Storage operation counts are local adapter transport calls, not billed operations.",
+    "CPU and RSS cover proof process and descendants, including source generators; Linux clock ticks=100 and pages=4096. No isolated Fargate capacity conclusion.",
+    "Disk peaks are sampled including .tmp. No enforced partial-disk quota: hosted release blocked.",
+    "Transfer counts are bytes for one local synthetic audience per rendition, not CDN traffic.",
+    "Hosted transport, remote throttling, native playlist cadence, phone behavior and strict CDN traffic ceilings remain unproven."
+  ]
+}

@@ -130,6 +130,7 @@ crons.interval("reconcile primary group observations", { hours: 6 }, makeFunctio
 crons.interval("reconcile orphan group observations", { hours: 6 }, makeFunctionReference<"mutation">("groupObservations:reconcileRegistryPage"), {});
 crons.interval("admit queued group observations", { minutes: 1 }, makeFunctionReference<"mutation">("groupObservations:admitQueued"), {});
 
+crons.interval("retire expired playback grants", { minutes: 1 }, internal.mediaRelayPlayback.cleanupGrants, {});
 crons.interval("recover event sync jobs", { minutes: 5 }, internal.eventSync.recoverExpiredJobs, {});
 crons.daily("refresh discord event boards", { hourUTC: 6, minuteUTC: 15 }, internal.eventSyncKinds.discordBoard.enqueueBoardRefreshes, {});
 

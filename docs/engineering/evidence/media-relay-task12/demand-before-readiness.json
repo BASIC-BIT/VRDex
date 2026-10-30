@@ -1,0 +1,9 @@
+{
+  "startedAt": "2026-10-29T02:16:00.134Z",
+  "durationMs": 185015,
+  "polls": 92,
+  "cachedSegmentHits": 615,
+  "idleStoppedAfterMs": 176566,
+  "physicalPhone": false,
+  "provenance": "Before three-target-duration readiness policy; final-source check recorded separately."
+}
