@@ -756,6 +756,55 @@ describe("google calendar watch staleness alert", () => {
     assert.ok(!alert.body.includes("secret body"));
   });
 
+  it("keeps a rejected Google call to a code, with no URL or calendar ID in lastError or the alert", async () => {
+    const t = convexTest({ schema, modules });
+    const calendarId = "organiser@example.com";
+    const { connectorId } = await seedGoogleConnector(t, { direction: "import", target: { calendarId, watchExpiresAt: NOW - 1 } });
+    const fake = fakeFetch(({ url }) => { throw new TypeError(`fetch failed: ${url.href} ${calendarId}`); });
+    await t.action(internal.googleCalendarConnector.renewWatches, {});
+    fake.restore();
+    const connector = (await t.run((ctx) => ctx.db.get(connectorId)))!;
+    assert.deepEqual([connector.state, connector.lastError], ["active", "GOOGLE_API_UNREACHABLE"]);
+    const [alert] = await sends(t);
+    assert.ok(alert.body.includes("GOOGLE_API_UNREACHABLE"));
+    assert.ok(!alert.body.includes(calendarId));
+  });
+
+  it("keeps a rejected token refresh to a code and leaves the connector active", async () => {
+    const t = convexTest({ schema, modules });
+    const calendarId = "organiser@example.com";
+    const { connectorId, credentialId } = await seedGoogleConnector(t, { direction: "import", target: { calendarId, watchExpiresAt: NOW - 1 } });
+    await t.run((ctx) => ctx.db.patch(credentialId, { accessTokenExpiresAt: NOW - 1 }));
+    const fake = fakeFetch(({ url }) => { throw new TypeError(`fetch failed: ${url.href} ${calendarId}`); });
+    await t.action(internal.googleCalendarConnector.renewWatches, {});
+    fake.restore();
+    assert.deepEqual(fake.calls.map((c) => c.url.pathname), ["/token"]);
+    const connector = (await t.run((ctx) => ctx.db.get(connectorId)))!;
+    assert.deepEqual([connector.state, connector.lastError], ["active", "GOOGLE_API_UNREACHABLE"]);
+    assert.equal((await t.run((ctx) => ctx.db.get(credentialId)))!.state, "active");
+  });
+
+  it("keeps a connection lost mid-body to a code", async () => {
+    const t = convexTest({ schema, modules });
+    const calendarId = "organiser@example.com";
+    const { connectorId } = await seedGoogleConnector(t, { direction: "import", target: { calendarId, watchExpiresAt: NOW - 1 } });
+    const fake = fakeFetch(() => new Response(new ReadableStream({ start: (stream) => stream.error(new Error(`terminated ${calendarId}`)) })));
+    await t.action(internal.googleCalendarConnector.renewWatches, {});
+    fake.restore();
+    assert.equal((await t.run((ctx) => ctx.db.get(connectorId)))!.lastError, "GOOGLE_API_RESPONSE");
+  });
+
+  it("an unreadable refresh token keeps its own code", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, credentialId } = await seedGoogleConnector(t, { direction: "import", target: { calendarId: "cal-1", watchExpiresAt: NOW - 1 } });
+    await t.run((ctx) => ctx.db.patch(credentialId, { accessTokenExpiresAt: NOW - 1, encryptedRefreshToken: "not-a-cipher" }));
+    const fake = fakeFetch(() => Response.json({}));
+    await t.action(internal.googleCalendarConnector.renewWatches, {});
+    fake.restore();
+    assert.equal(fake.calls.length, 0);
+    assert.equal((await t.run((ctx) => ctx.db.get(connectorId)))!.lastError, "CONNECTOR_CREDENTIAL_UNREADABLE");
+  });
+
   it("does nothing while the kind flag is off", async () => {
     const t = convexTest({ schema, modules });
     const { connectorId } = await seedGoogleConnector(t, { direction: "import", target: { calendarId: "cal-1", watchExpiresAt: NOW - 1 } });

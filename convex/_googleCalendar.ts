@@ -41,10 +41,17 @@ export function googleTarget(connector: Doc<"eventConnectors">): { credentialId:
   return { credentialId, calendarId };
 }
 
-// JSON.parse errors quote the body, so a malformed answer becomes a code.
+// A rejected fetch can quote the URL, and a primary calendar's ID is the organiser's email.
+function reach(url: URL | string, init: RequestInit): Promise<Response> {
+  return fetch(url, init).catch(() => {
+    throw new GoogleApiError(0, "GOOGLE_API_UNREACHABLE");
+  });
+}
+
+// JSON.parse errors quote the body, so a malformed answer becomes a code. A body cut off mid-read lands here too.
 async function readJson(response: Response): Promise<unknown> {
-  const text = await response.text();
   try {
+    const text = await response.text();
     return text ? JSON.parse(text) : undefined;
   } catch {
     throw new Error("GOOGLE_API_RESPONSE");
@@ -64,7 +71,7 @@ async function refreshAccessToken(ctx: ActionCtx, credential: Doc<"connectorCred
   const clientId = process.env.GOOGLE_CONNECTOR_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CONNECTOR_CLIENT_SECRET;
   if (!clientId || !clientSecret) throw new Error("GOOGLE_CONNECTOR_CLIENT_MISSING");
-  const response = await fetch(TOKEN_URL, { method: "POST", body: new URLSearchParams({
+  const response = await reach(TOKEN_URL, { method: "POST", body: new URLSearchParams({
     grant_type: "refresh_token", refresh_token: await readSecret(credential.encryptedRefreshToken), client_id: clientId, client_secret: clientSecret,
   }) });
   if (!response.ok) {
@@ -104,7 +111,7 @@ export async function withGoogleToken<T>(ctx: ActionCtx, credentialId: Id<"conne
 async function google<T>(token: string, method: string, path: string, options: { query?: Record<string, string | undefined>; body?: unknown } = {}): Promise<T> {
   const url = new URL(API + path);
   for (const [key, value] of Object.entries(options.query ?? {})) if (value !== undefined) url.searchParams.set(key, value);
-  const response = await fetch(url, {
+  const response = await reach(url, {
     method,
     headers: { authorization: `Bearer ${token}`, ...(options.body === undefined ? {} : { "content-type": "application/json" }) },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
