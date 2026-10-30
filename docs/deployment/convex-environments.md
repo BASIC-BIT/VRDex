@@ -92,9 +92,10 @@ See [source controls](../backend/event-intake-sources.md) and
 Scope: the Convex deployment environment only. Default: unset, which means off.
 Owner: BASIC. It gates the Integrations page, connector creation,
 `enqueueEventSync`, and sync job execution. Turning it off leaves pending jobs in
-place; each closes as `connectors_disabled` when its run claims it. Keep it off
-until a kind plan registers a sync handler: with no handler every export job
-fails and the connector failure alarm fires.
+place; each closes as `connectors_disabled` when its run claims it. Each kind
+also needs its own sync handler: Google Calendar registers one behind
+`VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED` (below). A connector of a kind with no
+handler fails every export job and fires the connector failure alarm.
 
 Connector OAuth tokens are stored encrypted with AES-256-GCM in the
 `v1:iv:tag:ciphertext` format, keyed by `VRDEX_CONNECTOR_TOKEN_KEY` (secret).
@@ -108,6 +109,46 @@ Convex environment, never in git or Terraform state.
 Rotation: replacing the value makes every stored connector token unreadable, so
 each OAuth connector must be reconnected from the Integrations page. The `v1:`
 prefix leaves room for a dual-key rotation later.
+
+### Google Calendar connector
+
+`VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED` turns the Google Calendar connector on
+when set to `true`, together with `VRDEX_EVENT_CONNECTORS_ENABLED`. Scope: the
+Convex deployment environment only. Default: unset, which means off. Owner:
+BASIC. Pause or disconnect every Google Calendar connector before turning it
+off: with live connectors their jobs fail and the connector failure alarm fires.
+
+`GOOGLE_CONNECTOR_CLIENT_ID` and `GOOGLE_CONNECTOR_CLIENT_SECRET` (secret) are
+VRDex's Google OAuth client. Scope: both the Convex deployment (token refresh)
+and the web app (the code exchange in `/api/connectors/google/callback`). Owner:
+BASIC, who owns the OAuth client in Google Cloud. Set them on Convex with
+`npx convex env set`, and on Vercel through `google_connector_client_id` and
+`google_connector_client_secret` in `infra/terraform/vercel`.
+
+Rotation: add a new client secret to the OAuth client in the Google Cloud
+console, set it on Convex and apply it to the web app through Terraform, then
+delete the old secret in the console. The client ID does not change, so stored
+refresh tokens keep working.
+
+Bootstrap, once per Google Cloud project:
+
+1. Create or choose a Google Cloud project and enable the Google Calendar API.
+2. Configure the OAuth consent screen as External with exactly two scopes,
+   `https://www.googleapis.com/auth/calendar.calendarlist.readonly` and
+   `https://www.googleapis.com/auth/calendar.events`. While the app is in
+   Testing, add each organiser who will connect as a test user; Google expires
+   Testing refresh tokens after seven days, so those connectors ask for Reconnect
+   weekly. `calendar.events` is a sensitive scope: complete Google's
+   sensitive-scope verification before publishing the app beyond test users.
+3. Create an OAuth client of type Web application and register one authorized
+   redirect URI per web origin: the origin followed by
+   `/api/connectors/google/callback`. Production is
+   `https://vrdex.net/api/connectors/google/callback`, staging is
+   `https://staging.vrdex.net/api/connectors/google/callback`, and local
+   development is `http://localhost:3000/api/connectors/google/callback`.
+   Vercel preview URLs are not registered, so connecting fails there.
+4. Set the client ID and secret on the Convex deployment and through Terraform
+   for the web app, as above, then set `VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED`.
 
 ### Ops alerts
 

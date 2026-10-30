@@ -5,7 +5,7 @@ import { candidatePatch } from "../../apps/web/src/lib/event-intake-source";
 import { decryptSecret } from "../../convex/_connectorCrypto";
 import { candidateFromConnectorFields } from "../../convex/_eventCandidateApply";
 import { carriedFieldsHash } from "../../convex/_eventConnectors";
-import { internal } from "../../convex/_generated/api";
+import { api, internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { watchChannelToken, type GoogleCalendarEvent, type GoogleEventBody } from "../../convex/_googleCalendar";
 import { fieldsFromGoogleEvent } from "../../convex/eventSyncKinds/googleCalendar";
@@ -668,5 +668,77 @@ describe("candidateFromConnectorFields", () => {
     assert.deepEqual(candidate.evidence.map((row) => row.fieldPath).sort(), ["event.communitySlug", "event.end", "event.eventDate", "event.start", "event.summary", "event.timeTba", "event.timezone", "event.title", "event.venueLabel"]);
     assert.ok(candidate.evidence.every((row) => row.origin === "connector" && row.assessment === "explicit" && row.excerpt === null));
     assert.deepEqual(candidatePatch(candidate).tentative?.end, { time: "01:00", dayOffset: 1 });
+  });
+});
+
+describe("google calendar connect", () => {
+  beforeEach(setupEnv);
+  const grant = { accessToken: "a", refreshToken: "rt", expiresAt: NOW + 3_600_000, scopes: ["https://www.googleapis.com/auth/calendar.calendarlist.readonly", "https://www.googleapis.com/auth/calendar.events"], externalAccountId: "google-sub-2" };
+
+  it("stores an encrypted credential for an authorised staffer", async () => {
+    const t = convexTest({ schema, modules });
+    const { staffUserId } = await seedGoogleConnector(t, { direction: "import" });
+    const { credentialId } = await t.action(internal.googleCalendarConnector.storeCredential, { actorUserId: staffUserId, communitySlug: "basic-nights", ...grant });
+    const credential = (await t.run((ctx) => ctx.db.get(credentialId)))!;
+    assert.notEqual(credential.encryptedRefreshToken, "rt");
+    assert.equal(await decryptSecret(credential.encryptedRefreshToken), "rt");
+    assert.equal(credential.ownerUserId, staffUserId);
+  });
+
+  it("refuses a user without manage_integrations", async () => {
+    const t = convexTest({ schema, modules });
+    const { outsiderUserId } = await seedGoogleConnector(t, { direction: "import" });
+    await assert.rejects(t.query(internal.googleCalendarConnector.authorizeConnect, { actorUserId: outsiderUserId, communitySlug: "basic-nights" }), /CONNECTOR_FORBIDDEN/);
+  });
+
+  it("refuses while the kind flag is off", async () => {
+    const t = convexTest({ schema, modules });
+    const { staffUserId } = await seedGoogleConnector(t, { direction: "import" });
+    process.env.VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED = "false";
+    await assert.rejects(t.query(internal.googleCalendarConnector.authorizeConnect, { actorUserId: staffUserId, communitySlug: "basic-nights" }), /CONNECTOR_KIND_DISABLED/);
+  });
+
+  it("reconnect swaps the credential, reactivates, and enqueues reconcile", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, credentialId: old } = await seedGoogleConnector(t, {
+      direction: "import", state: "needs_reauth", target: { calendarId: "cal-1", calendarName: "Events", syncToken: "sync-1", watchChannelId: "ch-1", watchResourceId: "res-1", watchExpiresAt: NOW + 1000 },
+    });
+    // A second staffer reconnects; the runner checks the authority's role, so it moves to them.
+    const otherStaff = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", { clerkUserId: "staff-2" });
+      const role = (await ctx.db.query("communityRoles").collect())[0];
+      await ctx.db.insert("communityAuthorities", { communityProfileId: role.communityProfileId, subjectTokenIdentifier: "test|staff-2", subject: { tokenIdentifier: "test|staff-2", issuer: "test", subject: "staff-2" }, roleId: role._id, state: "active", grantedAt: NOW, updatedAt: NOW });
+      await ctx.db.patch(connectorId, { lastError: "GOOGLE_REAUTH_REQUIRED" });
+      return userId;
+    });
+    const { credentialId } = await t.action(internal.googleCalendarConnector.storeCredential, { actorUserId: otherStaff, communitySlug: "basic-nights", connectorId, ...grant });
+    const connector = (await t.run((ctx) => ctx.db.get(connectorId)))!;
+    assert.notEqual(credentialId, old);
+    assert.equal(connector.credentialId, credentialId);
+    assert.equal(connector.state, "active");
+    assert.equal(connector.authorityUserId, otherStaff);
+    assert.equal(connector.lastError, undefined);
+    assert.deepEqual(connector.target, { calendarId: "cal-1", calendarName: "Events", syncToken: "sync-1" });
+    assert.ok((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).some((j) => j.kind === "reconcile" && j.state === "pending"));
+  });
+
+  it("reconnect refuses a removed connector", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, staffUserId, credentialId: old } = await seedGoogleConnector(t, { direction: "import", state: "removed" });
+    await assert.rejects(t.action(internal.googleCalendarConnector.storeCredential, { actorUserId: staffUserId, communitySlug: "basic-nights", connectorId, ...grant }), /CONNECTOR_NOT_FOUND/);
+    assert.equal((await t.run((ctx) => ctx.db.get(connectorId)))!.credentialId, old);
+    assert.equal((await t.run((ctx) => ctx.db.query("connectorCredentials").collect())).length, 1);
+  });
+
+  it("lists calendars only for the credential's owner", async () => {
+    const t = convexTest({ schema, modules });
+    const { credentialId } = await seedGoogleConnector(t, { direction: "import" });
+    const as = (subject: string) => t.withIdentity({ subject, issuer: "test", tokenIdentifier: `test|${subject}`, emailVerified: true });
+    const fake = fakeFetch(() => Response.json({ items: [{ id: "cal-1", summary: "Events", primary: true, accessRole: "owner" }] }));
+    await assert.rejects(as("outsider").action(api.googleCalendarConnector.listCalendars, { credentialId }), /CONNECTOR_FORBIDDEN/);
+    assert.equal(fake.calls.length, 0);
+    assert.deepEqual(await as("staff").action(api.googleCalendarConnector.listCalendars, { credentialId }), [{ id: "cal-1", summary: "Events", primary: true }]);
+    fake.restore();
+    assert.equal(await t.query(api.googleCalendarConnector.enabled, {}), true);
   });
 });

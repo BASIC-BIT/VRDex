@@ -1,13 +1,15 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalAction, internalMutation, internalQuery, type DatabaseReader, type MutationCtx } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, query, type DatabaseReader, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
+import { encryptSecret } from "./_connectorCrypto";
 import type { EventIntakeDecision, EventIntakeFields } from "../packages/api-contracts/src/event-intake";
 import { applyEventCandidate, candidateFromConnectorFields, type ApplyEventCandidateOutcome } from "./_eventCandidateApply";
 import { eventPathForRecord } from "./_eventPaths";
-import { connectorsEnabled } from "./_eventConnectors";
+import { connectorsEnabled, requireConnectorAuthority } from "./_eventConnectors";
 import { enqueueSyncJob } from "./_eventSync";
-import { ensureWatch, googleCalendarEnabled, googleTarget, type GoogleCalendarEvent } from "./_googleCalendar";
+import { ensureWatch, googleCalendarEnabled, googleTarget, listCalendars as fetchCalendars, withGoogleToken, type GoogleCalendarEvent } from "./_googleCalendar";
 import { fieldsFromGoogleEvent, outsideImportWindow } from "./eventSyncKinds/googleCalendar";
 
 export const readCredential = internalQuery({
@@ -232,4 +234,76 @@ export const renewWatches = internalAction({
       if (!watchChannelId || (watchExpiresAt ?? 0) - Date.now() <= DAY_MS) await ensureWatch(ctx, connector, true);
     }
   },
+});
+
+// Connect and Reconnect. The web callback exchanges the code (it holds the client secret); only Convex holds the token key.
+async function authorizeConnectFor(ctx: QueryCtx | MutationCtx, args: { actorUserId: Id<"users">; communitySlug: string; connectorId?: Id<"eventConnectors"> }) {
+  if (!connectorsEnabled()) throw new ConvexError({ code: "CONNECTORS_DISABLED" });
+  if (!googleCalendarEnabled()) throw new ConvexError({ code: "CONNECTOR_KIND_DISABLED" });
+  const community = await ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug", args.communitySlug)).unique();
+  if (community?.profileType !== "community") throw new ConvexError({ code: "CONNECTOR_FORBIDDEN" });
+  await requireConnectorAuthority(ctx, community._id, args.actorUserId);
+  const connector = args.connectorId ? await ctx.db.get(args.connectorId) : null;
+  if (args.connectorId && (connector?.kind !== "google_calendar" || connector.communityProfileId !== community._id || connector.state === "removed")) {
+    throw new ConvexError({ code: "CONNECTOR_NOT_FOUND" });
+  }
+  return { communityProfileId: community._id, connector };
+}
+
+const connectArgs = { actorUserId: v.id("users"), communitySlug: v.string(), connectorId: v.optional(v.id("eventConnectors")) };
+
+export const authorizeConnect = internalQuery({
+  args: connectArgs,
+  handler: async (ctx, args) => ({ communityProfileId: (await authorizeConnectFor(ctx, args)).communityProfileId }),
+});
+
+export const insertCredential = internalMutation({
+  args: { ...connectArgs, accessTokenExpiresAt: v.number(), scopes: v.array(v.string()), externalAccountId: v.string(), encryptedAccessToken: v.string(), encryptedRefreshToken: v.string() },
+  handler: async (ctx, { actorUserId, communitySlug, connectorId, ...grant }) => {
+    // Authorised again here, so a connector removed while the tokens were encrypted is not revived.
+    const { connector } = await authorizeConnectFor(ctx, { actorUserId, communitySlug, connectorId });
+    const now = Date.now();
+    const credentialId = await ctx.db.insert("connectorCredentials", { provider: "google", ownerUserId: actorUserId, ...grant, state: "active", createdAt: now, updatedAt: now });
+    if (connector) {
+      // The old channel belongs to the old grant; reconcile opens a fresh one. The reconnecting staffer becomes the authority, as on Resume.
+      const { watchChannelId: _channel, watchResourceId: _resource, watchExpiresAt: _expires, ...target } = connector.target;
+      await ctx.db.patch(connector._id, { credentialId, authorityUserId: actorUserId, state: "active", lastError: undefined, target, updatedAt: now });
+      if (connector.direction !== "off") await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: connector._id, kind: "reconcile" });
+    }
+    return credentialId;
+  },
+});
+
+export const storeCredential = internalAction({
+  args: { ...connectArgs, accessToken: v.string(), refreshToken: v.string(), expiresAt: v.number(), scopes: v.array(v.string()), externalAccountId: v.string() },
+  handler: async (ctx, { accessToken, refreshToken, expiresAt, ...rest }): Promise<{ credentialId: Id<"connectorCredentials"> }> => {
+    const credentialId: Id<"connectorCredentials"> = await ctx.runMutation(internal.googleCalendarConnector.insertCredential, {
+      ...rest, accessTokenExpiresAt: expiresAt, encryptedAccessToken: await encryptSecret(accessToken), encryptedRefreshToken: await encryptSecret(refreshToken),
+    });
+    return { credentialId };
+  },
+});
+
+export const ownCredential = internalQuery({
+  args: { credentialId: v.id("connectorCredentials") },
+  handler: async (ctx, { credentialId }) => {
+    const { userId } = await requireActiveBrowserSessionSubject(ctx);
+    if (!connectorsEnabled() || !googleCalendarEnabled()) throw new ConvexError({ code: "CONNECTOR_KIND_DISABLED" });
+    const credential = await ctx.db.get(credentialId);
+    if (credential?.provider !== "google" || credential.ownerUserId !== userId || credential.state !== "active") throw new ConvexError({ code: "CONNECTOR_FORBIDDEN" });
+  },
+});
+
+export const listCalendars = action({
+  args: { credentialId: v.id("connectorCredentials") },
+  handler: async (ctx, { credentialId }): Promise<Array<{ id: string; summary: string; primary?: boolean }>> => {
+    await ctx.runQuery(internal.googleCalendarConnector.ownCredential, { credentialId });
+    return await withGoogleToken(ctx, credentialId, fetchCalendars);
+  },
+});
+
+export const enabled = query({
+  args: {},
+  returns: v.boolean(),
+  handler: () => googleCalendarEnabled() && connectorsEnabled(),
 });

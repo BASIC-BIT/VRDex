@@ -114,6 +114,11 @@ describe("browser auth-session authorization boundary", () => {
         ],
       ],
       [
+        // Lists the owner's calendars; the owner check reads the browser session before Google is called.
+        "convex/googleCalendarConnector.ts",
+        ["internal.googleCalendarConnector.ownCredential", "requireActiveBrowserSessionSubject(ctx)"],
+      ],
+      [
         "convex/profileClaims.ts",
         [
           "internal.profileClaims.getDiscordCommunityClaimForAdapter",
@@ -182,6 +187,15 @@ describe("browser auth-session authorization boundary", () => {
       [
         "apps/web/src/app/api/developer/tokens/route.ts",
         "api.apiTokens.createPersonalToken",
+      ],
+      [
+        // The session only names the actor; authority over the community is checked in Convex.
+        "apps/web/src/app/api/connectors/google/callback/route.ts",
+        "internal.googleCalendarConnector.storeCredential",
+      ],
+      [
+        "apps/web/src/app/api/connectors/google/start/route.ts",
+        "internal.googleCalendarConnector.authorizeConnect",
       ],
       [
         "apps/web/src/app/api/discord/verify/callback/route.ts",

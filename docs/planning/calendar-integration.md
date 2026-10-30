@@ -114,7 +114,7 @@ Current recommendation: keep the public export surface static and public-data-on
 
 ## Google Calendar Connector
 
-Google Calendar sync is the `google_calendar` connector kind; see [Connectors](../backend/event-schema.md#connectors) for the tables, runner, and the carried fields. A community connects a calendar through Google OAuth and picks import, export, or both.
+Google Calendar sync is the `google_calendar` connector kind; see [Connectors](../backend/event-schema.md#connectors) for the tables and runner. A community connects a calendar through Google OAuth and picks import, export, or both.
 
 Inbound import rules:
 
@@ -126,14 +126,11 @@ Inbound import rules:
 
 ## Self-Hosting Notes
 
-Self-hosted operators that enable Google Calendar sync or import will need their own Google Cloud OAuth or service-account configuration. Do not hard-code BASIC BIT calendar project IDs or secrets into committed defaults.
+Self-hosted operators that enable Google Calendar sync or import will need their own Google Cloud OAuth client; see [Convex Environments](../deployment/convex-environments.md#google-calendar-connector). Do not hard-code BASIC BIT calendar project IDs or secrets into committed defaults.
 
 ## Non-Goals For First Slice
 
-- building calendar sync now
-- building Google Calendar OAuth, token storage, or background import jobs now
 - final multi-provider calendar abstraction
 - full event-subscription preference UI
-- per-user Google OAuth token storage before the account and event-follow models are ready
 - importing private calendar data before reviewed import workflows and provenance rules are ready
 - publishing imported candidates directly into canonical events
