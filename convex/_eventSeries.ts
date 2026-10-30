@@ -506,7 +506,11 @@ export async function retireOccurrences(
   return result;
 }
 
-/** The series' published nights that have not started; a date-only night counts as upcoming through its own date. */
+/** Whether a night has not started; a date-only night counts as upcoming through its own date. */
+export function isUpcomingNight(series: Pick<Doc<"eventSeries">, "timezone">, night: Doc<"events">, now: number): boolean {
+  return night.startAt === undefined ? night.occurrenceDate! >= eventDateForInstant(now, series.timezone) : night.startAt > now;
+}
+
 async function upcomingPublishedNights(db: DatabaseReader, series: Doc<"eventSeries">, now: number): Promise<Doc<"events">[]> {
   const today = eventDateForInstant(now, series.timezone);
   // A day early, so a night whose own timezone differs from the series' is still seen; startAt decides.
@@ -514,8 +518,7 @@ async function upcomingPublishedNights(db: DatabaseReader, series: Doc<"eventSer
     .query("events")
     .withIndex("by_seriesId_occurrenceDate", (q) => q.eq("seriesId", series._id).gte("occurrenceDate", fromDay(toDay(today) - 1)))
     .collect();
-  return nights.filter((night) =>
-    night.publicationState === "published" && (night.startAt === undefined ? night.occurrenceDate! >= today : night.startAt > now));
+  return nights.filter((night) => night.publicationState === "published" && isUpcomingNight(series, night, now));
 }
 
 type TimeField = "startAt" | "doorsOpenAt" | "endAt";
@@ -539,7 +542,8 @@ function timesFit(
 /**
  * Copies `fields` from the series onto one night and never touches `overrides`. Time fields are skipped on a
  * date-only night and on a date where the rule start does not exist. Slots, and overridden doors and end times,
- * move by the same delta as the start; when the result still fails the editor's checks the night's times stay as they were.
+ * move by the same delta as the start; when the result still fails the editor's checks the night's times stay as they
+ * were and the skipped fields become overrides, so the night shows a Reset and later edits stop targeting it.
  */
 export async function applySeriesFields(
   ctx: MutationCtx,
@@ -578,6 +582,8 @@ export async function applySeriesFields(
       for (const field of TIME_FIELDS) if (next[field] !== event[field]) timePatch[field] = next[field];
     } else {
       console.warn("series times do not fit this night; its times are left unchanged", { eventId: event._id, seriesId: series._id });
+      const skipped = changed.filter((field) => NUMBER_FIELDS.has(field));
+      await db.patch(event._id, { overrides: [...new Set([...(event.overrides ?? []), ...skipped])].sort(), updatedAt: now });
     }
     changed = changed.filter((field) => !NUMBER_FIELDS.has(field));
   }
@@ -685,6 +691,9 @@ const RULE_TIME_FIELDS: Partial<Record<(typeof RULE_KEYS)[number], SeriesOwnedEv
   doorsTime: "doorsOpenAt",
   endTime: "endAt",
 };
+const DAY_MINUTES = 24 * 60;
+const MAX_DOORS_LEAD_MINUTES = 12 * 60;
+const minutesOf = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
 
 /**
  * The series patch for an edit and the event fields it changes. String fields go through the event sanitiser so
@@ -728,6 +737,11 @@ export async function seriesUpdatePatch(
       for (const key of ruleDiff) {
         const field = RULE_TIME_FIELDS[key];
         if (field) changed.add(field);
+      }
+      // Only on this edit: a doors time past the start is the previous day, so a stale one reads as hours early.
+      const lead = (minutesOf(rule.startTime) - minutesOf(rule.doorsTime ?? rule.startTime) + DAY_MINUTES) % DAY_MINUTES;
+      if ((ruleDiff.includes("startTime") || ruleDiff.includes("doorsTime")) && lead > MAX_DOORS_LEAD_MINUTES) {
+        throw new Error("Doors-open time must be within 12 hours of the start time.");
       }
     }
   }

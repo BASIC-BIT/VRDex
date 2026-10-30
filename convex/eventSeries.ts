@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 import { requireClubPermission, resolveClubActor } from "./_clubAccess";
 import { getPublicEventPreviews, getPublishedCommunity } from "./_eventPublic";
@@ -7,6 +7,7 @@ import {
   createSeriesFromEvent,
   fanOutSeriesEdit,
   isSeriesOwnedEventField,
+  isUpcomingNight,
   materializeSeries,
   retireOccurrences,
   seriesOverridesFor,
@@ -191,18 +192,19 @@ export const resetOverride = mutation({
     if (event === null) throw new Error("Event was not found.");
     if (event.communityProfileId === undefined) throw new Error("You do not have access to this action.");
     requireClubPermission(await resolveClubActor(ctx, event.communityProfileId), "manage_events");
+    if (event.moderationRemovedAt !== undefined) throw new ConvexError({ code: "REMOVED_EVENT" });
     const overrides = event.overrides ?? [];
     if (!isSeriesOwnedEventField(field) || !overrides.includes(field)) throw new Error("Field is not overridden on this night.");
     const series = event.seriesId === undefined ? null : await ctx.db.get(event.seriesId);
     if (series === null) throw new Error("Series was not found.");
     const now = Date.now();
-    if (event.startAt !== undefined && event.startAt <= now) throw new Error("Only upcoming nights can be reset.");
+    if (!isUpcomingNight(series, event, now)) throw new Error("Only upcoming nights can be reset.");
     await ctx.db.patch(eventId, { overrides: overrides.filter((name) => name !== field), updatedAt: now });
     const changed = await applySeriesFields(ctx, series, (await ctx.db.get(eventId))!, [field], now);
-    // A time the night's other times or slots cannot take is left as it was, so the night keeps the override.
+    // Throwing rolls the transaction back, so the night keeps a time it cannot give up, and its override.
     const after = (await ctx.db.get(eventId))!;
     if (!changed && (await seriesOverridesFor(ctx.db, series, after, after.occurrenceDate!)).includes(field)) {
-      await ctx.db.patch(eventId, { overrides });
+      throw new Error("Series times do not fit this night.");
     }
     await enqueueEventSync(ctx.db, ctx.scheduler, eventId, "upsert");
     return { eventId, changed };

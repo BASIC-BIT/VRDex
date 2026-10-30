@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
-import { occurrenceDates, validateSeriesRule } from "../../convex/_eventSeries";
+import { occurrenceDates, occurrenceTimes, validateSeriesRule } from "../../convex/_eventSeries";
 
 const rule = (r: object) => ({ startTime: "20:00", ...r }) as never;
 const friday = { frequency: "weekly", weekday: 5 };
@@ -46,4 +46,16 @@ it("validateSeriesRule rejects out-of-bounds rules and series bounds", () => {
     { startsOn: "2026-10-30", count: 521 },
     { startsOn: "2026-10-30", count: 2.5 },
   ]) assert.throws(() => validateSeriesRule(ok, bounds), JSON.stringify(bounds));
+});
+it("a doors time later than the start falls on the previous day", () => {
+  const times = occurrenceTimes({ timezone: "America/New_York", rule: rule({ ...friday, startTime: "00:30", doorsTime: "23:30" }) }, "2026-11-06");
+  assert.deepEqual([times!.startAt, times!.doorsOpenAt], [Date.parse("2026-11-06T05:30:00Z"), Date.parse("2026-11-06T04:30:00Z")]);
+});
+it("a doors or end time that does not exist that night is omitted, and the night keeps its start", () => {
+  const series = (extra: object) => ({ timezone: "America/New_York", rule: rule({ frequency: "weekly", weekday: 0, ...extra }) });
+  // 02:30 does not exist on 2027-03-14 in New York.
+  const doorsGone = occurrenceTimes(series({ startTime: "03:30", doorsTime: "02:30" }), "2027-03-14");
+  assert.deepEqual([doorsGone!.startAt, doorsGone!.doorsOpenAt], [Date.parse("2027-03-14T07:30:00Z"), undefined]);
+  const endGone = occurrenceTimes(series({ startTime: "01:00", endTime: "02:30" }), "2027-03-14");
+  assert.deepEqual([endGone!.startAt, endGone!.endAt], [Date.parse("2027-03-14T06:00:00Z"), undefined]);
 });

@@ -91,26 +91,92 @@ it("moves an overridden doors time with the series start", async (test) => {
   assert.deepEqual([moved.startAt, moved.doorsOpenAt], [Date.parse("2026-11-13T23:00:00Z"), Date.parse("2026-11-13T22:00:00Z")]);
 });
 
-it("leaves a night's times unchanged when the series times would not fit it", async (test) => {
+it("a night the series times would not fit keeps them and records the skipped field as an override", async (test) => {
   const { t, owner, seriesId, n13, n20 } = await setup(test);
   // A set that runs to 04:00Z, past the 22:00 New York (03:00Z) end the series is about to add.
   await t.run(ctx => ctx.db.insert("eventSlots", { eventId: n13._id, position: 0, startAt: Date.parse("2026-11-14T03:00:00Z"), endAt: Date.parse("2026-11-14T04:00:00Z"), displayLabel: "Aurora", roleLabel: "DJ", sourceType: "community", sourceLabel: "Harbor", confidence: 1, reviewState: "confirmed", updatedAt: NOW }));
   await t.withIdentity(owner.identity).mutation(api.eventSeries.update, { seriesId, summary: "New", rule: { frequency: "weekly", weekday: 5, startTime: "20:00", endTime: "22:00" } });
   const [kept, next] = await t.run(ctx => Promise.all([ctx.db.get(n13._id), ctx.db.get(n20._id)]));
-  assert.deepEqual([kept!.summary, kept!.startAt, kept!.endAt], ["New", n13.startAt, undefined]);
-  assert.equal(next!.endAt, Date.parse("2026-11-21T03:00:00Z"));
+  assert.deepEqual([kept!.summary, kept!.startAt, kept!.endAt, kept!.overrides], ["New", n13.startAt, undefined, ["endAt"]]);
+  assert.deepEqual([next!.endAt, next!.overrides], [Date.parse("2026-11-21T03:00:00Z"), []]);
+  // The override takes the night out of later edits to that field.
+  await t.withIdentity(owner.identity).mutation(api.eventSeries.update, { seriesId, rule: { frequency: "weekly", weekday: 5, startTime: "20:00", endTime: "23:30" } });
+  const [later, moved] = await t.run(ctx => Promise.all([ctx.db.get(n13._id), ctx.db.get(n20._id)]));
+  assert.deepEqual([later!.endAt, moved!.endAt], [undefined, Date.parse("2026-11-21T04:30:00Z")]);
 });
 
-it("a reset the night cannot take leaves its time and keeps the override", async (test) => {
+it("a start the night's lineup cannot follow leaves that night and moves the rest", async (test) => {
+  const { t, owner, seriesId, n13, n20 } = await setup(test);
+  await t.run(async ctx => {
+    await ctx.db.patch(n13._id, { endAt: Date.parse("2026-11-14T03:00:00Z"), overrides: [] });
+    await ctx.db.insert("eventSlots", { eventId: n13._id, position: 0, startAt: Date.parse("2026-11-14T02:00:00Z"), endAt: Date.parse("2026-11-14T03:00:00Z"), displayLabel: "Aurora", roleLabel: "DJ", sourceType: "community", sourceLabel: "Harbor", confidence: 1, reviewState: "confirmed", updatedAt: NOW });
+  });
+  await t.withIdentity(owner.identity).mutation(api.eventSeries.update, { seriesId, rule: { frequency: "weekly", weekday: 5, startTime: "21:00" } });
+  const [kept, moved] = await t.run(ctx => Promise.all([ctx.db.get(n13._id), ctx.db.get(n20._id)]));
+  assert.deepEqual([kept!.startAt, kept!.overrides], [n13.startAt, ["startAt"]]);
+  assert.equal(moved!.startAt, Date.parse("2026-11-21T02:00:00Z"));
+});
+
+it("a reset the night cannot take throws and keeps its time and override", async (test) => {
   const { t, owner, seriesId, n13 } = await setup(test);
   await t.run(async ctx => {
     await ctx.db.patch(n13._id, { endAt: Date.parse("2026-11-14T04:30:00Z"), overrides: ["endAt"] });
     await ctx.db.insert("eventSlots", { eventId: n13._id, position: 0, startAt: Date.parse("2026-11-14T03:00:00Z"), endAt: Date.parse("2026-11-14T04:00:00Z"), displayLabel: "Aurora", roleLabel: "DJ", sourceType: "community", sourceLabel: "Harbor", confidence: 1, reviewState: "confirmed", updatedAt: NOW });
   });
   await t.withIdentity(owner.identity).mutation(api.eventSeries.update, { seriesId, rule: { frequency: "weekly", weekday: 5, startTime: "20:00", endTime: "22:00" } });
-  await t.withIdentity(owner.identity).mutation(api.eventSeries.resetOverride, { eventId: n13._id, field: "endAt" });
+  await assert.rejects(t.withIdentity(owner.identity).mutation(api.eventSeries.resetOverride, { eventId: n13._id, field: "endAt" }), /do not fit/);
   const kept = (await t.run(ctx => ctx.db.get(n13._id)))!;
   assert.deepEqual([kept.endAt, kept.overrides], [Date.parse("2026-11-14T04:30:00Z"), ["endAt"]]);
+});
+
+it("a reset on a date the rule start does not exist throws and keeps the override", async (test) => {
+  const { t, owner, seriesId, n13 } = await setup(test);
+  // 02:30 does not exist in New York on 2027-03-14; the night keeps a time of its own.
+  await t.run(async ctx => {
+    await ctx.db.patch(seriesId, { rule: { frequency: "weekly", weekday: 0, startTime: "02:30" } });
+    await ctx.db.patch(n13._id, { occurrenceDate: "2027-03-14", startAt: Date.parse("2027-03-14T08:00:00Z"), overrides: ["startAt"] });
+  });
+  await assert.rejects(t.withIdentity(owner.identity).mutation(api.eventSeries.resetOverride, { eventId: n13._id, field: "startAt" }), /do not fit/);
+  assert.deepEqual((await t.run(ctx => ctx.db.get(n13._id)))!.overrides, ["startAt"]);
+});
+
+it("a reset refuses a date-only night whose date has passed", async (test) => {
+  const { t, owner, n13 } = await setup(test);
+  await t.run(ctx => ctx.db.patch(n13._id, { startAt: undefined, scheduleKind: "date_only", summary: "Special", overrides: ["summary"] }));
+  test.mock.timers.setTime(Date.parse("2026-11-15T12:00:00Z"));
+  await assert.rejects(t.withIdentity(owner.identity).mutation(api.eventSeries.resetOverride, { eventId: n13._id, field: "summary" }), /Only upcoming nights/);
+  assert.equal((await t.run(ctx => ctx.db.get(n13._id)))!.summary, "Special");
+});
+
+it("a reset refuses a moderation-removed night", async (test) => {
+  const { t, owner, n13 } = await setup(test);
+  await t.run(ctx => ctx.db.patch(n13._id, { summary: "Special", overrides: ["summary"], moderationRemovedAt: NOW }));
+  await assert.rejects(t.withIdentity(owner.identity).mutation(api.eventSeries.resetOverride, { eventId: n13._id, field: "summary" }), /REMOVED_EVENT/);
+});
+
+it("rejects doors more than twelve hours before the start on a series edit only", async (test) => {
+  const { t, owner, seriesId, n13 } = await setup(test);
+  const me = t.withIdentity(owner.identity);
+  const rule = { frequency: "weekly" as const, weekday: 5 };
+  // 19:30 after an 18:00 start falls on the previous day, 22.5 hours early.
+  await assert.rejects(me.mutation(api.eventSeries.update, { seriesId, rule: { ...rule, startTime: "18:00", doorsTime: "19:30" } }), /12 hours/);
+  await assert.rejects(me.mutation(api.eventSeries.update, { seriesId, rule: { ...rule, startTime: "20:00", doorsTime: "07:59" } }), /12 hours/);
+  assert.equal((await t.run(ctx => ctx.db.get(n13._id)))!.startAt, n13.startAt);
+  await me.mutation(api.eventSeries.update, { seriesId, rule: { ...rule, startTime: "20:00", doorsTime: "08:00" } });
+  // Overnight doors stay legal: 23:30 before a 00:30 start is the previous evening.
+  await me.mutation(api.eventSeries.update, { seriesId, rule: { ...rule, startTime: "00:30", doorsTime: "23:30" } });
+  assert.equal((await occurrence(t, seriesId, "2026-11-20")).doorsOpenAt, Date.parse("2026-11-20T04:30:00Z"));
+  // An edit that leaves those two times alone is not refused for them.
+  await t.run(ctx => ctx.db.patch(seriesId, { rule: { ...rule, startTime: "20:00", doorsTime: "06:00" } }));
+  await me.mutation(api.eventSeries.update, { seriesId, rule: { ...rule, frequency: "biweekly", startTime: "20:00", doorsTime: "06:00" } });
+  await me.mutation(api.eventSeries.update, { seriesId, summary: "Still fine" });
+});
+
+it("a count edit fans the edit out only to the nights it keeps", async (test) => {
+  const { t, owner, seriesId, n13, n20 } = await setup(test);
+  await t.withIdentity(owner.identity).mutation(api.eventSeries.update, { seriesId, summary: "New", count: 2 });
+  const [kept, retired] = await t.run(ctx => Promise.all([ctx.db.get(n13._id), ctx.db.get(n20._id)]));
+  assert.deepEqual([kept!.publicationState, kept!.summary, retired!.publicationState, retired!.summary], ["published", "New", "draft_private", "Weekly"]);
 });
 
 it("enqueues one export per fanned, retired, materialised and reset night", async (test) => {
@@ -212,6 +278,14 @@ it("the editor read carries the night's series and overrides", async (test) => {
   assert.equal(editable?.series?.rule.startTime, "20:00");
   assert.equal(editable?.series?.state, "active");
   assert.equal(editable?.id, n13._id);
+});
+
+it("the editor read carries the series media links and watch settings", async (test) => {
+  const { t, owner, seriesId, n13 } = await setup(test);
+  const mediaLinks = [{ type: "watch" as const, label: "Harbor stream", url: "https://example.com/live", presentation: "open" as const }];
+  await t.withIdentity(owner.identity).mutation(api.eventSeries.update, { seriesId, mediaLinks, watchMode: "performer_sequence", watchSurfaceEnabled: true });
+  const read = await t.withIdentity(owner.identity).query(api.events.getEditableBySlug, { slug: n13.slug! });
+  assert.deepEqual([read!.series!.mediaLinks, read!.series!.watchMode, read!.series!.watchSurfaceEnabled], [mediaLinks, "performer_sequence", true]);
 });
 
 it("the editor read of a one-off event has no series", async (test) => {
