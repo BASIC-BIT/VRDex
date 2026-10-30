@@ -616,6 +616,36 @@ describe("vrchat calendar connect gate", () => {
     assert.deepEqual(await stored({}), { groupId: GROUP_ID, timezone: "UTC" });
   });
 
+  // The owner's connector, paused, with a staffer who holds only manage_integrations.
+  async function pausedForResume(t: TestConvex<typeof schema>) {
+    const { connectorId } = await seedVrchatConnector(t, { authority: "integrations_only" });
+    const owner = await t.run(async (ctx) => {
+      const { userId } = (await ctx.db.query("profileOwners").first())!;
+      await ctx.db.patch(connectorId!, { state: "paused", lastError: "authority_lost", authorityUserId: userId });
+      return userId;
+    });
+    return { connectorId: connectorId!, owner };
+  }
+
+  it("refuses a resume by an authority without manage_events and leaves the connector unchanged", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await pausedForResume(t);
+    const before = (await t.run((ctx) => ctx.db.get(connectorId)))!;
+    await assert.rejects(asStaff(t).mutation(api.eventConnectors.update, { connectorId, state: "active" }), /CONNECTOR_FORBIDDEN/);
+    assert.deepEqual(await t.run((ctx) => ctx.db.get(connectorId)), before);
+    assert.equal((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).length, 0);
+  });
+
+  it("still lets that staffer change a paused connector's direction, and the owner resume it", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, owner } = await pausedForResume(t);
+    await asStaff(t).mutation(api.eventConnectors.update, { connectorId, direction: "bidirectional" });
+    await asOwner(t).mutation(api.eventConnectors.update, { connectorId, state: "active" });
+    const connector = (await t.run((ctx) => ctx.db.get(connectorId)))!;
+    assert.deepEqual([connector.state, connector.lastError, connector.authorityUserId, connector.direction], ["active", undefined, owner, "bidirectional"]);
+    assert.deepEqual((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).map((j) => j.kind), ["reconcile"]);
+  });
+
   it("refuses a second live connector for the group whatever group the caller names", async () => {
     const t = convexTest({ schema, modules });
     const { communityProfileId } = await seedVrchatConnector(t, { connector: false });

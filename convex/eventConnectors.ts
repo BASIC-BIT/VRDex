@@ -129,6 +129,8 @@ export const update = mutation({
     // Resume only lifts a pause; Reconnect in the kind plans is what clears needs_reauth.
     if (args.state === "active" && connector.state !== "paused") fail("CONNECTOR_RESUME_INVALID");
     if (connector.state === "removed") fail("CONNECTOR_REMOVED");
+    // The resumer becomes the authority, and every VRChat job re-checks manage_events on it.
+    if (args.state === "active" && connector.kind === "vrchat_calendar" && !await canManageCalendarEvents(ctx, connector.communityProfileId)) fail("CONNECTOR_FORBIDDEN");
     if (args.direction !== undefined) requireDirection(connector.kind, args.direction);
     const quiet = args.quietWindowSeconds;
     if (quiet !== undefined && (!Number.isInteger(quiet) || quiet < 30 || quiet > 600)) fail("CONNECTOR_QUIET_WINDOW");

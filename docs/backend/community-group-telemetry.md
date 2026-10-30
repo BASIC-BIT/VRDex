@@ -42,7 +42,9 @@ an obsolete release.
 
 Only connectors enqueue them. They are hidden from the staff operation list, cannot be created or edited through the staff API, and file no failure notice: the connector's `lastError` is their failure surface. A terminal state resumes the sync job waiting on the operation.
 
-For a create or update with artwork, the worker fetches the PNG over HTTPS and uploads it through `/file/image` before the event write.
+For a create or update with artwork, the worker fetches the PNG over HTTPS and uploads it through `/file/image` before the event write. A fetch that fails, or returns anything but a bounded PNG, only drops the image: the event write goes ahead without it. A refused or malformed upload rejects the operation with its own code, and the event write is not sent.
+
+A `missed` calendar operation was never claimed, so the waiting sync job enqueues it again without spending an attempt. A job still waiting on one operation after six hours records a failed attempt with `vrchat_operation_stalled`.
 
 ## Automatic candidate queue
 
