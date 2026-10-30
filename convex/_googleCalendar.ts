@@ -29,6 +29,13 @@ export function requireGoogleCalendarEnabled(): void {
   if (!googleCalendarEnabled()) throw new Error("CONNECTOR_KIND_DISABLED");
 }
 
+export function googleTarget(connector: Doc<"eventConnectors">): { credentialId: Id<"connectorCredentials">; calendarId: string } {
+  const { credentialId, target: { calendarId } } = connector;
+  if (!credentialId) throw new Error("CONNECTOR_CREDENTIAL");
+  if (!calendarId) throw new Error("CONNECTOR_TARGET");
+  return { credentialId, calendarId };
+}
+
 // JSON.parse errors quote the body, so a malformed answer becomes a code.
 async function readJson(response: Response): Promise<unknown> {
   const text = await response.text();
@@ -114,7 +121,8 @@ export function insertEvent(token: string, calendarId: string, body: GoogleEvent
   return google(token, "POST", eventsPath(calendarId), { body });
 }
 
-export function patchEvent(token: string, calendarId: string, eventId: string, body: GoogleEventBody): Promise<GoogleCalendarEvent> {
+// A patch may null the start/end member it switches away from, so the body is looser than an insert.
+export function patchEvent(token: string, calendarId: string, eventId: string, body: Record<keyof GoogleEventBody, unknown>): Promise<GoogleCalendarEvent> {
   return google(token, "PATCH", `${eventsPath(calendarId)}/${encodeURIComponent(eventId)}`, { body });
 }
 

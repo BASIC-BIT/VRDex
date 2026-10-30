@@ -90,6 +90,7 @@ it("the runner writes the link after a kind's export, and retracts it after a de
   const { eventId } = await f.createEvent();
   const connectorId = await f.insertConnector({ direction: "export" });
   const google = syncKindHandlers.google_calendar;
+  const { exportUpsert, exportDelete } = google;
   google.exportUpsert = async () => ({ externalId: "g-9" });
   google.exportDelete = async () => {};
   try {
@@ -109,8 +110,7 @@ it("the runner writes the link after a kind's export, and retracts it after a de
     await f.t.action(run, { jobId: again });
     assert.deepEqual([(await link()).state, (await link()).externalId], ["linked", "g-10"]);
   } finally {
-    delete google.exportUpsert;
-    delete google.exportDelete;
+    Object.assign(google, { exportUpsert, exportDelete });
   }
 });
 
@@ -123,6 +123,7 @@ it("an export matched to an item an import already linked adopts that link inste
     return ctx.db.insert("eventSyncLinks", { connectorId, draftId, externalId: "g-1", state: "linked", createdAt: Date.now(), updatedAt: Date.now() });
   });
   const google = syncKindHandlers.google_calendar;
+  const { exportUpsert } = google;
   google.exportUpsert = async () => ({ externalId: "g-1" });
   try {
     const jobId = await f.t.run(ctx => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, eventId, kind: "export_upsert" }));
@@ -131,7 +132,7 @@ it("an export matched to an item an import already linked adopts that link inste
     const byExternal = await f.t.run(ctx => ctx.db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connectorId).eq("externalId", "g-1")).collect());
     assert.deepEqual(byExternal.map(link => [link._id, link.eventId, link.lastExportedAt]), [[heldLink, eventId, Date.now()]]);
   } finally {
-    delete google.exportUpsert;
+    google.exportUpsert = exportUpsert;
   }
 });
 
@@ -319,6 +320,7 @@ it("an edit during an in-flight export waits for it and updates the same copy", 
   const { eventId } = await f.createEvent();
   const connectorId = await f.insertConnector({ direction: "export" });
   const google = syncKindHandlers.google_calendar;
+  const { exportUpsert } = google;
   let created = 0;
   google.exportUpsert = async (_ctx, _connector, _event, link) => ({ externalId: link?.externalId ?? `g-${++created}` });
   try {
@@ -337,7 +339,7 @@ it("an edit during an in-flight export waits for it and updates the same copy", 
     const links = await f.t.run(ctx => ctx.db.query("eventSyncLinks").withIndex("by_eventId", q => q.eq("eventId", eventId)).collect());
     assert.deepEqual([created, links.length, links[0]!.externalId, (await f.t.run(ctx => ctx.db.get(second)))!.state], [0, 1, "g-1", "done"]);
   } finally {
-    delete google.exportUpsert;
+    google.exportUpsert = exportUpsert;
   }
 });
 
