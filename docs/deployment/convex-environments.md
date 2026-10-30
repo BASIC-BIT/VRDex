@@ -96,6 +96,14 @@ place; each closes as `connectors_disabled` when its run claims it. Keep it off
 until a kind plan registers a sync handler: with no handler every export job
 fails and the connector failure alarm fires.
 
+`VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` turns on the Discord event board when
+set to `true`: Discord board jobs, the daily board refresh, and the board
+Connect button. Scope: the Convex deployment environment only. Default: unset,
+which means off; board jobs then fail with `CONNECTOR_KIND_DISABLED`. It also
+needs `VRDEX_EVENT_CONNECTORS_ENABLED`, `DISCORD_BOT_TOKEN`, and `SITE_URL`.
+Owner: the deployment operator (BASIC). Not a secret; recreate it with
+`npx convex env set`, and roll back by setting it to `false`.
+
 Connector OAuth tokens are stored encrypted with AES-256-GCM in the
 `v1:iv:tag:ciphertext` format, keyed by `VRDEX_CONNECTOR_TOKEN_KEY` (secret).
 
