@@ -4,6 +4,7 @@ import { api, internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { ConvexError } from "convex/values";
 import { buildSourceText, pickPosterAttachments } from "../../convex/_discordIntake";
+import { saveIntakeDraft } from "../../convex/_eventIntake";
 import { failureReason } from "../../convex/discordIntakeRun";
 import { EVENT_POSTER_MAX_BYTES, resolveEventLocalTime } from "../../packages/api-contracts/src/event-intake";
 import { newClerkUserId } from "./_clerkTestIdentity";
@@ -11,7 +12,10 @@ import { AUTHOR_B, CHANNEL, GUILD, M1, M2, message, record, revokeManageIntegrat
 
 type T = Awaited<ReturnType<typeof seedDiscordIntake>>["t"];
 
-beforeEach(test => test.mock.timers.enable({ apis: ["setTimeout"] }));
+beforeEach(test => {
+  test.mock.timers.enable({ apis: ["setTimeout"] });
+  process.env.VRDEX_DISCORD_INTAKE_ENABLED = "true";
+});
 const M3 = "300000000000000003";
 const M4 = "300000000000000004";
 const dateIn = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
@@ -52,17 +56,21 @@ const candidate = (decision: unknown) => ({
   ],
 });
 
-it("builds source text in post order with author and time, without deleted messages", () => {
+it("labels new posts with their IDs apart from earlier context, and drops context first at the cap", () => {
   const rows = [
     { messageId: M2, authorDisplayName: "Ari", content: "flyer", createdAt: Date.UTC(2026, 10, 1, 20, 1) },
     { messageId: M1, authorDisplayName: "Ari", content: "Friday 9pm", createdAt: Date.UTC(2026, 10, 1, 20, 0) },
     { messageId: M3, authorDisplayName: "Ari", content: "oops", createdAt: 0, deletedAt: 1 },
   ] as Doc<"discordIntakeMessages">[];
-  assert.equal(buildSourceText(rows), "Ari (2026-11-01T20:00:00.000Z): Friday 9pm\n\nAri (2026-11-01T20:01:00.000Z): flyer");
-  assert.ok(buildSourceText([{ ...rows[0], content: "x".repeat(12_000) }, rows[1]]).length <= 12_000);
+  assert.equal(buildSourceText(rows, [M2, M3]), `New or changed posts:\n[message ${M2}] Ari (2026-11-01T20:01:00.000Z): flyer\n\nEarlier posts, for context only:\nAri (2026-11-01T20:00:00.000Z): Friday 9pm`);
+  assert.equal(buildSourceText(rows, [M1, M2]), `New or changed posts:\n[message ${M1}] Ari (2026-11-01T20:00:00.000Z): Friday 9pm\n[message ${M2}] Ari (2026-11-01T20:01:00.000Z): flyer`);
+  const longContext = buildSourceText([rows[0], { ...rows[1], content: "x".repeat(12_000) }], [M2]);
+  assert.ok(longContext.includes("flyer") && !longContext.includes("xxx") && !longContext.includes("Earlier posts"));
+  const longTrigger = buildSourceText([{ ...rows[0], content: "x".repeat(12_000) }, rows[1]], [M2]);
+  assert.ok(longTrigger.length <= 12_000 && longTrigger.startsWith("New or changed posts:\n[message"));
 });
 
-it("picks at most three poster images from live messages, largest first", () => {
+it("picks at most three poster images, trigger posts first, each group largest first", () => {
   const image = (byteLength: number, contentType = "image/png") => ({ url: `https://cdn.discordapp.com/${byteLength}`, contentType, byteLength });
   const rows = [
     { attachments: [image(10), image(50, "image/gif"), image(EVENT_POSTER_MAX_BYTES + 1)] },
@@ -70,6 +78,7 @@ it("picks at most three poster images from live messages, largest first", () => 
     { attachments: [image(99)], deletedAt: 1 },
   ] as Doc<"discordIntakeMessages">[];
   assert.deepEqual(pickPosterAttachments(rows).map(item => item.byteLength), [40, 30, 20]);
+  assert.deepEqual(pickPosterAttachments(rows.slice(0, 1), rows.slice(1)).map(item => item.byteLength), [10, 40, 30]);
 });
 
 it("passes prior events from discordIntakeSources to the agent", async () => {
@@ -143,20 +152,21 @@ it("patches only explicit fields when an edited post updates the published event
 
 it("keeps one link and one event when later runs regroup the same posts", async () => {
   const { t } = await seedDiscordIntake({ mode: "autopublish" });
-  const runThrough = async () => {
+  const runThrough = async (decision: unknown) => {
     const runId = (await pendingRun(t))._id;
     await t.mutation(internal.discordIntake.claimRun, { runId });
     const draftId = await t.mutation(internal.discordIntake.saveRunDraft, { runId, sourceText: "Ari: Friday", sourceUrl: "https://discord.com/channels/x" });
-    return (await t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: candidate({ kind: "new" }) })).outcome;
+    return (await t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: candidate(decision) })).outcome;
   };
   await record(t, "create", message(M1));
-  assert.equal(await runThrough(), "published");
+  assert.equal(await runThrough({ kind: "new" }), "published");
+  const { slug } = (await t.run(ctx => ctx.db.query("events").first()))!;
   // Run B's first trigger is M2, so its own triggerMessageIds[0] is not the link's external ID.
   await record(t, "create", message(M2));
   await record(t, "update", message(M1, { content: "now 22:00", editedAt: Date.now() }));
-  assert.equal(await runThrough(), "updated");
-  await record(t, "update", message(M2, { content: "flyer v2", editedAt: Date.now() }));
-  assert.equal(await runThrough(), "updated");
+  assert.equal(await runThrough({ kind: "update", slug }), "updated");
+  await record(t, "update", message(M2, { content: "flyer v2, now 22:00", editedAt: Date.now() }));
+  assert.equal(await runThrough({ kind: "new" }), "updated");
   assert.equal((await t.run(ctx => ctx.db.query("events").collect())).length, 1);
   assert.deepEqual((await t.run(ctx => ctx.db.query("eventSyncLinks").collect())).map(link => link.externalId), [M1]);
   assert.ok((await t.run(ctx => ctx.db.query("discordIntakeSources").collect())).every(row => row.externalId === M1));
@@ -214,6 +224,18 @@ it("records source_deleted and flags the link when every source message is delet
   assert.equal((await t.run(ctx => ctx.db.get(eventId)))!.publicationState, "published");
 });
 
+it("flags the link when one trigger is deleted and the run continues on the live one", async () => {
+  const { t, connectorId, communityProfileId } = await seedDiscordIntake();
+  const eventId = await seedEvent(t, communityProfileId, { slug: "night-at-ari" });
+  await linkEvent(t, connectorId, eventId, M1);
+  await record(t, "create", message(M1, { createdAt: Date.now() - 10_000 }));
+  await record(t, "create", message(M2));
+  await record(t, "delete", { messageId: M1 });
+  const runId = (await pendingRun(t))._id;
+  assert.equal((await t.mutation(internal.discordIntake.claimRun, { runId })).kind, "run");
+  assert.equal((await t.run(ctx => ctx.db.query("eventSyncLinks").collect()))[0].state, "external_deleted");
+});
+
 it("keeps the link while another post that fed the event is still live", async () => {
   const { t, connectorId, communityProfileId } = await seedDiscordIntake();
   const eventId = await seedEvent(t, communityProfileId, { slug: "night-at-ari" });
@@ -225,7 +247,8 @@ it("keeps the link while another post that fed the event is still live", async (
   await record(t, "create", message(M1, { createdAt: Date.now() - 10_000 }));
   await record(t, "delete", { messageId: M1 });
   const runId = (await pendingRun(t))._id;
-  assert.deepEqual(await t.mutation(internal.discordIntake.claimRun, { runId }), { kind: "skip", reason: "source_deleted" });
+  assert.deepEqual(await t.mutation(internal.discordIntake.claimRun, { runId }), { kind: "skip", reason: "trigger_deleted" });
+  assert.equal((await getRun(t, runId)).reason, "trigger_deleted");
   const [link] = await t.run(ctx => ctx.db.query("eventSyncLinks").collect());
   assert.equal(link.state, "linked");
 });
@@ -241,6 +264,17 @@ it("pauses the connector at 20 runs in a UTC day", async () => {
   assert.equal(connector!.state, "paused"); assert.equal(connector!.lastError, "binding_cap");
   const resume = (await t.run(ctx => ctx.db.system.query("_scheduled_functions").collect())).find(job => job.name.includes("resumeConnector"))!;
   assert.equal(resume.scheduledTime, dayStart + 86_400_000);
+});
+
+it("alerts ops with IDs only when the daily cap pauses a connector, and resumeConnector resolves it", async () => {
+  const { t, connectorId, communityProfileId } = await seedDiscordIntake();
+  const dayStart = new Date().setUTCHours(0, 0, 0, 0);
+  await t.run(async ctx => { for (let i = 0; i < 20; i += 1) await ctx.db.insert("discordIntakeRuns", { connectorId, authorId: AUTHOR_B, triggerMessageIds: [], state: "done", startedAt: dayStart + i, createdAt: dayStart + i }); });
+  await record(t, "create", message(M1));
+  await t.mutation(internal.discordIntake.claimRun, { runId: (await pendingRun(t))._id });
+  assert.deepEqual(await opsSends(t), [{ to: "basic@basicbit.net", subject: "[VRDex ops] Discord intake daily cap reached", body: `Discord intake connector ${connectorId} (community ${communityProfileId}) reached its daily run cap.` }]);
+  await t.mutation(internal.discordIntake.resumeConnector, { connectorId });
+  assert.deepEqual((await opsSends(t)).map(send => send.subject), ["[VRDex ops] Discord intake daily cap reached", `[VRDex ops] Resolved: discord-intake-cap:${connectorId}`]);
 });
 
 it("resumeConnector reopens only a connector the daily cap paused", async () => {
@@ -275,6 +309,15 @@ it("skips runs while event connectors are disabled", async () => {
   }
   const run = await getRun(t, runId);
   assert.equal(run.state, "done"); assert.equal(run.startedAt, undefined);
+});
+
+it("skips runs while Discord intake is disabled", async () => {
+  const { t } = await seedDiscordIntake();
+  await record(t, "create", message(M1));
+  const runId = (await pendingRun(t))._id;
+  delete process.env.VRDEX_DISCORD_INTAKE_ENABLED;
+  assert.deepEqual(await t.mutation(internal.discordIntake.claimRun, { runId }), { kind: "skip", reason: "connector_inactive" });
+  assert.equal((await getRun(t, runId)).state, "done");
 });
 
 it("leaves a run that is no longer pending untouched", async () => {
@@ -500,6 +543,199 @@ for (const [name, routes, code] of [
     assert.ok(run.finishedAt);
   });
 }
+
+const DISCORD_LINK = `https://discord.com/channels/${GUILD}/${CHANNEL}/${M1}`;
+const startRun = async (t: T) => {
+  const runId = (await pendingRun(t))._id;
+  const claim = await t.mutation(internal.discordIntake.claimRun, { runId });
+  const draftId = await t.mutation(internal.discordIntake.saveRunDraft, { runId, sourceText: "Ari: Friday", sourceUrl: DISCORD_LINK });
+  return { runId, claim, draftId };
+};
+const getDraft = (t: T, draftId: Id<"eventIntakeDrafts">) => t.run(async ctx => (await ctx.db.get(draftId))!);
+/** The stored post an earlier run read, with no pending run of its own. */
+const seedPost = (t: T, connectorId: Id<"eventConnectors">, messageId: string, content: string) => t.run(ctx => ctx.db.insert("discordIntakeMessages", {
+  connectorId, messageId, guildId: GUILD, channelId: CHANNEL, authorId: "200000000000000001", authorDisplayName: "Ari", content, attachments: [], createdAt: Date.now() - 3_600_000, updatedAt: Date.now(),
+}));
+
+it("keeps the Discord link on the draft and off the published event, and keeps any other link", async () => {
+  for (const [sourceUrl, published] of [[null, undefined], ["https://tickets.example/night", "https://tickets.example/night"]] as const) {
+    const { t } = await seedDiscordIntake({ mode: "autopublish" });
+    await record(t, "create", message(M1));
+    const { runId, draftId } = await startRun(t);
+    const base = candidate({ kind: "new" });
+    const result = await t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: { ...base, event: { ...base.event, sourceUrl } } });
+    assert.equal(result.outcome, "published");
+    assert.equal((await t.run(ctx => ctx.db.get(result.eventId!)))!.sourceUrl, published);
+    assert.equal((await getDraft(t, draftId)).fields.sourceUrl, sourceUrl ?? DISCORD_LINK);
+  }
+});
+
+it("never patches a Discord link onto the event, even from explicit evidence", async () => {
+  const { t, connectorId, communityProfileId } = await seedDiscordIntake({ mode: "autopublish" });
+  const eventId = await seedEvent(t, communityProfileId, { slug: "night-at-ari" });
+  await linkEvent(t, connectorId, eventId, M1);
+  await record(t, "update", message(M1, { createdAt: Date.now() - 10_000, content: `now 22:00 ${DISCORD_LINK}`, editedAt: Date.now() }));
+  const { runId, draftId } = await startRun(t);
+  const base = candidate({ kind: "update", slug: "night-at-ari" });
+  await t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: { ...base, event: { ...base.event, sourceUrl: DISCORD_LINK }, evidence: [...base.evidence, { fieldPath: "event.sourceUrl", origin: "text", excerpt: DISCORD_LINK, assessment: "explicit" }] } });
+  assert.equal((await t.run(ctx => ctx.db.get(eventId)))!.sourceUrl, undefined);
+});
+
+it("takes explicit evidence only from new posts, so an older post cannot overwrite staff's venue", async () => {
+  const { t, connectorId, communityProfileId } = await seedDiscordIntake({ mode: "autopublish" });
+  const eventId = await seedEvent(t, communityProfileId, { slug: "night-at-ari", venueLabel: "Main Hall" });
+  await seedPost(t, connectorId, M1, "Night at Ari, venue Room A, 21:00");
+  await record(t, "create", message(M2, { content: "Start   moved\nto 22:00" }));
+  const { runId, draftId, claim } = await startRun(t);
+  assert.equal(claim.kind === "run" && claim.sourceText.startsWith(`New or changed posts:\n[message ${M2}]`), true);
+  const startBefore = (await t.run(ctx => ctx.db.get(eventId)))!.startAt!;
+  const base = candidate({ kind: "update", slug: "night-at-ari" });
+  const result = await t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: { ...base, event: { ...base.event, title: "Renamed", venueLabel: "Room A" }, evidence: [
+    { fieldPath: "event.start", origin: "text", excerpt: "start moved to 22:00", assessment: "explicit" },
+    { fieldPath: "event.venueLabel", origin: "text", excerpt: "venue Room A", assessment: "explicit" },
+    { fieldPath: "event.title", origin: "text", excerpt: null, assessment: "explicit" },
+  ] } });
+  assert.equal(result.outcome, "updated");
+  const event = (await t.run(ctx => ctx.db.get(eventId)))!;
+  assert.equal(event.venueLabel, "Main Hall");
+  assert.equal(event.title, "Night at Ari");
+  assert.equal(event.startAt, startBefore + 3_600_000);
+});
+
+it("gives a later flyer's run its own poster, then a context poster no run has used", async () => {
+  const { t } = await seedDiscordIntake();
+  const flyer = (name: string, byteLength: number) => ({ url: `https://cdn.discordapp.com/attachments/1/2/${name}.png`, contentType: "image/png", byteLength });
+  await record(t, "create", message(M1, { attachments: [flyer("first", 900)] }));
+  const first = await startRun(t);
+  await t.mutation(internal.discordIntake.finishRun, { runId: first.runId, draftId: first.draftId, candidate: candidate({ kind: "new" }) });
+  await record(t, "create", message(M2, { attachments: [flyer("second", 100)] }));
+  const second = await startRun(t);
+  assert.deepEqual(second.claim.kind === "run" && second.claim.posters, [flyer("second", 100)]);
+  await t.mutation(internal.discordIntake.failRun, { runId: second.runId, reason: "extraction_failed" });
+  await record(t, "create", message(M3));
+  const third = await startRun(t);
+  assert.deepEqual(third.claim.kind === "run" && third.claim.posters, [flyer("second", 100)]);
+});
+
+it("writes an edit of a held post into the pending draft, keeping staff's fields and moving new posters", async () => {
+  const { t, authorityUserId } = await seedDiscordIntake();
+  await record(t, "create", message(M1));
+  const first = await startRun(t);
+  const held = await t.mutation(internal.discordIntake.finishRun, { runId: first.runId, draftId: first.draftId, candidate: candidate({ kind: "new" }) });
+  assert.equal(held.draftId, first.draftId);
+  await t.run(async ctx => saveIntakeDraft(ctx.db, authorityUserId, { draftId: first.draftId, expectedVersion: (await ctx.db.get(first.draftId))!.version, patch: { title: "Staff Title" } }));
+
+  await record(t, "update", message(M1, { content: "now 22:00", editedAt: Date.now() }));
+  const second = await startRun(t);
+  const now = Date.now();
+  const { sourceId, artworkId } = await t.run(async ctx => {
+    const sourceId = await ctx.db.insert("eventPosterSources", { purpose: "event_poster", actorUserId: authorityUserId, draftId: second.draftId, contentType: "image/png", byteLength: 10, sha256: "a".repeat(64), reservedBytes: 20, state: "ready", uploadedAt: now, lastActivityAt: now, expiresAt: now + 86_400_000, uploadExpiresAt: now });
+    const artworkId = await ctx.db.insert("eventPosterArtwork", { actorUserId: authorityUserId, draftId: second.draftId, sourceId, state: "ready", createdAt: now, expiresAt: now + 86_400_000 });
+    await ctx.db.patch(second.draftId, { artworkAssetId: artworkId });
+    return { sourceId, artworkId };
+  });
+  const base = candidate({ kind: "new" });
+  const result = await t.mutation(internal.discordIntake.finishRun, { runId: second.runId, draftId: second.draftId, candidate: { ...base, event: { ...base.event, venueLabel: "Moved Room" } } });
+  assert.deepEqual({ outcome: result.outcome, draftId: result.draftId }, { outcome: "draft", draftId: first.draftId });
+  const pending = await getDraft(t, first.draftId);
+  assert.equal(pending.fields.title, "Staff Title");
+  assert.equal(pending.fields.tentative.venueLabel, "Moved Room");
+  assert.equal(pending.fields.tentative.communitySlug, "night-club");
+  assert.equal(pending.fields.sourceUrl, DISCORD_LINK);
+  assert.equal(pending.artworkAssetId, artworkId);
+  assert.equal((await t.run(ctx => ctx.db.get(sourceId)))!.draftId, first.draftId);
+  assert.equal((await t.run(ctx => ctx.db.get(artworkId)))!.draftId, first.draftId);
+  assert.ok((await getDraft(t, second.draftId)).expiresAt <= Date.now());
+  const run = await getRun(t, second.runId);
+  assert.deepEqual({ reason: run.reason, draftId: run.draftId }, { reason: "draft", draftId: first.draftId });
+  assert.ok((await t.run(ctx => ctx.db.query("discordIntakeSources").collect())).every(row => row.draftId === first.draftId));
+});
+
+it("expires the working draft an update never used and keeps it on the run", async () => {
+  const { t, connectorId, communityProfileId } = await seedDiscordIntake({ mode: "autopublish" });
+  const eventId = await seedEvent(t, communityProfileId, { slug: "night-at-ari" });
+  await linkEvent(t, connectorId, eventId, M1);
+  await record(t, "update", message(M1, { createdAt: Date.now() - 10_000, content: "now 22:00", editedAt: Date.now() }));
+  const { runId, draftId } = await startRun(t);
+  const result = await t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: candidate({ kind: "update", slug: "night-at-ari" }) });
+  assert.equal(result.outcome, "updated");
+  assert.ok((await getDraft(t, draftId)).expiresAt <= Date.now());
+  assert.equal((await getRun(t, runId)).draftId, draftId);
+});
+
+it("keeps the run's own draft on it when a replayed publish answers with another draft", async () => {
+  const { t, authorityUserId } = await seedDiscordIntake({ mode: "autopublish" });
+  await record(t, "create", message(M1));
+  const { runId, draftId } = await startRun(t);
+  await t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: candidate({ kind: "new" }) });
+  const retry = await t.run(async ctx => {
+    for (const link of await ctx.db.query("eventSyncLinks").collect()) await ctx.db.delete(link._id);
+    await ctx.db.patch(runId, { state: "running" });
+    return ctx.db.insert("eventIntakeDrafts", { actorUserId: authorityUserId, version: 1, fields: {}, provenance: [], createdAt: Date.now(), updatedAt: Date.now(), expiresAt: Date.now() + 86_400_000 });
+  });
+  const result = await t.mutation(internal.discordIntake.finishRun, { runId, draftId: retry, candidate: candidate({ kind: "new" }) });
+  assert.deepEqual({ outcome: result.outcome, draftId: result.draftId }, { outcome: "published", draftId });
+  assert.equal((await getRun(t, runId)).draftId, retry);
+  assert.ok((await getDraft(t, retry)).expiresAt <= Date.now());
+});
+
+it("leaves a field alone when explicit evidence names a null value, except time TBA", async () => {
+  const { t, connectorId, communityProfileId } = await seedDiscordIntake({ mode: "autopublish" });
+  const eventId = await seedEvent(t, communityProfileId, { slug: "night-at-ari", venueLabel: "Main Hall" });
+  await linkEvent(t, connectorId, eventId, M1);
+  await record(t, "update", message(M1, { createdAt: Date.now() - 10_000, content: "venue gone, time TBA", editedAt: Date.now() }));
+  const { runId, draftId } = await startRun(t);
+  const base = candidate({ kind: "update", slug: "night-at-ari" });
+  await t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: { ...base, event: { ...base.event, start: null, venueLabel: null }, evidence: [
+    { fieldPath: "event.venueLabel", origin: "text", excerpt: "venue gone", assessment: "explicit" },
+    { fieldPath: "event.timeTba", origin: "text", excerpt: "time TBA", assessment: "explicit" },
+  ] } });
+  const event = (await t.run(ctx => ctx.db.get(eventId)))!;
+  assert.equal(event.venueLabel, "Main Hall");
+  assert.equal(event.scheduleKind, "date_only");
+});
+
+it("keeps the lineup out of an update that never read the event", async () => {
+  const lineupAfter = async (decision: (slug: string) => unknown, expectedUpdatedAt: boolean) => {
+    const { t, connectorId, communityProfileId } = await seedDiscordIntake({ mode: "autopublish" });
+    const eventId = await seedEvent(t, communityProfileId, { slug: "night-at-ari" });
+    await linkEvent(t, connectorId, eventId, M1);
+    await record(t, "update", message(M1, { createdAt: Date.now() - 10_000, content: "DJ Bo replaces DJ Cy", editedAt: Date.now() }));
+    const { runId, draftId } = await startRun(t);
+    const base = candidate(decision("night-at-ari"));
+    await t.mutation(internal.discordIntake.finishRun, { runId, draftId, ...(expectedUpdatedAt ? { expectedUpdatedAt: (await t.run(ctx => ctx.db.get(eventId)))!.updatedAt } : {}), candidate: {
+      ...base, lineup: [{ performerLabel: "DJ Bo", personSlug: null, roleLabel: null, start: null, end: null, startDate: null, endDate: null }],
+      evidence: [{ fieldPath: "lineup.0.performerLabel", origin: "text", excerpt: "DJ Bo", assessment: "explicit" }],
+    } });
+    return (await t.query(internal.discordIntake.getEventForAgent, { runId, slug: "night-at-ari" }))!.fields.lineup ?? [];
+  };
+  assert.deepEqual(await lineupAfter(slug => ({ kind: "update", slug }), false), []);
+  assert.deepEqual(await lineupAfter(() => ({ kind: "new" }), false), []);
+  assert.equal((await lineupAfter(slug => ({ kind: "update", slug }), true)).length, 1);
+});
+
+it("holds a mixed run that answers new instead of patching the linked event", async () => {
+  const { t, connectorId, communityProfileId } = await seedDiscordIntake({ mode: "autopublish" });
+  const eventId = await seedEvent(t, communityProfileId, { slug: "night-at-ari", venueLabel: "Main Hall" });
+  await linkEvent(t, connectorId, eventId, M1);
+  await record(t, "update", message(M1, { createdAt: Date.now() - 10_000, content: "now 22:00", editedAt: Date.now() }));
+  await record(t, "create", message(M2, { content: "second night, now 22:00" }));
+  const { runId, draftId } = await startRun(t);
+  const startBefore = (await t.run(ctx => ctx.db.get(eventId)))!.startAt;
+  const result = await t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: candidate({ kind: "new" }) });
+  assert.deepEqual({ outcome: result.outcome, draftId: result.draftId, eventId: result.eventId }, { outcome: "draft", draftId, eventId });
+  assert.equal((await t.run(ctx => ctx.db.get(eventId)))!.startAt, startBefore);
+  assert.equal((await t.run(ctx => ctx.db.query("events").collect())).length, 1);
+});
+
+it("holds a candidate whose update slug did not resolve", async () => {
+  const { t } = await seedDiscordIntake({ mode: "autopublish" });
+  await record(t, "create", message(M1));
+  const { runId, draftId } = await startRun(t);
+  const result = await t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: { ...candidate({ kind: "new" }), questions: [{ fieldPath: "decision.slug", reason: "unresolved_event", alternatives: ["night-at-ari"] }] } });
+  assert.deepEqual({ outcome: result.outcome, draftId: result.draftId }, { outcome: "draft", draftId });
+  assert.equal((await t.run(ctx => ctx.db.query("events").collect())).length, 0);
+});
 
 it("alarms when no poster stores, continues text-only, and resolves when one stores again", async test => {
   test.mock.method(console, "warn", () => {});

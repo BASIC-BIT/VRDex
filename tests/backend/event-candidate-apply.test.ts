@@ -84,6 +84,11 @@ it("refuses an actor other than the stored connector's authority", async () => {
   assert.equal((await f.t.run(ctx => ctx.db.query("eventIntakeDrafts").collect())).length, 0);
 });
 
+it("refuses a connector whose direction is off", async () => {
+  const f = await setup({ direction: "off" });
+  await assert.rejects(f.apply({ candidate: candidate(night, ["event.title"]), externalId: "g-1" }), /CONNECTOR_FORBIDDEN/);
+});
+
 it("a retry with the same key and no external ID replays the publish", async () => {
   const f = await setup();
   const first = await f.apply({ candidate: candidate(night, ["event.title", "event.start"]), idempotencyKey: "job-7" });

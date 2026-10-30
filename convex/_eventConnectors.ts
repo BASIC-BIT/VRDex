@@ -70,7 +70,7 @@ const CARRIED: Record<ConnectorKind, ReadonlyArray<IntakeKey>> = {
   discord_scheduled_events: [...TIME, "summary", "venueLabel"],
   vrchat_calendar: [...TIME, "summary"],
   discord_board: [...TIME, "doors", "summary", "venueLabel", "worldSlug", "sourceUrl", "lineup"],
-  discord_announcements: [...TIME, "doors", "summary", "venueLabel", "sourceUrl", "lineup"],
+  discord_announcements: [...TIME, "doors", "summary", "venueLabel", "lineup"],
   notion: [],
 };
 export function carriedFields(kind: ConnectorKind): ReadonlyArray<IntakeKey> {

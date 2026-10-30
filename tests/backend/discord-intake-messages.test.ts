@@ -161,6 +161,16 @@ it("starts a new run when content or attachments changed after a run finished", 
   assert.equal((await runs(t)).length, 4);
 });
 
+it("clears a deleted post's text and images, and a redelivered copy does not bring them back", async () => {
+  const { t } = await seedDiscordIntake();
+  const post = message(M1, { attachments: [{ url: "https://cdn.discordapp.com/attachments/1/2/f.png", contentType: "image/png", byteLength: 10 }] });
+  await record(t, "create", post);
+  await record(t, "delete", { messageId: M1 });
+  assert.deepEqual(await record(t, "create", post), { recorded: 0 });
+  const [row] = await t.run(ctx => ctx.db.query("discordIntakeMessages").collect());
+  assert.deepEqual({ content: row.content, attachments: row.attachments, deleted: row.deletedAt !== undefined }, { content: "", attachments: [], deleted: true });
+});
+
 it("schedules nothing for a repeat delete", async () => {
   const { t } = await seedDiscordIntake();
   await record(t, "create", message(M1));

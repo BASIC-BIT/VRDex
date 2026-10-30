@@ -32,13 +32,15 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
   draftId?: Id<"eventIntakeDrafts">;
   link?: Doc<"eventSyncLinks">; externalId?: string; externalUpdatedAt?: number; idempotencyKey: string;
   expectedUpdatedAt?: number;
+  /** Holds the candidate as a draft whatever the connector's mode. */
+  forceHold?: boolean;
 }): Promise<ApplyResult> {
   const { db } = ctx;
   const { candidate, actorUserId } = args;
   // Callers pass a connector they loaded earlier; authorize against the stored row, as claimJob does.
   if (!connectorsEnabled()) throw new ConvexError({ code: "CONNECTORS_DISABLED" });
   const connector = await db.get(args.connector._id);
-  if (connector?.state !== "active" || connector.authorityUserId !== actorUserId) throw new ConvexError({ code: "CONNECTOR_FORBIDDEN" });
+  if (connector?.state !== "active" || connector.direction === "off" || connector.authorityUserId !== actorUserId) throw new ConvexError({ code: "CONNECTOR_FORBIDDEN" });
   await requireConnectorAuthority(ctx, connector.communityProfileId, actorUserId);
   const now = Date.now();
   const finish = async (result: ApplyResult) => {
@@ -97,7 +99,7 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
     }
   }
 
-  if (connector.mode === "hold") return hold("draft");
+  if (connector.mode === "hold" || args.forceHold) return hold("draft");
 
   if (target) {
     const explicit = new Set(candidate.evidence.filter(entry => entry.assessment === "explicit").map(entry => evidenceKey(entry.fieldPath)));

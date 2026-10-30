@@ -91,6 +91,8 @@ it("connects with the spec reply and creates one guild link", async () => {
   // linkProfileToAsset promotes a community's only guild link to primary.
   assert.equal(links[0].linkRole, "primary"); assert.equal(links[0].linkedByUserId, authorityUserId);
   assert.equal(links[0].verifiedByProofId, undefined);
+  // A connect asserts nothing about who runs the server, so claims must not read it as corroboration.
+  assert.equal(links[0].provenance, "directory_reference");
 });
 
 it("adds a second guild as a secondary link beside the primary", async () => {

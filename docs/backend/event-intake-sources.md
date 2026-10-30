@@ -9,7 +9,8 @@ Website and MCP callers must never supply actor identity in request JSON.
 `completePosterUpload`, `readPoster`, and `selectPosterArtwork`. The authority
 callback resolves the current signed-in actor or current contribution-scoped
 OAuth credential on every operation. The short-lived MCP bridge uses the same
-presigned POST as the website. No remote source URL fetch is supported.
+presigned POST as the website. Website and MCP callers cannot supply a remote
+source URL; only the Discord bridge below fetches one, from the Discord CDN.
 
 Uploads declare SHA-256, MIME and exact bytes before signing. Accept PNG, JPEG or
 WebP, at most 12 MiB. Completion checks MIME, digest, byte count and full decoding
