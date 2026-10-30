@@ -185,10 +185,26 @@ test("explicit MSE fallback decodes both renditions and retains audio through so
   await page.getByRole("button",{name:"Audio only",exact:true}).filter({visible:true}).click();
   const audio=page.locator("[data-event-playback-mount] audio").first();
   await expect.poll(()=>audio.evaluate(n=>(n as HTMLMediaElement).currentTime),{timeout:15000}).toBeGreaterThan(5);
-  const before=await audio.evaluate(n=>(n as HTMLMediaElement).currentTime);
+  const oldObjects: string[] = (await api("state")).metrics.lastObjects;
+  const oldAttempts = new Set(oldObjects.map(key => key.slice(0, key.lastIndexOf("/"))));
+  const original = await audio.elementHandle();
+  const oldBufferedEnd = await audio.evaluate(n => {
+    const media = n as HTMLMediaElement;
+    return media.buffered.length ? media.buffered.end(media.buffered.length - 1) : media.currentTime;
+  });
   await api("action",{action:"restart-source"});
   await expect.poll(async()=>(await api("state")).sources[0]?.state,{timeout:30000}).toBe("ready");
-  await expect.poll(()=>audio.evaluate(n=>(n as HTMLMediaElement).currentTime),{timeout:15000}).toBeGreaterThan(before+12);
+  // Require a new packager attempt plus decoded progress beyond the old buffered
+  // tail, within the original recovery deadline. +12s measured outage throughput.
+  let recoveredAt: number | undefined;
+  await expect.poll(async () => {
+    const objects: string[] = (await api("state")).metrics.lastObjects;
+    const newAttempt = objects.some(key => key.includes("/audio-") && !oldAttempts.has(key.slice(0, key.lastIndexOf("/"))));
+    const time = await audio.evaluate(n => (n as HTMLMediaElement).currentTime);
+    if (newAttempt && time > oldBufferedEnd) recoveredAt ??= time;
+    return recoveredAt !== undefined && time > recoveredAt + 0.5;
+  }, { timeout: 15000 }).toBe(true);
+  expect(await audio.evaluate((node, previous) => node === previous, original)).toBe(true);
   await expect(page.getByRole("button",{name:"Audio only",exact:true}).filter({visible:true})).toHaveAttribute("aria-pressed","true");
   await page.getByRole("button",{name:"Close event playback",exact:true}).filter({visible:true}).click();
 });

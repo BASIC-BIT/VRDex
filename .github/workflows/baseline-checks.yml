@@ -620,8 +620,11 @@ jobs:
 
       - name: Install synthetic media tools
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg
+          sudo apt-get update && sudo apt-get install -y ffmpeg pulseaudio pulseaudio-utils
           pnpm --filter web exec playwright install --with-deps firefox
+
+      - name: Prepare local browser audio backend
+        run: node scripts/playwright-audio-backend.mjs prepare
 
       - name: Run isolated composed media acceptance
         env:
@@ -634,6 +637,10 @@ jobs:
           PLAYWRIGHT_HTML_REPORT_DIR: playwright-artifacts/mobile-media/report
           PLAYWRIGHT_JSON_REPORT_FILE: playwright-artifacts/mobile-media/results.json
         run: pnpm --filter web exec playwright test mobile-hls-playback.spec.ts event-lineup-live.spec.ts --project=desktop-chromium --workers=1
+
+      - name: Stop job-owned browser audio backend
+        if: always()
+        run: node scripts/playwright-audio-backend.mjs cleanup
 
       - name: Write data-flow summary
         if: always()

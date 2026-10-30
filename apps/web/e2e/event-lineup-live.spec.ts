@@ -14,7 +14,7 @@ for (const engine of [chromium, firefox]) {
   const control=(id:string,state:string)=>fetch(`${transport.url}/control?id=${id}&state=${state}`,{method:"POST"});
   try {
    browser=await engine.launch();
-   const page=await lineupEvidencePage(browser);page.setDefaultTimeout(10000);
+   const page=await lineupEvidencePage(browser, info);page.setDefaultTimeout(10000);
    const messages:string[]=[]; const pageErrors:string[]=[];
    page.on("console",message=>{if (["error","warning"].includes(message.type())) messages.push(message.text());
     if (/Fast Refresh|reload/i.test(message.text())) diagnostics.push({type:"dev-navigation",at:performance.now(),message:message.text()});
@@ -223,7 +223,7 @@ for (const engine of [chromium, firefox]) {
   const messages:string[]=[];
   const evidence:Record<string,unknown>={messages};
   try {
-   browser=await engine.launch();const page=await lineupEvidencePage(browser);page.setDefaultTimeout(10000);
+   browser=await engine.launch();const page=await lineupEvidencePage(browser, info);page.setDefaultTimeout(10000);
    page.on("console",message=>{if(["error","warning"].includes(message.type()))messages.push(message.text());});
    page.on("pageerror",error=>messages.push("PAGEERROR: "+error.message));
    page.on("requestfailed",request=>messages.push("REQUEST: "+request.url()+" "+request.failure()?.errorText));
@@ -291,7 +291,7 @@ for (const engine of [chromium, firefox]) {
   let browser: Browser | undefined;
   try {
    browser = await engine.launch();
-   const page = await lineupEvidencePage(browser);
+   const page = await lineupEvidencePage(browser, info);
    const errors: string[] = [];
    page.on("pageerror", error => errors.push(error.message));
    await page.addInitScript(() => {
