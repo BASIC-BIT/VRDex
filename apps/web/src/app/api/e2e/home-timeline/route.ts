@@ -71,6 +71,7 @@ async function handle(
     "scenario" in body &&
     body.scenario !== "prefetch" &&
     body.scenario !== "detail" &&
+    body.scenario !== "detail-visual" &&
     body.scenario !== "discovery" &&
     body.scenario !== "discovery-dense" &&
     body.scenario !== "discovery-sparse" &&
@@ -91,6 +92,7 @@ async function handle(
       ...("scenario" in body &&
       (body.scenario === "prefetch" ||
         body.scenario === "detail" ||
+        body.scenario === "detail-visual" ||
         body.scenario === "discovery" ||
         body.scenario === "discovery-dense" ||
         body.scenario === "discovery-sparse" ||

@@ -16,13 +16,17 @@ async function capture(page: Page, name: string) {
     );
   });
   const panel = name === "details" || name === "dense";
-  if (!panel) {
+  {
     const discover = await usableDiscovery(page);
     await expect(
       discover.getByRole("link", { name: "Open ORBIT Discovery", exact: true }),
     ).toBeVisible();
     await expect(
       discover.getByRole("link", { name: "Open Tidal Discovery", exact: true }),
+    ).toBeVisible();
+    await expect(
+      discover.getByRole("list", { name: "Favorite people", exact: true })
+        .getByRole("link", { name: "Nori", exact: true }),
     ).toBeVisible();
     await discover.locator("img").evaluateAll(async (images) => {
       await Promise.all(
@@ -69,8 +73,8 @@ test.describe("Home schedule images @visual @snapshot @fixture", () => {
     await initializeDiscovery(
       page,
       timelineFixture,
-      timelineScenario === "timeline-visual"
-        ? timelineFixture.profileIds.slice(2, 4)
+      timelineScenario === "timeline-visual" || timelineScenario === "detail-visual"
+        ? timelineFixture.profileIds.slice(-3, -1)
         : [],
     );
   });
@@ -163,10 +167,11 @@ test.describe("Home schedule images @visual @snapshot @fixture", () => {
     await capture(page, "night");
   });
   test("empty range is settled", async ({ page }) => {
-    await page.goto(`/?at=${Date.UTC(2026, 10, 5, 12)}`);
+    await page.goto(`/?at=${Date.UTC(2036, 10, 5, 12)}`);
     await expect(
       page.getByLabel("Schedule data state", { exact: true }),
     ).toContainText("No events in this range");
+    await expect(page.getByRole("button", { name: "Next event", exact: true })).toHaveCount(0);
     await capture(page, "empty");
   });
   test("failed range keeps search and Retry usable", async ({ page }) => {
@@ -229,7 +234,7 @@ test.describe("Home schedule images @visual @snapshot @fixture", () => {
     await capture(page, "failed");
   });
   test.describe("dense lineup", () => {
-    test.use({ timelineScenario: "detail" });
+    test.use({ timelineScenario: "detail-visual" });
     test("later-page selected set remains visible in dense detail", async ({
       page,
     }) => {

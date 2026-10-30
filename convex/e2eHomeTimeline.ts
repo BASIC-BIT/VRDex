@@ -36,6 +36,7 @@ export const create = mutation({
       v.union(
         v.literal("prefetch"),
         v.literal("detail"),
+        v.literal("detail-visual"),
         v.literal("discovery"),
         v.literal("discovery-dense"),
         v.literal("discovery-sparse"),
@@ -340,8 +341,9 @@ export const create = mutation({
       }
       return { runId: args.runId, eventIds, slotIds, profileIds, lineupEntryIds: [] };
     }
+    const detail = args.scenario === "detail" || args.scenario === "detail-visual";
     const profiles: Id<"profiles">[] = [];
-    for (const kind of args.scenario === "detail"
+    for (const kind of detail
       ? (["community", "person", "hidden"] as const)
       : (["community", "person"] as const)) {
       const slug = `${args.runId}-${kind}`;
@@ -438,7 +440,7 @@ export const create = mutation({
       if (i < 4)
         for (
           let j = 0;
-          j < (args.scenario === "detail" && i === 3 ? 81 : 2);
+          j < (detail && i === 3 ? 81 : 2);
           j++
         )
           slotIds.push(
@@ -486,7 +488,7 @@ export const create = mutation({
             }),
           );
     }
-    if (args.scenario === "detail")
+    if (detail)
       for (let i = 0; i < 2; i++) {
         lineupEntryIds.push(await ctx.db.insert("eventLineupEntries", {
           eventId: eventIds[3],
@@ -498,7 +500,8 @@ export const create = mutation({
           updatedAt: Date.now(),
         }));
       }
-    if (args.scenario === "timeline-visual") {
+    if (args.scenario === "timeline-visual" || args.scenario === "detail-visual") {
+      const visualProfileStart = profiles.length;
       const genres = [
         {
           slug: "fixture-visual-liquid",
@@ -561,7 +564,7 @@ export const create = mutation({
             i === 8
               ? "/api/e2e/fixture-assets/fixture-orbit-timeline-poster"
               : "/api/e2e/fixture-assets/fixture-low-tide-discovery-poster",
-          communityProfileId: i === 8 ? profiles[2] : profiles[0],
+          communityProfileId: i === 8 ? profiles[visualProfileStart] : profiles[0],
           startAt,
           endAt: startAt + 4 * h,
           scheduleKind: "timed",
@@ -576,7 +579,7 @@ export const create = mutation({
           await ctx.db.insert("eventSlots", {
             eventId: id,
             position: 0,
-            personProfileId: i === 8 ? profiles[3] : profiles[4],
+            personProfileId: profiles[visualProfileStart + (i === 8 ? 1 : 2)],
             startAt,
             endAt: startAt + h,
             displayLabel: i === 8 ? "Nori" : "Iona",

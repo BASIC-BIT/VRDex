@@ -360,22 +360,24 @@ it("dense public-handler collection records bounded query and returned-row costs
     process.env = before;
   }
 });
-it("timeline visual scenario preserves Schedule geometry and uses score-separated owned recommendations without original favorites", async () => {
+for (const scenario of ["timeline-visual", "detail-visual"] as const)
+it(`${scenario} preserves Schedule geometry and uses score-separated owned recommendations without original favorites`, async () => {
   const before = { ...process.env };
   try {
     local();
     const t = convexTest({ schema, modules });
     const fixture = await t.mutation(api.e2eHomeTimeline.create, {
       ...args,
-      scenario: "timeline-visual",
+      scenario,
     });
     assert.equal(fixture.eventIds.length, 10);
-    assert.equal(fixture.profileIds.length, 5);
-    assert.equal(fixture.slotIds.length, 10);
+    assert.equal(fixture.profileIds.length, scenario === "detail-visual" ? 6 : 5);
+    assert.equal(fixture.slotIds.length, scenario === "detail-visual" ? 89 : 10);
+    assert.equal(fixture.lineupEntryIds.length, scenario === "detail-visual" ? 2 : 0);
     const first = await t.run((ctx) => ctx.db.get(fixture.eventIds[0]));
     assert.equal(first?.title, "Soft Focus");
     assert.equal(first?.startAt, args.startAt - 2 * 3600000);
-    const favoriteProfileIds = fixture.profileIds.slice(2, 4);
+    const favoriteProfileIds = fixture.profileIds.slice(-3, -1);
     assert.ok(!favoriteProfileIds.includes(fixture.profileIds[0]));
     assert.ok(!favoriteProfileIds.includes(fixture.profileIds[1]));
     const favoriteProfiles = (
@@ -429,7 +431,7 @@ it("timeline visual scenario preserves Schedule geometry and uses score-separate
       );
       assert.deepEqual(
         chosen.clubs.map((p) => p.id),
-        [fixture.profileIds[2], fixture.profileIds[0]],
+        [fixture.profileIds.at(-3), fixture.profileIds[0]],
       );
     }
     assert.deepEqual(
@@ -437,7 +439,9 @@ it("timeline visual scenario preserves Schedule geometry and uses score-separate
         secret: args.secret,
         runId: args.runId,
       }),
-      { events: 10, profiles: 5, slots: 10 },
+      scenario === "detail-visual"
+        ? { events: 10, profiles: 6, slots: 89, lineupEntries: 2 }
+        : { events: 10, profiles: 5, slots: 10 },
     );
   } finally {
     process.env = before;

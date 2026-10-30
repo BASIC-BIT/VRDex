@@ -15,6 +15,7 @@ export const test = base.extend<{
     | "default"
     | "prefetch"
     | "detail"
+    | "detail-visual"
     | "discovery"
     | "discovery-dense"
     | "discovery-sparse"
@@ -157,6 +158,7 @@ export const test = base.extend<{
         default: { events: 8, profiles: 2, slots: 8 },
         prefetch: { events: 8, profiles: 2, slots: 8 },
         detail: { events: 8, profiles: 3, slots: 87, lineupEntries: 2 },
+        "detail-visual": { events: 10, profiles: 6, slots: 89, lineupEntries: 2 },
         discovery: { events: 2, profiles: 4, slots: 2 },
         "discovery-dense": { events: 246, profiles: 8, slots: 5 },
         "discovery-sparse": { events: 1, profiles: 4, slots: 1 },
@@ -188,6 +190,7 @@ export const test = base.extend<{
                       runId,
                       startAt: timelineStartAt,
                       ...(timelineScenario === "detail" ||
+                      timelineScenario === "detail-visual" ||
                       timelineScenario === "timeline-visual" ||
                       timelineScenario === "short-sets" ||
                       timelineScenario.startsWith("discovery")

@@ -361,6 +361,10 @@ Agents select `ci:browsers` for UI, authentication, and navigation changes. Sele
 
 Browser selection includes public-route smoke on desktop and mobile, local mutation-backed journeys, hosted journeys when configured, signed-in account assertions, and public/Storybook previews. The Storybook build runs only for selected browser consumers. Main pushes skip these PR-only jobs; production deployment controls remain unchanged.
 
+The local data-flow job has a 30-minute budget for signed-in claim setup and the
+complete single-worker desktop flow suite. Individual test timeouts and fixture
+ownership checks still apply.
+
 In browsers-only mode, `Playwright Public Preview` and `Storybook Component Preview` run their existing assertions with `PLAYWRIGHT_CAPTURE_SCREENSHOTS=false`. They skip review PNG writes and attachments. Navigation, stabilization, editing, publication recovery, access checks, and cleanup still execute. Existing functional-flow diagnostic attachments, screenshots, traces, and videos keep their current behavior, including failure evidence. They do not establish that review screenshots were collected.
 
 With `ci:visuals`, both preview jobs collect review screenshots, and `Playwright Image Diff` and `Storybook Image Diff` compare committed baselines. Requested comparisons fail on mismatches, runtime failures, cancellation, or unexpected skips. CI never updates baselines.
@@ -526,7 +530,14 @@ The existing timeline full-page baselines also include Discover. Their
 two future events with score-separated public genre evidence. Its ten events,
 five profiles and ten slots share one atomic run. Favorite IDs belong only to
 the new DJ/club, so existing Schedule emphasis and My night actions stay intact.
-Snapshots explicitly await those real public cards and their images. The dense
+Snapshots explicitly await those real public cards, the favorite-person summary
+and their images, including inspector captures whose viewport includes Discover.
+The dense inspector visual uses `detail-visual`: the original detail fixture
+(81 selected-event slots plus two manual entries) with the same two owned future
+recommendations and three new profiles. Its exact cleanup is ten events, six
+profiles, 89 slots and two lineup entries; the ordinary `detail` counts stay
+unchanged. The empty-range visual navigates to November 2036 and asserts that
+Next event is absent, avoiding the rolling local seed in November 2026. The dense
 saved-set flow navigates to November 2036 for its empty outside-cache range;
 the previous November 2026 date can contain the ordinary rolling local seed.
 
