@@ -208,9 +208,11 @@ fencing and execution-time human/provider authorization remain mandatory.
 The worker authenticates its VRChat user, then reserves one shared account and
 integration allowance for the remaining preflight and write. Ordinary writes
 need two requests per minute, normal instance closes need three, and instance
-invitations need four. Lower effective limits reject the claimed action with
-`operation_budget_too_low` before provider reads or budget waits. Limits are
-never raised automatically.
+invitations need four. Calendar creates and updates with artwork need three
+requests per minute and other calendar operations need two; list pages after
+the first reserve one request each. Lower effective limits reject the claimed
+action with `operation_budget_too_low` before provider reads or budget waits.
+Limits are never raised automatically.
 
 The reserved allowance includes the current group grant read, the optional
 destination and friendship reads, and exactly one write. Local sliding budgets

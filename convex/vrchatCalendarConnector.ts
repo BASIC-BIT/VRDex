@@ -1,13 +1,16 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalMutation, type MutationCtx } from "./_generated/server";
+import { internalMutation, query, type MutationCtx } from "./_generated/server";
+import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { calendarEventItem, type OperationPayload, type VrchatCalendarItem } from "./_clubOperations";
 import { applyEventCandidate, candidateFromConnectorFields } from "./_eventCandidateApply";
+import { connectorsEnabled, requireConnectorAuthority } from "./_eventConnectors";
 import { enqueueSyncJob, eventIsSyncable } from "./_eventSync";
 import { eventPathForRecord } from "./_eventPaths";
 import { getPublicEventBySlug } from "./_eventPublic";
 import { eventDateForInstant } from "./_eventSchedule";
 import { toPublicEventShareCard } from "./_eventShareCard";
+import { canManageCalendarEvents, vrchatCalendarReadiness } from "./_vrchatCalendarConnector";
 import { enqueueConnectorOperation } from "./clubOperations";
 import { exportPayloadFromEvent, fieldsFromVrchatEvent, truncateTitle, vrchatCalendarEnabled } from "./eventSyncKinds/vrchatCalendar";
 
@@ -326,5 +329,18 @@ export const enqueuePolls = internalMutation({
       await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: connector._id, kind: "import_poll" });
     }
     return null;
+  },
+});
+
+// `ready` is what create would accept from this caller, so a staffer it would refuse sees a disabled button.
+export const availability = query({
+  args: { communityProfileId: v.id("profiles") },
+  returns: v.object({ enabled: v.boolean(), ready: v.boolean() }),
+  handler: async (ctx, { communityProfileId }) => {
+    const { userId } = await requireActiveBrowserSessionSubject(ctx);
+    await requireConnectorAuthority(ctx, communityProfileId, userId);
+    if (!connectorsEnabled() || !vrchatCalendarEnabled()) return { enabled: false, ready: false };
+    const { ready } = await vrchatCalendarReadiness(ctx.db, communityProfileId);
+    return { enabled: true, ready: ready && await canManageCalendarEvents(ctx, communityProfileId) };
   },
 });

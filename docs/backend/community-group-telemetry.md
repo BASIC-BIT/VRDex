@@ -36,6 +36,14 @@ and fleet proof gates pass. This lets the claim action distinguish a live proof
 reader from a generic running task, while the deployment gate can also reject
 an obsolete release.
 
+### Calendar operations
+
+`create_calendar_event`, `update_calendar_event`, `delete_calendar_event`, and `list_calendar_events` are the club operations behind the [VRChat calendar connector](event-schema.md#vrchat-calendar). All four need the `calendar` feature and the `manage_events` staff permission. The three writes also need the `group-calendar-manage` provider grant; the list needs none.
+
+Only connectors enqueue them. They are hidden from the staff operation list, cannot be created or edited through the staff API, and file no failure notice: the connector's `lastError` is their failure surface. A terminal state resumes the sync job waiting on the operation.
+
+For a create or update with artwork, the worker fetches the PNG over HTTPS and uploads it through `/file/image` before the event write.
+
 ## Automatic candidate queue
 
 Community submission and edit accept optional `primaryGroupUrl`. An explicit selection is preserved when omitted; `null` clears it and disables automatic selection. A selected URL must match one of the community's outbound group links. Without an explicit choice, a sole visible group link becomes the inferred primary. Multiple distinct group links require an explicit choice; link order never selects one. Inferred selections are recalculated when links change, and hidden links cannot qualify. The server records the authenticated contributor for new submissions and edits, then waits for the destination resolver to confirm an immutable group ID. Existing profiles without contributor provenance use the backfill quota. Admission, member sampling, and public projection recheck the current selection and immutable group ID. Explicit removal, clearing or relinking takes effect before scheduled reconciliation; verified and operator associations retain precedence.

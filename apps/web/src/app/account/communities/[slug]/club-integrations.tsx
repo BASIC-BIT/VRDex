@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs } from "convex/server";
 import { api } from "@convex-generated-api";
@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
+import { VrchatCalendarConnect } from "./club-vrchat-calendar";
 import { ClubAccessNotice, useClubWorkspace } from "./club-workspace";
 import {
   connectorTargetName,
@@ -110,11 +111,13 @@ export function ClubIntegrationsView({
   onUpdate,
   onRemove,
   now,
+  vrchatCalendarConnect,
 }: {
   connectors: readonly Connector[];
   onUpdate: (connectorId: ConnectorId, patch: ConnectorPatch) => Promise<unknown>;
   onRemove: (connectorId: ConnectorId) => Promise<unknown>;
   now: number;
+  vrchatCalendarConnect?: ReactNode;
 }) {
   const [failed, setFailed] = useState(false);
   const run = (action: () => Promise<unknown>) => {
@@ -147,6 +150,8 @@ export function ClubIntegrationsView({
           </ul>
         </Card>
       ) : null}
+      {/* A group has one calendar, so a second connect could only fail. */}
+      {rows.some((connector) => connector.kind === "vrchat_calendar") ? null : vrchatCalendarConnect}
     </div>
   );
 }
@@ -168,6 +173,7 @@ function ConnectedIntegrations({ communityProfileId }: { communityProfileId: Id<
       now={now}
       onUpdate={(connectorId, patch) => update({ connectorId, ...patch })}
       onRemove={(connectorId) => remove({ connectorId })}
+      vrchatCalendarConnect={<VrchatCalendarConnect communityProfileId={communityProfileId} />}
     />
   );
 }

@@ -3,7 +3,7 @@ import { beforeEach, describe, it } from "node:test";
 import { convexTest, type TestConvex } from "convex-test";
 import schemaModule from "../../convex/schema";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
-import { internal } from "../../convex/_generated/api";
+import { api, internal } from "../../convex/_generated/api";
 import type { VrchatCalendarItem } from "../../convex/_clubOperations";
 import { candidateFromConnectorFields } from "../../convex/_eventCandidateApply";
 import { candidatePatch } from "../../apps/web/src/lib/event-intake-source";
@@ -13,7 +13,7 @@ import { correctionFields } from "../../convex/eventCorrections";
 import { exportPayloadFromEvent, fieldsFromVrchatEvent, truncateTitle } from "../../convex/eventSyncKinds/vrchatCalendar";
 import type { VrchatJobPayload } from "../../convex/vrchatCalendarConnector";
 import {
-  CAL_1, EVENT_URL, GROUP_ID, NOW, SITE, calId, eventDoc, modules, operations, rerunJob, runSyncJob, seedEvent, seedVrchatConnector, setupEnv, vrchatItem, workerSettle,
+  CAL_1, EVENT_URL, GROUP_ID, NOW, SITE, asOwner, asStaff, calId, eventDoc, modules, operations, rerunJob, runSyncJob, seedEvent, seedVrchatConnector, setupEnv, vrchatItem, workerSettle,
 } from "./_vrchatCalendarFixture";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
@@ -542,5 +542,85 @@ describe("vrchat calendar import", () => {
     });
     await t.mutation(internal.vrchatCalendarConnector.enqueuePolls, {});
     assert.equal((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((j) => j.kind === "import_poll").length, 1);
+  });
+});
+
+describe("vrchat calendar connect gate", () => {
+  beforeEach(setupEnv);
+  const args = (communityProfileId: Id<"profiles">) => ({ communityProfileId, kind: "vrchat_calendar" as const, direction: "export" as const, mode: "hold" as const, target: { timezone: "America/New_York", groupId: "grp_99999999-9999-9999-9999-999999999999" } });
+  const connectors = (t: TestConvex<typeof schema>) => t.run((ctx) => ctx.db.query("eventConnectors").collect());
+
+  it("refuses without an assigned collector account or the calendar feature", async () => {
+    for (const options of [{ assigned: false }, { features: ["posts"] }]) {
+      const t = convexTest({ schema, modules });
+      const { communityProfileId } = await seedVrchatConnector(t, { ...options, connector: false });
+      await assert.rejects(asOwner(t).mutation(api.eventConnectors.create, args(communityProfileId)), /CONNECTOR_UNAVAILABLE/);
+      assert.deepEqual(await asOwner(t).query(api.vrchatCalendarConnector.availability, { communityProfileId }), { enabled: true, ready: false });
+    }
+  });
+
+  it("refuses an authority without manage_events", async () => {
+    const t = convexTest({ schema, modules });
+    const { communityProfileId } = await seedVrchatConnector(t, { authority: "integrations_only", connector: false });
+    await assert.rejects(asStaff(t).mutation(api.eventConnectors.create, args(communityProfileId)), /CONNECTOR_FORBIDDEN/);
+    assert.equal((await connectors(t)).length, 0);
+    assert.deepEqual(await asStaff(t).query(api.vrchatCalendarConnector.availability, { communityProfileId }), { enabled: true, ready: false });
+  });
+
+  it("accepts staff holding both manage_integrations and manage_events", async () => {
+    const t = convexTest({ schema, modules });
+    const { communityProfileId } = await seedVrchatConnector(t, { authority: "integrations_only", connector: false });
+    await t.run(async (ctx) => {
+      const role = (await ctx.db.query("communityRoles").first())!;
+      await ctx.db.patch(role._id, { permissions: ["manage_integrations", "manage_events"] });
+    });
+    assert.deepEqual(await asStaff(t).query(api.vrchatCalendarConnector.availability, { communityProfileId }), { enabled: true, ready: true });
+    await asStaff(t).mutation(api.eventConnectors.create, args(communityProfileId));
+    assert.equal((await connectors(t)).length, 1);
+  });
+
+  it("refuses with the kind flag off", async () => {
+    const t = convexTest({ schema, modules });
+    const { communityProfileId } = await seedVrchatConnector(t, { connector: false });
+    process.env.VRDEX_CONNECTOR_VRCHAT_CALENDAR_ENABLED = "false";
+    await assert.rejects(asOwner(t).mutation(api.eventConnectors.create, args(communityProfileId)), /CONNECTOR_UNAVAILABLE/);
+    assert.deepEqual(await asOwner(t).query(api.vrchatCalendarConnector.availability, { communityProfileId }), { enabled: false, ready: false });
+  });
+
+  it("availability requires connector authority and reports a ready community", async () => {
+    const t = convexTest({ schema, modules });
+    const { communityProfileId } = await seedVrchatConnector(t, { connector: false });
+    await t.run((ctx) => ctx.db.insert("users", { clerkUserId: "staff" }));
+    await assert.rejects(asStaff(t).query(api.vrchatCalendarConnector.availability, { communityProfileId }), /CONNECTOR_FORBIDDEN/);
+    assert.deepEqual(await asOwner(t).query(api.vrchatCalendarConnector.availability, { communityProfileId }), { enabled: true, ready: true });
+  });
+
+  it("creates with the integration's group and enqueues a reconcile", async () => {
+    const t = convexTest({ schema, modules });
+    const { communityProfileId } = await seedVrchatConnector(t, { connector: false });
+    const connectorId = await asOwner(t).mutation(api.eventConnectors.create, args(communityProfileId));
+    assert.deepEqual((await t.run((ctx) => ctx.db.get(connectorId)))!.target, { groupId: GROUP_ID, timezone: "America/New_York" });
+    assert.deepEqual((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).map((j) => j.kind), ["reconcile"]);
+  });
+
+  it("takes a timezone-only target, ignores a caller's calendar, and falls back to UTC", async () => {
+    const stored = async (target: Record<string, string>) => {
+      const t = convexTest({ schema, modules });
+      const { communityProfileId } = await seedVrchatConnector(t, { connector: false });
+      const connectorId = await asOwner(t).mutation(api.eventConnectors.create, { ...args(communityProfileId), target });
+      return (await t.run((ctx) => ctx.db.get(connectorId)))!.target;
+    };
+    assert.deepEqual(await stored({ timezone: "Asia/Tokyo" }), { groupId: GROUP_ID, timezone: "Asia/Tokyo" });
+    assert.deepEqual(await stored({ timezone: "Asia/Tokyo", calendarId: "cal", groupName: "Renamed" }), { groupId: GROUP_ID, timezone: "Asia/Tokyo" });
+    assert.deepEqual(await stored({ timezone: "Not/AZone" }), { groupId: GROUP_ID, timezone: "UTC" });
+    assert.deepEqual(await stored({}), { groupId: GROUP_ID, timezone: "UTC" });
+  });
+
+  it("refuses a second live connector for the group whatever group the caller names", async () => {
+    const t = convexTest({ schema, modules });
+    const { communityProfileId } = await seedVrchatConnector(t, { connector: false });
+    await asOwner(t).mutation(api.eventConnectors.create, args(communityProfileId));
+    await assert.rejects(asOwner(t).mutation(api.eventConnectors.create, { ...args(communityProfileId), target: { timezone: "UTC" } }), /CONNECTOR_EXISTS/);
+    assert.equal((await connectors(t)).length, 1);
   });
 });

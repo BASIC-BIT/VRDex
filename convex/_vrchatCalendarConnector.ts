@@ -1,6 +1,7 @@
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { DatabaseReader, MutationCtx } from "./_generated/server";
+import type { DatabaseReader, MutationCtx, QueryCtx } from "./_generated/server";
+import { resolveClubActor } from "./_clubAccess";
 import { readManagedIntegration } from "./_groupObservationPolicy";
 import { enabledClubFeatures } from "./_clubConnection";
 import { cancelPendingSchedule } from "./_eventSync";
@@ -18,6 +19,12 @@ export async function vrchatCalendarReadiness(db: DatabaseReader, communityProfi
   if (!integration.assignedCollectorAccountId) return { ready: false, code: "no_collector_account" };
   if (!enabledClubFeatures(integration).includes("calendar")) return { ready: false, code: "feature_disabled" };
   return { ready: true, integration };
+}
+
+// Owner or manage_events, as enqueueConnectorOperation requires: a super admin's standing would not carry to the jobs.
+export async function canManageCalendarEvents(ctx: QueryCtx | MutationCtx, communityProfileId: Id<"profiles">): Promise<boolean> {
+  const actor = await resolveClubActor(ctx, communityProfileId);
+  return actor.kind === "owner" || actor.permissions.includes("manage_events");
 }
 
 // A terminal connector operation wakes the sync job waiting on it now instead of at the end of its wait.

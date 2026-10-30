@@ -99,8 +99,10 @@ fails and the connector failure alarm fires.
 `VRDEX_CONNECTOR_VRCHAT_CALENDAR_ENABLED` turns the VRChat calendar connector
 kind on when set to `true`. Scope: the Convex deployment environment only.
 Default: unset, which means off. Owner: BASIC. Non-secret; rotation does not
-apply. While it is off, VRChat calendar sync jobs fail with
-`CONNECTOR_KIND_DISABLED` and enqueue no club operations. Enable it only after
+apply. While it is off, the Integrations page hides the Connect control, connector
+creation throws `CONNECTOR_UNAVAILABLE`, polls are not enqueued, and VRChat
+calendar sync jobs fail with `CONNECTOR_KIND_DISABLED` and enqueue no club
+operations. Enable it only after
 the collector release-readiness check shows a collector running the worker that
 executes calendar operations.
 

@@ -5,6 +5,7 @@ import {
   type ConnectorPatch,
 } from "@/app/account/communities/[slug]/club-integrations";
 import type { Connector } from "@/app/account/communities/[slug]/club-integrations-model";
+import { VrchatCalendarConnectView } from "@/app/account/communities/[slug]/club-vrchat-calendar";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 const NOW = Date.UTC(2026, 9, 29, 12);
@@ -37,7 +38,13 @@ const fixtures: Connector[] = [
   row({ connectorId: id("notion"), kind: "notion", direction: "off", mode: "hold", state: "active", target: {} }),
 ];
 
-function Preview({ connectors = fixtures }: { connectors?: Connector[] }) {
+const withoutCalendar = fixtures.filter((connector) => connector.kind !== "vrchat_calendar");
+
+function Preview({ connectors = fixtures, calendar, connectFails = false }: {
+  connectors?: Connector[];
+  calendar?: { enabled: boolean; ready: boolean };
+  connectFails?: boolean;
+}) {
   const [rows, setRows] = useState(connectors);
   const [submitted, setSubmitted] = useState("");
   return (
@@ -52,6 +59,16 @@ function Preview({ connectors = fixtures }: { connectors?: Connector[] }) {
             : row));
         }}
         onRemove={async (connectorId) => setRows((current) => current.filter((row) => row.connectorId !== connectorId))}
+        vrchatCalendarConnect={
+          <VrchatCalendarConnectView
+            availability={calendar}
+            onConnect={async (direction) => {
+              if (connectFails) throw new Error("CONNECTOR_EXISTS");
+              setSubmitted(JSON.stringify({ kind: "vrchat_calendar", direction }));
+              setRows((current) => [...current, row({ connectorId: id("connected"), kind: "vrchat_calendar", direction, mode: "hold", state: "active", target: { groupId: "grp_afterhours" } })]);
+            }}
+          />
+        }
       />
       <output aria-label="Submitted connector update" className="sr-only">{submitted}</output>
     </div>
@@ -67,3 +84,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Connectors: Story = {};
 export const Empty: Story = { args: { connectors: [] } };
+export const CalendarReady: Story = { args: { connectors: withoutCalendar, calendar: { enabled: true, ready: true } } };
+export const CalendarNotReady: Story = { args: { connectors: withoutCalendar, calendar: { enabled: true, ready: false } } };
+export const CalendarFlagOff: Story = { args: { connectors: withoutCalendar, calendar: { enabled: false, ready: false } } };
+export const CalendarConnectFails: Story = { args: { connectors: [], calendar: { enabled: true, ready: true }, connectFails: true } };
