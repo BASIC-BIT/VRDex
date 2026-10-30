@@ -2,6 +2,7 @@ import { convexTest } from "convex-test";
 
 import { internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
+import { internalQuery } from "../../convex/_generated/server";
 import { loadEventsWithFixtureCapacity } from "./_eventCapacityFixture";
 import { bindVrcdnTestAccount } from "./_eventOutputAccountFixture";
 import { newClerkUserId } from "./_clerkTestIdentity";
@@ -22,10 +23,17 @@ export const seriesModules = {
   "../../convex/eventSync.ts": () => import("../../convex/eventSync"),
 };
 
-export async function loadEventSeriesWithNotifier(sent: Alert[], resolved: string[]) {
+export async function loadEventSeriesWithNotifier(sent: Alert[], resolved: string[], listFails = () => false) {
   const eventSeries = await import("../../convex/eventSeries");
   return {
     ...eventSeries,
+    listActiveSeriesIds: internalQuery({
+      args: {},
+      handler: async (ctx) => {
+        if (listFails()) throw new Error("listing failed");
+        return (await ctx.db.query("eventSeries").collect()).map((series) => series._id);
+      },
+    }),
     materializeAll: eventSeries.createMaterializeAll({
       notify: async (_ctx, alert) => { sent.push(alert); },
       resolve: async (_ctx, key) => { resolved.push(key); },

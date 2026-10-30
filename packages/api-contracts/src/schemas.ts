@@ -589,6 +589,7 @@ const PublicEventObject = PublicEventPreviewObject.extend({
   mediaLinks: z.array(PublicEventMediaLinkSchema).optional(),
   participants: z.array(PublicEventParticipantSchema).optional(),
   lineup: z.array(PublicEventLineupEntrySchema).optional(),
+  seriesId: z.string().min(1).optional(),
   slots: z.array(PublicEventSlotSchema).optional(),
   slug,
   watchMode: EventWatchModeSchema.default("event_stream"),

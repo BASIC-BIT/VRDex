@@ -34,6 +34,8 @@ const nullableString = v.optional(v.union(v.string(), v.null()));
 
 type MaterializeResult = { created: Id<"events">[]; adopted: Id<"events">[]; skipped: string[] };
 
+const RUN_ALERT_KEY = "series_materialize_failed:all";
+
 export const materialize = internalMutation({
   args: { seriesId: v.id("eventSeries") },
   handler: async (ctx, { seriesId }): Promise<MaterializeResult> =>
@@ -54,7 +56,29 @@ export function createMaterializeAll(alerts: { notify: typeof notifyOps; resolve
     args: {},
     handler: async (ctx): Promise<null> => {
       if (!recurringEventsEnabled()) return null;
-      const seriesIds: Id<"eventSeries">[] = await ctx.runQuery(internal.eventSeries.listActiveSeriesIds, {});
+      const notify = async (key: string, body: string) => {
+        try {
+          await alerts.notify(ctx, { key, subject: "Series materialisation failed", body });
+        } catch (alertError) {
+          console.error("series alert failed", { key, alertError });
+        }
+      };
+      const resolve = async (key: string) => {
+        try {
+          await alerts.resolve(ctx, key);
+        } catch (alertError) {
+          console.error("series alert resolve failed", { key, alertError });
+        }
+      };
+      const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+      let seriesIds: Id<"eventSeries">[];
+      try {
+        seriesIds = await ctx.runQuery(internal.eventSeries.listActiveSeriesIds, {});
+      } catch (error) {
+        await notify(RUN_ALERT_KEY, messageOf(error));
+        return null;
+      }
+      await resolve(RUN_ALERT_KEY);
       // ponytail: sequential runMutation per active series; fan out with the scheduler if the daily run nears the action time limit
       for (const seriesId of seriesIds) {
         const key = "series_materialize_failed:" + seriesId;
@@ -62,19 +86,10 @@ export function createMaterializeAll(alerts: { notify: typeof notifyOps; resolve
         try {
           await ctx.runMutation(internal.eventSeries.materialize, { seriesId });
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          try {
-            await alerts.notify(ctx, { key, subject: "Series materialisation failed", body: seriesId + ": " + message });
-          } catch (alertError) {
-            console.error("series alert failed", { seriesId, alertError });
-          }
+          await notify(key, seriesId + ": " + messageOf(error));
           continue;
         }
-        try {
-          await alerts.resolve(ctx, key);
-        } catch (alertError) {
-          console.error("series alert resolve failed", { seriesId, alertError });
-        }
+        await resolve(key);
       }
       return null;
     },

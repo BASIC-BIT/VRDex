@@ -183,6 +183,28 @@ it("the cron alerts ops on a failed series, still materialises the others, and r
   assert.equal((await occurrences(t, broken)).length, 8);
 });
 
+it("the cron alerts once under a run key when the series list fails, and resolves on recovery", async (test) => {
+  test.mock.timers.enable({ apis: ["Date"], now: NOW });
+  const sent: Array<{ key: string; subject: string; body: string }> = [];
+  const resolved: string[] = [];
+  let listFails = true;
+  const t = convexTest({
+    schema,
+    modules: { ...seriesModules, "../../convex/eventSeries.ts": () => loadEventSeriesWithNotifier(sent, resolved, () => listFails) },
+  });
+  const owner = await seedSeriesCommunity(t);
+  const seriesId = await insertSeries(t, owner);
+  await t.action(internal.eventSeries.materializeAll, {});
+  assert.deepEqual(sent.map((alert) => alert.key), ["series_materialize_failed:all"]);
+  assert.match(sent[0]!.body, /listing failed/);
+  assert.deepEqual(resolved, []);
+  listFails = false;
+  await t.action(internal.eventSeries.materializeAll, {});
+  assert.equal(sent.length, 1);
+  assert.ok(resolved.includes("series_materialize_failed:all"));
+  assert.equal((await occurrences(t, seriesId)).length, 8);
+});
+
 it("does nothing when the flag is off", async (test) => {
   const { t, seriesId } = await setup(test, NOW);
   process.env.VRDEX_RECURRING_EVENTS_ENABLED = "false";

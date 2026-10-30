@@ -1380,6 +1380,8 @@ async function updateCommunityEventRecord(
           ...(publicationState === "published" ? { publishedAt: event.publishedAt ?? now, seriesRetiredAt: undefined } : {}),
         }),
     updatedAt: now,
+    // A series stays inside its community, so a moved night stops being one of its occurrences.
+    ...(community._id === event.communityProfileId ? {} : { seriesId: undefined, occurrenceDate: undefined, overrides: undefined, seriesRetiredAt: undefined }),
     ...contributorStaffLock(event, now),
   });
   const updatedEvent = await db.get(event._id);
@@ -1444,7 +1446,7 @@ async function updateCommunityEventRecord(
       preserveAssociationIds: preserveWorldAssociationIds,
     });
   }
-  if (event.seriesId !== undefined) {
+  if (updatedEvent.seriesId !== undefined) {
     // The browser passes no world when the chooser keeps it, so compare the linked worlds, not the argument.
     const worldChanged = replaceWorld && (await linkedPublishedEventWorld(db, event._id))?.slug !== previousWorldSlug;
     await recordOccurrenceOverrides(db, event, updatedEvent, worldChanged);

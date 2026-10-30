@@ -357,6 +357,7 @@ export async function materializeSeries(
       bannerImageUrl: series.bannerImageUrl,
       thumbnailImageUrl: series.thumbnailImageUrl,
       sourceUrl: series.sourceUrl,
+      sourceLabel: series.sourceLabel,
     };
     const { eventId } = await insertCommunityEventRecord(ctx, {
       input: { ...sanitizeEventDraftInput(ownerInput), startAt: times.startAt },
@@ -452,6 +453,7 @@ export async function createSeriesFromEvent(
     bannerImageUrl: event.bannerImageUrl,
     thumbnailImageUrl: event.thumbnailImageUrl,
     sourceUrl: event.sourceUrl,
+    sourceLabel: event.sourceLabel,
     endsOn: repeat.endsOn,
     count: repeat.count,
     communityProfileId,
@@ -466,7 +468,8 @@ export async function createSeriesFromEvent(
     updatedAt: now,
   });
   await ctx.db.patch(event._id, { seriesId, occurrenceDate: startsOn, overrides: [], updatedAt: now });
-  // Patched directly, so no record helper enqueued it; materialised nights enqueue inside insertCommunityEventRecord.
+  // The link is a direct patch, so it needs its own enqueue. On create with `repeat`, the record helper already queued
+  // this event and this replaces that pending job. Materialised nights enqueue inside insertCommunityEventRecord.
   await enqueueEventSync(ctx.db, ctx.scheduler, event._id, "upsert");
   const { created } = await materializeSeries(ctx, seriesId, now);
   return { seriesId, created: created.length };

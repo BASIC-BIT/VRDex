@@ -1256,6 +1256,7 @@ export default defineSchema({
     bannerImageUrl: v.optional(v.string()),
     thumbnailImageUrl: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
+    sourceLabel: v.optional(v.string()),
     rule: eventSeriesRuleValidator,
     startsOn: v.string(),
     endsOn: v.optional(v.string()),

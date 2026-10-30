@@ -11051,6 +11051,9 @@ components:
                   - position
                   - displayLabel
                 additionalProperties: {}
+            seriesId:
+              type: string
+              minLength: 1
             slots:
               type: array
               items:
@@ -11814,6 +11817,9 @@ components:
                   - position
                   - displayLabel
                 additionalProperties: {}
+            seriesId:
+              type: string
+              minLength: 1
             slots:
               type: array
               items:

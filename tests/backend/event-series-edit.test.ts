@@ -268,6 +268,25 @@ it("rejects a non-manager, a reset of a field that is not overridden, and a disa
   assert.equal((await t.run(ctx => ctx.db.get(seriesId)))!.summary, "Weekly");
 });
 
+it("moving a night to another community detaches it, so the series can no longer write to it", async (test) => {
+  const { t, owner, seriesId, n20 } = await setup(test);
+  const other = await t.run(async ctx => {
+    const profileId = await ctx.db.insert("profiles", {
+      slug: "elsewhere", displayName: "Elsewhere", sortName: "elsewhere", aliases: [], tags: [], claimState: "claimed_verified",
+      publicationState: "published", publicSurfacingState: "public", creationSource: "self", updatedAt: NOW, profileType: "community", community: { categoryTags: [] },
+    });
+    await ctx.db.insert("profileOwners", { profileId, userId: owner.userId, roleKey: "owner", state: "active", grantedAt: NOW, updatedAt: NOW });
+    return profileId;
+  });
+  await t.mutation(internal.events.updateCommunityEventForApiOwner, {
+    actorKind: "personal_api_token", ownerUserId: owner.userId, currentSlug: n20.slug!, communitySlug: "elsewhere", summary: "Moved",
+  } as never);
+  const moved = (await t.run(ctx => ctx.db.get(n20._id)))!;
+  assert.deepEqual([moved.communityProfileId, moved.seriesId, moved.occurrenceDate, moved.overrides], [other, undefined, undefined, undefined]);
+  await t.withIdentity(owner.identity).mutation(api.eventSeries.update, { seriesId, summary: "Series edit" });
+  assert.equal((await t.run(ctx => ctx.db.get(n20._id)))!.summary, "Moved");
+});
+
 it("the editor read carries the night's series and overrides", async (test) => {
   const { t, owner, seriesId, n13 } = await setup(test);
   await t.run(ctx => ctx.db.patch(n13._id, { overrides: ["summary"] }));

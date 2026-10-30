@@ -137,3 +137,18 @@ it("rejects creation when the flag is off", async (test) => {
   process.env.VRDEX_RECURRING_EVENTS_ENABLED = "false";
   await assert.rejects(t.withIdentity(owner.identity).mutation(api.eventSeries.create, { eventSlug: event.slug, repeat: { frequency: "weekly" } }), /Recurring events are not enabled\./);
 });
+
+it("copies the source label to the series and new nights, without fanning it out", async (test) => {
+  test.mock.timers.enable({ apis: ["Date"], now: NOW });
+  const t = convexTest({ schema, modules: seriesModules });
+  const owner = await seedSeriesCommunity(t);
+  const me = t.withIdentity(owner.identity);
+  const event = await me.mutation(api.events.createCommunityEvent, {
+    title: "Harbor Night", timezone: "America/New_York", communitySlug: "faceless", published: true,
+    startAt: Date.parse("2026-11-07T01:00:00Z"), sourceLabel: "Harbor crew",
+  } as never);
+  const { seriesId } = await me.mutation(api.eventSeries.create, { eventSlug: event.slug, repeat: { frequency: "weekly" } });
+  assert.equal((await t.run(ctx => ctx.db.get(seriesId)))!.sourceLabel, "Harbor crew");
+  const night = await occurrence(t, seriesId, "2026-11-13");
+  assert.deepEqual([night.sourceLabel, night.overrides], ["Harbor crew", []]);
+});
