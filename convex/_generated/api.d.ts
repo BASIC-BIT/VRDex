@@ -190,6 +190,7 @@ import type * as eventMediaSettings from "../eventMediaSettings.js";
 import type * as eventMediaSources from "../eventMediaSources.js";
 import type * as eventMediaWorker from "../eventMediaWorker.js";
 import type * as eventScheduleMigration from "../eventScheduleMigration.js";
+import type * as eventSeries from "../eventSeries.js";
 import type * as eventSync from "../eventSync.js";
 import type * as eventSyncKinds_index from "../eventSyncKinds/index.js";
 import type * as eventSyncKinds_types from "../eventSyncKinds/types.js";
@@ -427,6 +428,7 @@ declare const fullApi: ApiFromModules<{
   eventMediaSources: typeof eventMediaSources;
   eventMediaWorker: typeof eventMediaWorker;
   eventScheduleMigration: typeof eventScheduleMigration;
+  eventSeries: typeof eventSeries;
   eventSync: typeof eventSync;
   "eventSyncKinds/index": typeof eventSyncKinds_index;
   "eventSyncKinds/types": typeof eventSyncKinds_types;

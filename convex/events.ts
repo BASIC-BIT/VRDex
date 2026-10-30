@@ -1194,7 +1194,7 @@ export const listCommunityManagedEventsForApiOwner = internalQuery({
   },
 });
 
-async function insertCommunityEventRecord(
+export async function insertCommunityEventRecord(
   ctx: MutationCtx,
   options: {
     input: SanitizedEventDraftInput & Pick<SanitizedEventOwnerDraftInput, "lineup" | "venueLabel">;
@@ -1203,6 +1203,7 @@ async function insertCommunityEventRecord(
     submitter: AuthSubject;
     publicationState?: Doc<"events">["publicationState"];
     actorSurface?: Doc<"eventAuditEvents">["actorSurface"];
+    occurrence?: { seriesId: Id<"eventSeries">; occurrenceDate: string };
   },
 ) {
   const { db } = ctx;
@@ -1236,6 +1237,7 @@ async function insertCommunityEventRecord(
     ...(publicationState === "published" ? { publishedAt: now } : {}),
     createdAt: now,
     updatedAt: now,
+    ...(options.occurrence ? { ...options.occurrence, overrides: [] } : {}),
   });
   const shortLink = await ensureShortLinkForTarget(
     db,

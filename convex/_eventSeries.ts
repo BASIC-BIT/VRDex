@@ -1,5 +1,15 @@
-import type { Doc } from "./_generated/dataModel";
+import { resolveEventLocalTime } from "../packages/api-contracts/src/event-intake";
+import type { AuthSubject } from "./_communityAuthority";
+import { sanitizeEventDraftInput, type EventOwnerDraftInput } from "./_eventInputs";
+import { eventOutputIsAuthorized } from "./_eventOutputSetup";
+import { eventDateForInstant } from "./_eventSchedule";
 import type { SeriesRule } from "./_eventSeriesModel";
+import { enqueueEventSync } from "./_eventSync";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { DatabaseReader, DatabaseWriter, MutationCtx } from "./_generated/server";
+import { canReadProfile } from "./_profilePermissions";
+import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
+import { insertCommunityEventRecord } from "./events";
 
 const DAY_MS = 86_400_000;
 const MAX_COUNT = 520;
@@ -101,4 +111,177 @@ export function validateSeriesRule(
   if (bounds.count !== undefined && (!Number.isInteger(bounds.count) || bounds.count < 1 || bounds.count > MAX_COUNT)) {
     throw new Error(`Repeat count must be 1 to ${MAX_COUNT}.`);
   }
+}
+
+/** Rule wall-clock times on `date` in the series timezone; null when the start does not exist that night. */
+export function occurrenceTimes(
+  series: Pick<Doc<"eventSeries">, "rule" | "timezone">,
+  date: string,
+): { startAt: number; doorsOpenAt?: number; endAt?: number } | null {
+  const { rule, timezone } = series;
+  // A repeated hour resolves to both instants ascending; index 0 is the earlier one.
+  const at = (time: string, dayOffset: number) => resolveEventLocalTime(date, { time, dayOffset }, timezone)[0];
+  const startAt = at(rule.startTime, 0);
+  if (startAt === undefined) return null;
+  const doorsOpenAt = rule.doorsTime === undefined ? undefined : at(rule.doorsTime, rule.doorsTime > rule.startTime ? -1 : 0);
+  const endAt = rule.endTime === undefined ? undefined : at(rule.endTime, rule.endTime <= rule.startTime ? 1 : 0);
+  return { startAt, doorsOpenAt, endAt };
+}
+
+export function seriesAuthSubject(series: Doc<"eventSeries">): AuthSubject {
+  return { tokenIdentifier: "series:" + series._id, issuer: "vrdex-series", subject: series.authorityUserId, displayName: "VRDex" };
+}
+
+/** Task 3 replaces this stub with title-and-date adoption. */
+async function adoptStandaloneEvent(
+  _db: DatabaseWriter,
+  _series: Doc<"eventSeries">,
+  _date: string,
+): Promise<Id<"events"> | null> {
+  return null;
+}
+
+// Never throws: an unpublished world must not fail the series every day, so the night goes unlinked.
+async function publishedWorldOrUndefined(db: DatabaseReader, series: Doc<"eventSeries">) {
+  if (series.worldSlug === undefined) return undefined;
+  const validation = validateWorldSlug(series.worldSlug);
+  const world = validation.ok ? await getWorldBySlug(db, validation.slug) : null;
+  if (world?.publicationState === "published") return world;
+  console.warn("series world not published", { seriesId: series._id, worldSlug: series.worldSlug });
+  return undefined;
+}
+
+/** The programme of the latest occurrence that has one. */
+async function templateProgram(db: DatabaseReader, seriesId: Id<"eventSeries">) {
+  const nights = db.query("events").withIndex("by_seriesId_occurrenceDate", (q) => q.eq("seriesId", seriesId)).order("desc");
+  for await (const night of nights) {
+    const program = await db
+      .query("eventMediaPrograms")
+      .withIndex("by_eventId_updatedAt", (q) => q.eq("eventId", night._id))
+      .order("desc")
+      .first();
+    if (program !== null) return program;
+  }
+  return null;
+}
+
+// Programme settings and authorized outputs only; sources, scenes, sessions and commands are night-owned.
+// Copied once at creation; later template edits are not fanned out (spec ceiling).
+async function copyProgram(db: DatabaseWriter, template: Doc<"eventMediaPrograms">, event: Doc<"events">, now: number) {
+  const programId = await db.insert("eventMediaPrograms", {
+    mediaSettings: template.mediaSettings,
+    broadcastPolicy: template.broadcastPolicy,
+    eventId: event._id,
+    communityProfileId: template.communityProfileId,
+    state: "draft",
+    publicLinks: template.publicLinks,
+    directFallbackLinks: template.directFallbackLinks,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const outputs = await db.query("eventMediaOutputs").withIndex("by_programId_key", (q) => q.eq("programId", template._id)).collect();
+  for (const output of outputs) {
+    if (!eventOutputIsAuthorized(event, output)) continue;
+    const state = output.state === "active" ? "ready" : output.state;
+    const outputId = await db.insert("eventMediaOutputs", {
+      programId,
+      eventId: event._id,
+      key: output.key,
+      type: output.type,
+      accountModel: output.accountModel,
+      state,
+      label: output.label,
+      region: output.region,
+      credential: output.credential,
+      vrcdnSetup: output.vrcdnSetup,
+      twitchSetup: output.twitchSetup,
+      simulcastEnabled: output.simulcastEnabled,
+      compliance: output.compliance,
+      playbackLinks: output.playbackLinks,
+      createdAt: now,
+      updatedAt: now,
+    });
+    if (output._id === template.currentOutputId) {
+      await db.patch(programId, { currentOutputId: outputId, state: state === "ready" ? "ready" : "draft" });
+    }
+  }
+}
+
+/** Creates the series' missing nights up to its horizon, keyed by seriesId plus occurrenceDate. */
+export async function materializeSeries(
+  ctx: MutationCtx,
+  seriesId: Id<"eventSeries">,
+  now: number,
+): Promise<{ created: Id<"events">[]; adopted: Id<"events">[]; skipped: string[] }> {
+  const result = { created: [] as Id<"events">[], adopted: [] as Id<"events">[], skipped: [] as string[] };
+  const { db } = ctx;
+  const series = await db.get(seriesId);
+  if (series === null || series.state !== "active") return result;
+
+  const today = eventDateForInstant(now, series.timezone);
+  const from = series.startsOn > today ? series.startsOn : today;
+  const to = eventDateForInstant(now + series.horizonDays * DAY_MS, series.timezone);
+  const dates = occurrenceDates(series, from, to);
+  if (dates.length === 0) return result;
+
+  const community = await db.get(series.communityProfileId);
+  if (community === null || community.profileType !== "community" || !canReadProfile("public", community)) {
+    console.warn("series community not published", { seriesId });
+    return result;
+  }
+  const world = await publishedWorldOrUndefined(db, series);
+  const template = await templateProgram(db, seriesId);
+
+  for (const date of dates) {
+    const existing = await db
+      .query("events")
+      .withIndex("by_seriesId_occurrenceDate", (q) => q.eq("seriesId", seriesId).eq("occurrenceDate", date))
+      .first();
+    if (existing !== null) continue;
+
+    const adopted = await adoptStandaloneEvent(db, series, date);
+    if (adopted !== null) {
+      // Patched directly, so no record helper enqueued it.
+      await enqueueEventSync(db, ctx.scheduler, adopted, "upsert");
+      result.adopted.push(adopted);
+      continue;
+    }
+
+    const times = occurrenceTimes(series, date);
+    if (times === null) {
+      console.warn("series occurrence skipped", { seriesId, date });
+      result.skipped.push(date);
+      continue;
+    }
+    if (times.startAt <= now) continue;
+
+    const ownerInput: EventOwnerDraftInput = {
+      title: series.title,
+      ...times,
+      timezone: series.timezone,
+      communitySlug: community.slug,
+      summary: series.summary,
+      venueLabel: series.venueLabel,
+      mediaLinks: series.mediaLinks,
+      watchMode: series.watchMode,
+      watchSurfaceEnabled: series.watchSurfaceEnabled,
+      bannerImageUrl: series.bannerImageUrl,
+      thumbnailImageUrl: series.thumbnailImageUrl,
+      sourceUrl: series.sourceUrl,
+    };
+    const { eventId } = await insertCommunityEventRecord(ctx, {
+      input: { ...sanitizeEventDraftInput(ownerInput), startAt: times.startAt },
+      community,
+      world,
+      submitter: seriesAuthSubject(series),
+      publicationState: "published",
+      actorSurface: "system",
+      occurrence: { seriesId, occurrenceDate: date },
+    });
+    result.created.push(eventId);
+
+    const event = template && (await db.get(eventId));
+    if (template && event) await copyProgram(db, template, event, now);
+  }
+  return result;
 }
