@@ -1,3 +1,4 @@
+import { captureOwnedProcessGroup } from "../packages/media-relay/src/verification/process-ownership";
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -90,6 +91,11 @@ export async function runProof(options: ProofOptions) {
     ],
     { stdio: ["ignore", "ignore", "pipe"], detached: true },
   );
+  const cleanupDeadline = Date.now() + (checked.deadline + 8) * 1000;
+  const ownedGroup = captureOwnedProcessGroup(child).then(
+    group => ({ group }),
+    error => ({ error }),
+  );
   let errors = "";
   child.stderr.on("data", (chunk: Buffer) => {
     errors = (errors + chunk.toString()).slice(-4096);
@@ -123,9 +129,16 @@ export async function runProof(options: ProofOptions) {
       });
     });
   } finally {
-    if (escalation) clearTimeout(escalation);
-    process.removeListener("SIGINT", interrupt);
-    process.removeListener("SIGTERM", interrupt);
+    try {
+      // Runtime helpers share the detached group but are not media cleanup roots.
+      const captured = await ownedGroup;
+      if ("group" in captured) await captured.group.settle(cleanupDeadline);
+      else if (child.pid) throw captured.error;
+    } finally {
+      if (escalation) clearTimeout(escalation);
+      process.removeListener("SIGINT", interrupt);
+      process.removeListener("SIGTERM", interrupt);
+    }
   }
   return JSON.parse(
     await readFile(join(checked.output, "evidence.json"), "utf8"),

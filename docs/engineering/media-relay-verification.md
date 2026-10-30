@@ -19,6 +19,14 @@ interval 2–120 seconds. Aggregate requested video payload is limited to 256 Mi
 AAC is 128 kbps; headers and audio are additional measured bytes. The child owns
 its process group, has an independent deadline, and is forcibly killed if cleanup
 exceeds deadline plus eight seconds. SIGTERM/SIGINT to the child requests cleanup.
+Media cleanup ownership comes from proof-only executable wrappers recording PID
+and start ticks before each generator/packager/probe exec, plus observed descendants.
+The ledger fails closed above 1 MiB or 10,000 identities. Broad resource samples
+(including loader services) do not confer media ownership; there is no process-name
+filter. After the proof leader closes, the parent settles only its captured detached
+group within the original cleanup deadline. Capture verifies direct-child parentage,
+group leadership and start identity before retaining signal authority. Exited zombies
+cannot execute; owned media identities still must disappear/reap for cleanup zero.
 
 The real shared registry, lease watchdog, copy-only FFmpeg packager, publication
 queues and immutable upload cache run against generated loopback H.264/AAC input.

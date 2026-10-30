@@ -1,3 +1,4 @@
+import { createProcessOwnership } from "./process-ownership";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { createServer, request, type ServerResponse } from "node:http";
 import { once } from "node:events";
@@ -117,6 +118,9 @@ export async function runLocalProof(options: ProofOptions) {
     await mkdir(options.output, { recursive: true });
     const jobs = join(scratch, "jobs");
     await mkdir(jobs);
+    const ownership = await createProcessOwnership(scratch);
+    const ffmpegPath = await ownership.executable("ffmpeg");
+    const ffprobePath = await ownership.executable("ffprobe");
     const children = new Set<ChildProcess>(),
       responses = new Set<ServerResponse>(),
       objects = new Map<string, Buffer>();
@@ -224,7 +228,7 @@ export async function runLocalProof(options: ProofOptions) {
       metrics.maxActiveSources = Math.max(metrics.maxActiveSources, active);
       responses.add(res);
       const source = spawn(
-        "ffmpeg",
+        ffmpegPath,
         [
           "-hide_banner",
           "-loglevel",
@@ -302,6 +306,7 @@ export async function runLocalProof(options: ProofOptions) {
       if (sampling) return;
       sampling = true;
       try {
+        await ownership.scan();
         const bytes = await disk(jobs, completedFiles);
         metrics.tmpDiskPeakBytes = Math.max(
           metrics.tmpDiskPeakBytes,
@@ -472,6 +477,8 @@ export async function runLocalProof(options: ProofOptions) {
         throw Error("Local listener unavailable");
       audienceOrigin = `http://127.0.0.1:${address.port}`;
       const packager = createPackager({
+        ffmpegPath,
+        ffprobePath,
         createRelay: () =>
           createSourceRelay({
             inputFormat: "vrcdn_fmp4",
@@ -603,27 +610,14 @@ export async function runLocalProof(options: ProofOptions) {
     )
       failures.push("timestamp diagnostics require investigation");
     const remaining = await disk(jobs);
-    const descendantAlive = await Promise.all(
-      [...cpuByPid.keys()]
-        .filter((pid) => pid !== process.pid)
-        .map(async (pid) => {
-          try {
-            process.kill(pid, 0);
-            // Process identity/state only: never include argv, paths or credentials.
-            const processStat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => null);
-            const fields = processStat?.slice(processStat.lastIndexOf(")") + 2).split(" ");
-            const name = (await readFile(`/proc/${pid}/comm`, "utf8").catch(() => "unknown")).trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32);
-            diagnostics.push(`cleanup-live name=${name} pid=${pid} state=${fields?.[0] ?? "unknown"} ppid=${fields?.[1] ?? "unknown"} group=${fields?.[2] ?? "unknown"} start=${fields?.[19] ?? "unknown"}`);
-            return 1;
-          } catch {
-            return 0;
-          }
-        }),
-    );
+    const ownedAlive = await ownership.scan();
+    for (const process of ownedAlive) {
+      diagnostics.push(`cleanup-live pid=${process.pid} state=${process.state} ppid=${process.parent} group=${process.group} start=${process.start}`);
+    }
     const childrenAlive = Math.max(
       [...children].filter((c) => c.exitCode === null && c.signalCode === null)
         .length,
-      descendantAlive.reduce<number>((a, b) => a + b, 0),
+      ownedAlive.length,
     );
     if (remaining.total || childrenAlive) failures.push("cleanup incomplete");
     const evidence = {
