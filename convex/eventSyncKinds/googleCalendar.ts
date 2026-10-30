@@ -59,9 +59,10 @@ function plainDescription(description: string | undefined, siteUrl: string): str
 }
 
 // VRDex's field caps must not cost an organiser their entry: where the clipped read-back already equals VRDex's value, Google's richer one stays.
-// Reads the item's description, location, and date directly, so a zone Google sent that Intl refuses cannot fail the export.
+// Reads the item's title, description, location, and date directly, so a zone Google sent that Intl refuses cannot fail the export.
 function patchKeepingGoogle(full: Record<keyof GoogleEventBody, unknown>, item: GoogleCalendarEvent, event: Doc<"events">, eventUrl: string, siteUrl: string) {
   const patch: Partial<typeof full> = { ...full };
+  if (clip(item.summary, 120) === clip(event.title, 120)) delete patch.summary;
   if (plainDescription(item.description, siteUrl) === clip(event.summary, 240)) {
     // ponytail: any trailing VRDex URL counts, so a renamed event keeps its old link line until its summary changes; rewriting HTML safely is the upgrade.
     const hasUrl = item.description && isEventUrlLine(lastLine(descriptionLines(item.description)), siteUrl);

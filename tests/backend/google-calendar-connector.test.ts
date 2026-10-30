@@ -297,6 +297,14 @@ describe("google calendar mapping and export", () => {
     assert.equal(carriedFieldsHash("google_calendar", echoed), link.lastExportedHash);
   });
 
+  it("keeps Google's longer title until VRDex changes it", async () => {
+    const item = googleItem({ summary: "T".repeat(150) });
+    const unchanged = patchOf((await linkedExport({ title: "T".repeat(120) }, () => Response.json(item))).calls);
+    assert.equal("summary" in unchanged, false);
+    const renamed = patchOf((await linkedExport({ title: "A New Title" }, () => Response.json(item))).calls);
+    assert.equal(renamed.summary, "A New Title");
+  });
+
   it("leaves a description that already ends with the event URL as it is", async () => {
     const description = `<p>${rich}</p><br><a href="${EVENT_URL}">${EVENT_URL}</a>`;
     const { calls } = await linkedExport({ summary: "x".repeat(240) }, () => Response.json(googleItem({ description })));
@@ -520,6 +528,22 @@ describe("google calendar import", () => {
     await t.action(internal.eventSync.runJob, { jobId: queued[0]._id });
     const retried = (await t.run((ctx) => ctx.db.get(queued[0]._id)))!;
     assert.deepEqual([retried.state, retried.attempts], ["pending", 1]);
+  });
+
+  it("an item the mapper cannot read does not fail a reconcile, and gets no job", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "import" });
+    const zone = "Customized Time Zone";
+    const bad = googleItem({ id: "g-tz", start: { dateTime: "2026-11-09T20:00:00-05:00", timeZone: zone }, end: { dateTime: "2026-11-09T23:00:00-05:00", timeZone: zone } });
+    const good = googleItem({ id: "g2", summary: "Fresh Night", start: { dateTime: "2026-11-10T20:00:00-05:00" }, end: { dateTime: "2026-11-10T23:00:00-05:00" } });
+    const fake = fakeFetch(({ url }) => url.pathname.endsWith("/watch")
+      ? Response.json({ resourceId: "res-1", expiration: String(NOW + 604_800_000) })
+      : Response.json({ items: [bad, good], timeZone: "America/New_York" }));
+    const job = await runSyncJob(t, { connectorId, kind: "reconcile" });
+    fake.restore();
+    assert.equal(job.state, "done");
+    const jobs = (await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((j) => j.kind === "import_item");
+    assert.deepEqual(jobs.map((j) => (j.payload as { item: GoogleCalendarEvent }).item.id), ["g2"]);
   });
 
   it("reconcile queues only what the import window allows", async () => {

@@ -314,7 +314,7 @@ Google Calendar is a `google_calendar` connector on the [connector tables](#conn
 - It carries title, start, end, summary, and venue label (as the Google `location`). Poster, world, and lineup never move.
 - Imports enter as intake candidates, like every other connector import. `listEvents` sends `eventTypes=default`, and items marked `private` or `confidential` are skipped, so personal entries never import.
 - A poll applies items one at a time. An item that throws moves to its own `import_item` job, so it retries and alarms alone and the sync token still advances.
-- A linked export reads the Google item first. Where the clipped read-back already equals VRDex's value, Google's longer description, location, or all-day span stays; the description keeps or gains the event URL line.
+- A linked export reads the Google item first. Where the clipped read-back already equals VRDex's value, Google's longer title, description, location, or all-day span stays; the description keeps or gains the event URL line.
 - `dailySweep` queues a `reconcile` for each active importing connector, moving the 60-day recurring window forward, and revokes any Google credential over a day old with no live connector.
 - Exports end the Google description with the VRDex event URL.
 - An inbound Google cancellation flags the link `external_deleted`, on a held draft's link too; it never cancels the VRDex event. A later non-cancelled item sets the link back to `linked`.

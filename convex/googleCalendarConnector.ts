@@ -163,7 +163,13 @@ export const reconcileItems = internalMutation({
     const importing = connector.direction === "import" || connector.direction === "bidirectional";
     for (const item of args.items as GoogleCalendarEvent[]) {
       if (item.status === "cancelled" || await linkByExternalId(db, connector._id, item.id)) continue;
-      const fields = fieldsFromGoogleEvent(item, args.calendarTimeZone, siteUrl());
+      let fields: EventIntakeFields;
+      try {
+        fields = fieldsFromGoogleEvent(item, args.calendarTimeZone, siteUrl());
+      } catch {
+        // It can never import, so a job from every daily sweep would only burn attempts. The poll that lists it queues it once, which is where it alarms.
+        continue;
+      }
       const match = await matchEvent(db, connector, fields);
       if (match) await db.insert("eventSyncLinks", { connectorId: connector._id, eventId: match._id, externalId: item.id, state: "linked", createdAt: now, updatedAt: now });
       else if (importing && !outsideImportWindow(item, fields, args.calendarTimeZone)) {
