@@ -283,7 +283,17 @@ async function copyProgram(db: DatabaseWriter, template: Doc<"eventMediaPrograms
   }
 }
 
-/** Creates the series' missing nights up to its horizon, keyed by seriesId plus occurrenceDate. */
+/** Brings back a night an edit retired, now the rule holds it again. Started and moderation-removed nights stay down. */
+async function republishRetiredNight(ctx: MutationCtx, series: Doc<"eventSeries">, night: Doc<"events">, now: number): Promise<void> {
+  const times = occurrenceTimes(series, night.occurrenceDate!);
+  if (times === null || times.startAt <= now || (night.startAt ?? Infinity) <= now || night.moderationRemovedAt !== undefined) return;
+  const overrides = new Set(night.overrides ?? []);
+  await applySeriesFields(ctx, series, night, SERIES_OWNED_EVENT_FIELDS.filter((field) => !overrides.has(field)), now);
+  // The helper enqueues the sync itself.
+  await applyEventPublicationState(ctx, (await ctx.db.get(night._id))!, "published", seriesAuthSubject(series), "system", now);
+}
+
+/** Creates the series' missing nights up to its horizon, keyed by seriesId plus occurrenceDate, and returns retired nights the rule holds again. */
 export async function materializeSeries(
   ctx: MutationCtx,
   seriesId: Id<"eventSeries">,
@@ -313,7 +323,10 @@ export async function materializeSeries(
       .query("events")
       .withIndex("by_seriesId_occurrenceDate", (q) => q.eq("seriesId", seriesId).eq("occurrenceDate", date))
       .first();
-    if (existing !== null) continue;
+    if (existing !== null) {
+      if (existing.seriesRetiredAt !== undefined) await republishRetiredNight(ctx, series, existing, now);
+      continue;
+    }
 
     const adopted = await adoptStandaloneEvent(db, series, date);
     if (adopted !== null) {
@@ -461,8 +474,9 @@ export async function createSeriesFromEvent(
 
 /**
  * Retires the series' upcoming published nights it no longer schedules, or all of them once it is not active.
- * A bare night is unpublished and keeps its seriesId, so materialisation never recreates that date; a night
- * with overrides, a lineup, or slots is detached and stays published. Started nights are never touched.
+ * A bare night is unpublished and keeps its key, so materialisation never creates that date again; on an active
+ * series it is also marked, so it returns if the rule comes to hold it. A night with overrides, a lineup, or slots
+ * is detached and stays published. Started nights are never touched.
  */
 export async function retireOccurrences(
   ctx: MutationCtx,
@@ -485,6 +499,7 @@ export async function retireOccurrences(
     } else {
       // The helper enqueues the sync itself, which exports the unpublish as a delete.
       await applyEventPublicationState(ctx, night, "draft_private", seriesAuthSubject(series), "system", now);
+      if (series.state === "active") await db.patch(night._id, { seriesRetiredAt: now });
       result.unpublished.push(night._id);
     }
   }

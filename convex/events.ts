@@ -1377,7 +1377,7 @@ async function updateCommunityEventRecord(
       ? {}
       : {
           publicationState,
-          ...(publicationState === "published" ? { publishedAt: event.publishedAt ?? now } : {}),
+          ...(publicationState === "published" ? { publishedAt: event.publishedAt ?? now, seriesRetiredAt: undefined } : {}),
         }),
     updatedAt: now,
     ...contributorStaffLock(event, now),
@@ -3617,7 +3617,7 @@ export async function applyEventPublicationState(
   const published = publicationState === "published";
   await ctx.db.patch(event._id, {
     publicationState,
-    ...(published ? { publishedAt: event.publishedAt ?? now } : {}),
+    ...(published ? { publishedAt: event.publishedAt ?? now, seriesRetiredAt: undefined } : {}),
     updatedAt: now,
     ...contributorStaffLock(event, now),
   });

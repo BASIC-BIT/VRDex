@@ -1309,6 +1309,8 @@ export default defineSchema({
     seriesId: v.optional(v.id("eventSeries")),
     occurrenceDate: v.optional(v.string()),
     overrides: v.optional(v.array(v.string())),
+    // Set when an active series' edit unpublished this night, so a later edit can bring it back. Any publish clears it.
+    seriesRetiredAt: v.optional(v.number()),
   })
     .index("by_slug", ["slug"])
     .index("by_seriesId_occurrenceDate", ["seriesId", "occurrenceDate"])
