@@ -155,7 +155,7 @@ variable "clerk_production_publishable_key" {
   nullable    = true
 
   validation {
-    condition     = var.clerk_production_publishable_key == null || startswith(var.clerk_production_publishable_key, "pk_live_")
+    condition     = var.clerk_production_publishable_key == null ? true : startswith(var.clerk_production_publishable_key, "pk_live_")
     error_message = "clerk_production_publishable_key must be a live Clerk publishable key (pk_live_...)."
   }
 }
@@ -175,7 +175,7 @@ variable "clerk_preview_publishable_key" {
   nullable    = true
 
   validation {
-    condition     = var.clerk_preview_publishable_key == null || startswith(var.clerk_preview_publishable_key, "pk_test_")
+    condition     = var.clerk_preview_publishable_key == null ? true : startswith(var.clerk_preview_publishable_key, "pk_test_")
     error_message = "clerk_preview_publishable_key must be a development Clerk publishable key (pk_test_...)."
   }
 }
