@@ -140,14 +140,33 @@ again at once. Current alarms:
   after five failed deliveries to PostHog. The email names the row ID, event
   name, attempt count, and creation time only. The next delivered row resolves
   it.
+- `series_materialize_failed:` plus the series ID: the daily
+  `materialize event series` cron (06:20 UTC) failed to create a recurring
+  series' upcoming nights.
+  The body names the series ID and the error. Each series runs on its own, so
+  the others still materialise. The next successful run for that series
+  resolves it.
+- `series_materialize_failed:all`: that cron could not list the active series,
+  so no series ran. The body names the error. The next run that lists them
+  resolves it.
 
-Gateway, Google watch, and recurrence alarms in later plans use the same path.
+Gateway and Google watch alarms in later plans use the same path.
 
 Alerts send through the SES settings in
 [Transactional Email Environment](#transactional-email-environment):
 `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, and the existing SES credential chain.
 Without them the `internal.opsAlertEmail.send` action throws, so a lost alert
 shows as a failed function in the Convex logs.
+
+## Recurring events
+
+`VRDEX_RECURRING_EVENTS_ENABLED` turns recurring events on when set to `true`.
+Scope: the Convex deployment environment, all deployments. Default: unset,
+which means off. Owner: BASIC. It is not a secret, so there is nothing to
+rotate; change it with `npx convex env set VRDEX_RECURRING_EVENTS_ENABLED true`.
+It gates creating and editing series and the daily `materialize event series`
+cron. Turning it off stops new series and stops the cron. Nights already
+created stay in place as events and keep their `seriesId` and series link.
 
 ## Locked Decision
 

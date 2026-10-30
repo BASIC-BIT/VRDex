@@ -1417,11 +1417,15 @@ function mcpProfileWriteRejected(error: unknown) {
   };
 }
 
-function mcpEventWriteDenied() {
+function mcpEventWriteDenied(error?: unknown) {
+  const message = mcpConvexErrorMessage(error);
+
   return {
     content: [{
       type: "text" as const,
-      text: "VRDex rejected the event write. Confirm the event input, idempotency key, and durable community ownership before trying a corrected request.",
+      text: message === null
+        ? "VRDex rejected the event write. Confirm the event input, idempotency key, and durable community ownership before trying a corrected request."
+        : `VRDex rejected the event write. ${message} Correct the request before trying again.`,
     }],
     isError: true as const,
   };
@@ -3156,7 +3160,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
           result: denied ? "denied" : "indeterminate",
           toolName: "vrdex_event_create",
         });
-        return denied ? mcpEventWriteDenied() : mcpEventWriteIndeterminate("create");
+        return denied ? mcpEventWriteDenied(error) : mcpEventWriteIndeterminate("create");
       }
 
       let event: PublicEvent | null;
