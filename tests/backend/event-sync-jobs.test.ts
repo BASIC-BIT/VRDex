@@ -75,13 +75,14 @@ it("backs off 1, 2, 4, 8 minutes and marks the job failed on the fifth failure",
 
 it("an unregistered kind fails with a clear error", async () => {
   const f = await connectorFixture();
-  const connectorId = await f.insertConnector();
+  // Notion is reserved, so it never gets a handler.
+  const connectorId = await f.insertConnector({ kind: "notion" });
   const jobId = await f.t.run(ctx => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, kind: "import_poll" }));
   await f.t.action(run, { jobId });
   const job = (await f.t.run(ctx => ctx.db.get(jobId)))!;
   assert.equal(job.state, "pending");
   assert.equal(job.attempts, 1);
-  assert.match(job.lastError ?? "", /No import_poll handler is registered for connector kind google_calendar/);
+  assert.match(job.lastError ?? "", /No import_poll handler is registered for connector kind notion/);
 });
 
 it("the runner writes the link after a kind's export, and retracts it after a delete", async () => {
@@ -234,6 +235,7 @@ it("a handler returning AwaitingClubOperation keeps the job running without spen
   const f = await connectorFixture();
   const connectorId = await f.insertConnector();
   const google = syncKindHandlers.google_calendar;
+  const importPoll = google.importPoll;
   google.importPoll = async () => AwaitingClubOperation;
   try {
     const jobId = await f.t.run(ctx => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, kind: "import_poll" }));
@@ -241,7 +243,7 @@ it("a handler returning AwaitingClubOperation keeps the job running without spen
     const job = (await f.t.run(ctx => ctx.db.get(jobId)))!;
     assert.deepEqual([job.state, job.attempts, job.leaseExpiresAt], ["running", 0, Date.now() + OPERATION_WAIT_MS]);
   } finally {
-    delete google.importPoll;
+    google.importPoll = importPoll;
   }
 });
 

@@ -7,11 +7,14 @@ import {
   DISCORD_ID, requireConnectorAuthority, type ConnectorDirection, type ConnectorKind,
 } from "./_eventConnectors";
 import { enqueueSyncJob, failureAlertKey } from "./_eventSync";
+import { googleCalendarEnabled } from "./_googleCalendar";
 import { resolveOps } from "./_opsAlerts";
 
 type ConnectorTarget = Infer<typeof connectorTarget>;
 const TARGET_IDS = ["guildId", "channelId", "calendarId", "groupId"] as const;
 const TARGET_NAMES = ["guildName", "channelName", "calendarName", "groupName"] as const;
+const PUBLIC_TARGET_KEYS: ReadonlyArray<string> = [...TARGET_IDS, ...TARGET_NAMES];
+const publicTarget = (target: ConnectorTarget) => Object.fromEntries(Object.entries(target).filter(([key]) => PUBLIC_TARGET_KEYS.includes(key))) as ConnectorTarget;
 
 const fail = (code: string): never => { throw new ConvexError({ code }); };
 
@@ -35,6 +38,7 @@ const KIND_TARGET_IDS: Record<Exclude<ConnectorKind, "notion">, { required: Targ
 
 function requireTarget(kind: Exclude<ConnectorKind, "notion">, target: ConnectorTarget) {
   const { required, optional = [] } = KIND_TARGET_IDS[kind];
+  if (!Object.keys(target).every(key => PUBLIC_TARGET_KEYS.includes(key))) fail("CONNECTOR_TARGET");
   for (const key of TARGET_IDS) {
     const value = target[key];
     if (value === undefined ? required.includes(key) : !required.includes(key) && !optional.includes(key)) fail("CONNECTOR_TARGET");
@@ -68,7 +72,7 @@ export const listForCommunity = query({ args: { communityProfileId: v.id("profil
   const rows = await ctx.db.query("eventConnectors").withIndex("by_communityProfileId", q => q.eq("communityProfileId", communityProfileId)).collect();
   return { enabled: true, connectors: rows.filter(row => row.state !== "removed").map(row => ({
     connectorId: row._id, kind: row.kind, direction: row.direction, mode: row.mode, state: row.state,
-    target: row.target, lastSyncedAt: row.lastSyncedAt, lastError: row.lastError,
+    target: publicTarget(row.target), lastSyncedAt: row.lastSyncedAt, lastError: row.lastError,
   })) };
 } });
 
@@ -81,12 +85,12 @@ export const create = mutation({
     if ((await ctx.db.get(args.communityProfileId))?.profileType !== "community") fail("CONNECTOR_FORBIDDEN");
     await requireConnectorAuthority(ctx, args.communityProfileId, userId);
     if (args.kind === "notion") return fail("CONNECTOR_KIND_RESERVED");
+    if (args.kind === "google_calendar" && !googleCalendarEnabled()) fail("CONNECTOR_KIND_DISABLED");
     requireDirection(args.kind, args.direction);
     requireTarget(args.kind, args.target);
-    if (args.credentialId) {
-      const credential = await ctx.db.get(args.credentialId);
-      if (credential?.state !== "active" || credential.ownerUserId !== userId) fail("CONNECTOR_CREDENTIAL");
-    }
+    const credential = args.credentialId ? await ctx.db.get(args.credentialId) : null;
+    if (args.credentialId && (credential?.state !== "active" || credential.ownerUserId !== userId)) fail("CONNECTOR_CREDENTIAL");
+    if (args.kind === "google_calendar" && credential?.provider !== "google") fail("CONNECTOR_CREDENTIAL");
     const existing = await ctx.db.query("eventConnectors").withIndex("by_communityProfileId", q => q.eq("communityProfileId", args.communityProfileId)).collect();
     // Names are display-only, so two targets with the same IDs are the same target.
     if (existing.some(row => row.state !== "removed" && row.kind === args.kind && TARGET_IDS.every(key => row.target[key] === args.target[key]))) fail("CONNECTOR_EXISTS");

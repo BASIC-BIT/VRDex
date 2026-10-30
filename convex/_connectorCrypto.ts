@@ -1,5 +1,6 @@
 // AES-256-GCM for connector credentials. Web Crypto, not node:crypto, so the
 // default Convex runtime (mutations) can import this without "use node".
+const IV_BYTES = 12;
 const TAG_BYTES = 16;
 
 const toBase64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
@@ -20,7 +21,7 @@ async function connectorKey(usage: "encrypt" | "decrypt") {
 }
 
 export async function encryptSecret(plain: string): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const sealed = new Uint8Array(
     await crypto.subtle.encrypt(
       { name: "AES-GCM", iv, tagLength: TAG_BYTES * 8 },
@@ -33,17 +34,24 @@ export async function encryptSecret(plain: string): Promise<string> {
   return `v1:${toBase64(iv)}:${toBase64(tag)}:${toBase64(body)}`;
 }
 
-export async function decryptSecret(cipher: string): Promise<string> {
-  const [version, iv, tag, body] = cipher.split(":");
-  if (version !== "v1" || iv === undefined || tag === undefined || body === undefined) {
-    throw new Error("CONNECTOR_CIPHER_VERSION");
+const decodeSegment = (value: string) => {
+  try {
+    return fromBase64(value);
+  } catch {
+    return null;
   }
-  const bodyBytes = fromBase64(body);
+};
+
+export async function decryptSecret(cipher: string): Promise<string> {
+  const [version, ...segments] = cipher.split(":");
+  if (version !== "v1") throw new Error("CONNECTOR_CIPHER_VERSION");
+  const [iv, tag, bodyBytes] = segments.length === 3 ? segments.map(decodeSegment) : [];
+  if (!iv || !tag || !bodyBytes || iv.length !== IV_BYTES || tag.length !== TAG_BYTES) throw new Error("CONNECTOR_CIPHER_FORMAT");
   const sealed = new Uint8Array(bodyBytes.length + TAG_BYTES);
   sealed.set(bodyBytes);
-  sealed.set(fromBase64(tag), bodyBytes.length);
+  sealed.set(tag, bodyBytes.length);
   const plain = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: fromBase64(iv), tagLength: TAG_BYTES * 8 },
+    { name: "AES-GCM", iv, tagLength: TAG_BYTES * 8 },
     await connectorKey("decrypt"),
     sealed,
   );

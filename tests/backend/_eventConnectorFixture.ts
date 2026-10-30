@@ -6,6 +6,19 @@ import { loadEventsWithFixtureCapacity } from "./_eventCapacityFixture";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 export const START = Date.UTC(2027, 1, 12, 20); // 2027-02-12 20:00 UTC
+export const connectorModules = {
+  "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
+  "../../convex/events.ts": loadEventsWithFixtureCapacity,
+  "../../convex/eventIntake.ts": () => import("../../convex/eventIntake"),
+  "../../convex/eventIntakeSources.ts": () => import("../../convex/eventIntakeSources"),
+  "../../convex/eventCorrections.ts": () => import("../../convex/eventCorrections"),
+  "../../convex/eventConnectors.ts": () => import("../../convex/eventConnectors"),
+  "../../convex/eventSync.ts": () => import("../../convex/eventSync"),
+  "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
+  "../../convex/search.ts": () => import("../../convex/search"),
+  "../../convex/opsAlerts.ts": () => import("../../convex/opsAlerts"),
+  "../../convex/opsAlertEmail.ts": () => import("../../convex/opsAlertEmail"),
+};
 const grantedBy = { tokenIdentifier: "test|root", issuer: "test", subject: "root" };
 
 export async function connectorFixture(options: { flag?: boolean } = {}) {
@@ -13,19 +26,7 @@ export async function connectorFixture(options: { flag?: boolean } = {}) {
   process.env.CLERK_JWT_ISSUER_DOMAIN = "test";
   if (options.flag === false) delete process.env.VRDEX_EVENT_CONNECTORS_ENABLED;
   else process.env.VRDEX_EVENT_CONNECTORS_ENABLED = "true";
-  const t = convexTest({ schema, modules: {
-    "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
-    "../../convex/events.ts": loadEventsWithFixtureCapacity,
-    "../../convex/eventIntake.ts": () => import("../../convex/eventIntake"),
-    "../../convex/eventIntakeSources.ts": () => import("../../convex/eventIntakeSources"),
-    "../../convex/eventCorrections.ts": () => import("../../convex/eventCorrections"),
-    "../../convex/eventConnectors.ts": () => import("../../convex/eventConnectors"),
-    "../../convex/eventSync.ts": () => import("../../convex/eventSync"),
-    "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
-    "../../convex/search.ts": () => import("../../convex/search"),
-    "../../convex/opsAlerts.ts": () => import("../../convex/opsAlerts"),
-    "../../convex/opsAlertEmail.ts": () => import("../../convex/opsAlertEmail"),
-  } });
+  const t = convexTest({ schema, modules: connectorModules });
   const ids = await t.run(async ctx => {
     const now = Date.now();
     const [owner, integrator, eventStaff, outsider, admin] = await Promise.all(
