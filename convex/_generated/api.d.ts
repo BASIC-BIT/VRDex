@@ -46,6 +46,7 @@ import type * as _contributionPolicy from "../_contributionPolicy.js";
 import type * as _contributionTables from "../_contributionTables.js";
 import type * as _delegationCapability from "../_delegationCapability.js";
 import type * as _discordIntake from "../_discordIntake.js";
+import type * as _discordRest from "../_discordRest.js";
 import type * as _discordTimestamps from "../_discordTimestamps.js";
 import type * as _eventBroadcastAuthority from "../_eventBroadcastAuthority.js";
 import type * as _eventBroadcastControl from "../_eventBroadcastControl.js";
@@ -284,6 +285,7 @@ declare const fullApi: ApiFromModules<{
   _contributionTables: typeof _contributionTables;
   _delegationCapability: typeof _delegationCapability;
   _discordIntake: typeof _discordIntake;
+  _discordRest: typeof _discordRest;
   _discordTimestamps: typeof _discordTimestamps;
   _eventBroadcastAuthority: typeof _eventBroadcastAuthority;
   _eventBroadcastControl: typeof _eventBroadcastControl;

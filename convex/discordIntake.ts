@@ -1,21 +1,26 @@
 import { ConvexError, v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalAction, internalMutation, internalQuery, type DatabaseReader, type MutationCtx } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, query, type DatabaseReader, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { getAccountFeatureAccess } from "./_accountFeatures";
+import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
-  buildSourceText, clampQuietWindowSeconds, connectDiscordAnnouncements, discordAttachmentValidator, discordCommandReplies, DISCORD_SNOWFLAKE,
-  discordMessagePayloadValidator, findRunLink, isDiscordCdnUrl, liveChannelConnectors, pickPosterAttachments, quietWindowMs, resolveDiscordUserId,
+  buildSourceText, clampQuietWindowSeconds, connectDiscordAnnouncements, discordAttachmentValidator, discordBotInviteUrl, discordCommandReplies, discordIntakeEnabled,
+  DISCORD_SNOWFLAKE, discordMessagePayloadValidator, findRunLink, isConnectableChannelType, isDiscordCdnUrl, liveChannelConnectors, pickPosterAttachments, quietWindowMs,
+  readableTextChannels, resolveDiscordUserId, type DiscordChannel,
 } from "./_discordIntake";
+import { discordRequest } from "./_discordRest";
 import { applyEventCandidate } from "./_eventCandidateApply";
 import {
   connectorDirection, connectorKind, connectorMode, connectorState, connectorsEnabled, requireConnectorAuthority, userAuthSubject, userHasCommunityPermission,
 } from "./_eventConnectors";
 import { saveIntakeDraft } from "./_eventIntake";
+import { getActiveProfileLinks, requireControlProof } from "./_externalControl";
 import { getEventBySlug } from "./_eventSlugs";
 import { getProfileBySlug } from "./_globalSlugs";
 import { cancelPendingSchedule, discordIntakeAlertKey, removeConnector } from "./_eventSync";
 import { notifyOps, resolveOps } from "./_opsAlerts";
+import { manageableDiscordGuilds } from "./discordVerification";
 import { correctionFields } from "./eventCorrections";
 import { EventIntakeCandidateSchema, type EventIntakeFields } from "../packages/api-contracts/src/event-intake";
 
@@ -451,5 +456,101 @@ export const handleCommand = internalAction({
       ? (await ctx.runQuery(api.search.searchUniversal, { query, entityType: "profile", profileType: "community", limit: COMMAND_CHOICE_LIMIT })).map(row => ({ slug: row.slug, displayName: row.title }))
       : await ctx.runQuery(internal.discordIntake.manageableCommunities, { ...invoker, query });
     return { choices: communities.map(row => ({ name: row.displayName.slice(0, 100), value: row.slug })) };
+  },
+});
+
+/** The site flow's gate: the flag, the signed-in staffer's `manage_integrations`, and their proved manager-level control of the guild. */
+async function requireSiteConnect(ctx: QueryCtx | MutationCtx, communityProfileId: Id<"profiles">, guildId: string) {
+  if (!discordIntakeEnabled()) throw new ConvexError({ code: "DISCORD_INTAKE_DISABLED" });
+  if (!DISCORD_SNOWFLAKE.test(guildId)) throw new ConvexError({ code: "CONNECTOR_TARGET" });
+  const { userId } = await requireActiveBrowserSessionSubject(ctx);
+  await requireConnectorAuthority(ctx, communityProfileId, userId);
+  await requireControlProof(ctx.db, userId, "discord_guild", guildId, "manager");
+  return userId;
+}
+
+export const authorizeSiteConnect = internalQuery({
+  args: { communityProfileId: v.id("profiles"), guildId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { communityProfileId, guildId }) => {
+    await requireSiteConnect(ctx, communityProfileId, guildId);
+    return null;
+  },
+});
+
+async function discordJson<T>(path: string): Promise<T> {
+  const response = await discordRequest({ method: "GET", path });
+  if (!response.ok) throw new ConvexError({ code: `discord_${response.status}` });
+  return await response.json() as T;
+}
+
+const botLacksAccess = (status: number) => status === 403 || status === 404;
+
+/** What the Integrations page needs before it can list channels. Everything is empty while the flag is off. */
+export const connectContext = query({
+  args: { communityProfileId: v.id("profiles") },
+  returns: v.object({
+    enabled: v.boolean(),
+    guilds: v.array(v.object({ guildId: v.string(), guildName: v.optional(v.string()) })),
+    preselectedGuildId: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx, { communityProfileId }) => {
+    if (!discordIntakeEnabled()) return { enabled: false, guilds: [], preselectedGuildId: null };
+    const { userId } = await requireActiveBrowserSessionSubject(ctx);
+    await requireConnectorAuthority(ctx, communityProfileId, userId);
+    const guilds = (await manageableDiscordGuilds(ctx.db, userId, Date.now())).map(({ guildId, guildName }) => ({ guildId, guildName }));
+    const links = (await getActiveProfileLinks(ctx.db, communityProfileId, "discord_guild"))
+      .filter(link => guilds.some(guild => guild.guildId === link.assetExternalId))
+      .sort((a, b) => Number(b.linkRole === "primary") - Number(a.linkRole === "primary"));
+    return { enabled: true, guilds, preselectedGuildId: links[0]?.assetExternalId ?? (guilds.length === 1 ? guilds[0].guildId : null) };
+  },
+});
+
+type ConnectableChannels = { state: "bot_missing"; inviteUrl: string } | { state: "ready"; channels: Array<{ channelId: string; name: string }> };
+
+export const listConnectableChannels = action({
+  args: { communityProfileId: v.id("profiles"), guildId: v.string() },
+  handler: async (ctx, { communityProfileId, guildId }): Promise<ConnectableChannels> => {
+    await ctx.runQuery(internal.discordIntake.authorizeSiteConnect, { communityProfileId, guildId });
+    const { id: botUserId } = await discordJson<{ id: string }>("/users/@me");
+    const member = await discordRequest({ method: "GET", path: `/guilds/${guildId}/members/${botUserId}` });
+    if (botLacksAccess(member.status)) {
+      const applicationId = process.env.DISCORD_APPLICATION_ID;
+      if (!applicationId) throw new Error("DISCORD_APPLICATION_ID_MISSING");
+      return { state: "bot_missing", inviteUrl: discordBotInviteUrl(applicationId, guildId) };
+    }
+    if (!member.ok) throw new ConvexError({ code: `discord_${member.status}` });
+    const { roles: botRoleIds } = await member.json() as { roles: string[] };
+    const [roles, channels] = await Promise.all([
+      discordJson<Array<{ id: string; permissions: string }>>(`/guilds/${guildId}/roles`),
+      discordJson<DiscordChannel[]>(`/guilds/${guildId}/channels`),
+    ]);
+    return { state: "ready", channels: readableTextChannels(channels, { guildId, botUserId, botRoleIds, roles }) };
+  },
+});
+
+const siteConnectArgs = {
+  communityProfileId: v.id("profiles"), guildId: v.string(), guildName: v.string(), channelId: v.string(), channelName: v.string(), mode: connectorMode,
+};
+
+export const connectProvenChannel = internalMutation({
+  args: siteConnectArgs,
+  returns: v.id("eventConnectors"),
+  handler: async (ctx, args) => connectDiscordAnnouncements(ctx, { ...args, userId: await requireSiteConnect(ctx, args.communityProfileId, args.guildId) }),
+});
+
+/** Connects a channel after Discord itself places it in the proved guild, so a guild proof cannot claim another server's channel. */
+export const connectChannel = action({
+  args: siteConnectArgs,
+  returns: v.id("eventConnectors"),
+  handler: async (ctx, args): Promise<Id<"eventConnectors">> => {
+    await ctx.runQuery(internal.discordIntake.authorizeSiteConnect, { communityProfileId: args.communityProfileId, guildId: args.guildId });
+    if (!DISCORD_SNOWFLAKE.test(args.channelId)) throw new ConvexError({ code: "CONNECTOR_TARGET" });
+    const response = await discordRequest({ method: "GET", path: `/channels/${args.channelId}` });
+    if (botLacksAccess(response.status)) throw new ConvexError({ code: "CONNECTOR_TARGET" });
+    if (!response.ok) throw new ConvexError({ code: `discord_${response.status}` });
+    const channel = await response.json() as { guild_id?: string; type: number };
+    if (channel.guild_id !== args.guildId || !isConnectableChannelType(channel.type)) throw new ConvexError({ code: "CONNECTOR_TARGET" });
+    return ctx.runMutation(internal.discordIntake.connectProvenChannel, args);
   },
 });

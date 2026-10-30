@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, MutationCtx, QueryCtx } from "./_generated/server";
 import { connectorsEnabled, DISCORD_ID, requireConnectorAuthority } from "./_eventConnectors";
+import { DISCORD_BOT_PERMISSIONS } from "./_discordRest";
 import { getActiveProfileLinks, linkProfileToAsset } from "./_externalControl";
 import { getLinkedProviderAccount } from "./accounts";
 import { EVENT_POSTER_MAX_BYTES, EventPosterDeclarationSchema } from "../packages/api-contracts/src/event-intake";
@@ -9,6 +10,13 @@ import { EVENT_POSTER_MAX_BYTES, EventPosterDeclarationSchema } from "../package
 export { isDiscordCdnUrl } from "../packages/api-contracts/src/event-intake";
 
 export const DISCORD_SNOWFLAKE = DISCORD_ID;
+
+const TARGET_NAME_MAX = 100;
+
+/** Types a connector can read: text (0) and announcement (5). */
+export const isConnectableChannelType = (type: number) => type === 0 || type === 5;
+
+export const discordIntakeEnabled = () => process.env.VRDEX_DISCORD_INTAKE_ENABLED === "true";
 
 export const discordAttachmentValidator = v.object({ url: v.string(), contentType: v.string(), byteLength: v.number() });
 
@@ -63,6 +71,7 @@ export async function connectDiscordAnnouncements(ctx: MutationCtx, args: {
 }): Promise<Id<"eventConnectors">> {
   const { userId, communityProfileId, guildId, guildName, channelId, channelName, mode, quietWindowSeconds } = args;
   if (!connectorsEnabled()) throw new ConvexError({ code: "CONNECTORS_DISABLED" });
+  if (!DISCORD_SNOWFLAKE.test(guildId) || !DISCORD_SNOWFLAKE.test(channelId) || guildName.length > TARGET_NAME_MAX || channelName.length > TARGET_NAME_MAX) throw new ConvexError({ code: "CONNECTOR_TARGET" });
   // An owner or super admin passes the authority check on any profile, so the type is checked separately.
   if ((await ctx.db.get(communityProfileId))?.profileType !== "community") throw new ConvexError({ code: "CONNECTOR_FORBIDDEN" });
   await requireConnectorAuthority(ctx, communityProfileId, userId);
@@ -80,6 +89,43 @@ export async function connectDiscordAnnouncements(ctx: MutationCtx, args: {
     await linkProfileToAsset(ctx, { profileId: communityProfileId, assetType: "discord_guild", assetExternalId: guildId, linkRole: "secondary", linkedByUserId: userId, now });
   }
   return connectorId;
+}
+
+export type DiscordChannel = {
+  id: string; name: string; type: number; position?: number;
+  permission_overwrites?: Array<{ id: string; type: number; allow: string; deny: string }>;
+};
+
+const ADMINISTRATOR = 8n;
+const VIEW_AND_READ_HISTORY = 66_560n;
+
+// Discord's documented order: base, then @everyone overwrite, then role overwrites together, then the member overwrite.
+function botCanRead(channel: DiscordChannel, access: { guildId: string; botUserId: string; botRoleIds: string[]; roles: Array<{ id: string; permissions: string }> }) {
+  const { guildId, botUserId, botRoleIds, roles } = access;
+  let permissions = BigInt(roles.find(role => role.id === guildId)?.permissions ?? "0");
+  for (const role of roles) if (botRoleIds.includes(role.id)) permissions |= BigInt(role.permissions);
+  if (permissions & ADMINISTRATOR) return true;
+  const overwrites = channel.permission_overwrites ?? [];
+  const everyone = overwrites.find(row => row.id === guildId);
+  if (everyone) permissions = (permissions & ~BigInt(everyone.deny)) | BigInt(everyone.allow);
+  let allow = 0n, deny = 0n;
+  for (const row of overwrites) if (row.type === 0 && botRoleIds.includes(row.id)) { allow |= BigInt(row.allow); deny |= BigInt(row.deny); }
+  permissions = (permissions & ~deny) | allow;
+  const member = overwrites.find(row => row.type === 1 && row.id === botUserId);
+  if (member) permissions = (permissions & ~BigInt(member.deny)) | BigInt(member.allow);
+  return (permissions & VIEW_AND_READ_HISTORY) === VIEW_AND_READ_HISTORY;
+}
+
+/** The text and announcement channels the bot can view and read history in, in Discord's order. */
+export function readableTextChannels(channels: DiscordChannel[], access: Parameters<typeof botCanRead>[1]): Array<{ channelId: string; name: string }> {
+  return channels.filter(channel => isConnectableChannelType(channel.type) && botCanRead(channel, access))
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+    .map(({ id, name }) => ({ channelId: id, name }));
+}
+
+export function discordBotInviteUrl(applicationId: string, guildId: string): string {
+  const query = new URLSearchParams({ client_id: applicationId, scope: "bot applications.commands", permissions: String(DISCORD_BOT_PERMISSIONS), guild_id: guildId, disable_guild_select: "true" });
+  return `https://discord.com/oauth2/authorize?${query}`;
 }
 
 const SOURCE_TEXT_MAX = 12_000;

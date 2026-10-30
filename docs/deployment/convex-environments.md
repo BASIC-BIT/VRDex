@@ -127,6 +127,12 @@ again at once. Current alarms:
   as `lease_expired` or `stalled`, so a long streak re-alerts every six hours.
   Retries, skips, and `superseded` closes do not count. The next completed job
   for that connector, or removing the connector, resolves it.
+- `discord-intake:` plus the connector ID: a connector's three most recently
+  started intake runs all failed. The email names the connector and community
+  IDs and the failure codes only. The next finished run, or removing or
+  disconnecting the connector, resolves it.
+- `discord-intake-posters`: the poster bridge to the web app failed. See
+  [Discord intake](#discord-intake).
 - `product-analytics-delivery`: a product analytics outbox row stops retrying
   after five failed deliveries to PostHog. The email names the row ID, event
   name, attempt count, and creation time only. The next delivered row resolves
@@ -145,7 +151,8 @@ shows as a failed function in the Convex logs.
 `VRDEX_DISCORD_INTAKE_ENABLED` turns Discord announcement intake on when set to
 `true`. Scope: the Convex deployment environment only. Default: unset, which
 means off. Owner: BASIC. It gates the `/discord-intake/*` HTTP routes, which
-answer 503 while it is off, and intake runs.
+answer 503 while it is off, intake runs, and the Integrations page's Discord
+connect flow, which is hidden and refuses while it is off.
 
 `DISCORD_INTAKE_SECRET` is the bearer token the Discord gateway presents on
 every `/discord-intake/*` request (secret). Scope: the Convex deployment
@@ -170,6 +177,18 @@ emails the `discord-intake-posters` ops alert, naming the failure code; the next
 run that stores one resolves it. Rotation: write the new value to the web app
 first, then to Convex; runs in between store no posters, continue text-only, and
 can raise that alert.
+
+`DISCORD_APPLICATION_ID` is the application ID of the Discord gateway's bot; the
+Integrations page builds the bot invite from it. Not secret. Scope: the Convex
+deployment environment. Owner: BASIC. Set it with
+`npx convex env set DISCORD_APPLICATION_ID`; it changes only when the gateway
+moves to another Discord application.
+
+`DISCORD_BOT_TOKEN` on Convex must be the token of that same gateway application.
+The Integrations page lists channels and proves a channel's guild as this bot,
+so a token from another application reports the gateway's bot as missing from
+every server. Rotate it with the gateway's token, in one window. These calls
+always go to `discord.com`: `DISCORD_API_BASE_URL` does not apply to them.
 
 Runs reuse `SITE_URL` as the poster bridge origin. They also read
 `OPENAI_API_KEY`, `VRDEX_EVENT_INTAKE_AI_ENABLED`, and

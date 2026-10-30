@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { beforeEach, it } from "node:test";
+import { afterEach, beforeEach, it, type TestContext } from "node:test";
+import { linkProfileToAsset } from "../../convex/_externalControl";
 import { reindexProfileSearchDocument } from "../../convex/_searchDocuments";
 import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import { newClerkUserId } from "./_clerkTestIdentity";
+import { clerkTestIdentity, newClerkUserId } from "./_clerkTestIdentity";
 import { connectorFixture } from "./_eventConnectorFixture";
-import { AUTHOR_A, CHANNEL, GUILD, revokeManageIntegrations, seedCommunity, seedDiscordIntake } from "./helpers/discord-intake";
+import { AUTHOR_A, CHANNEL, GUILD, revokeManageIntegrations, seedCommunity, seedDiscordIntake, seedGuildProof } from "./helpers/discord-intake";
 
 type T = Awaited<ReturnType<typeof seedDiscordIntake>>["t"];
 
@@ -17,6 +18,7 @@ beforeEach(test => {
   test.mock.timers.enable({ apis: ["setTimeout"] });
   process.env.SITE_URL = SITE;
 });
+afterEach(() => { for (const key of ["DISCORD_BOT_TOKEN", "DISCORD_APPLICATION_ID", "VRDEX_DISCORD_INTAKE_ENABLED"]) delete process.env[key]; });
 
 const body = (over: Record<string, unknown> = {}) => ({ command: "connect", guildId: GUILD, channelId: CHANNEL, invokerDiscordUserId: AUTHOR_A, invokerHasManageGuild: true, options: { community: "night-club", mode: "hold", channelName: "announcements", guildName: "Night Server" }, ...over });
 const command = (t: T, over: Record<string, unknown> = {}) => t.action(internal.discordIntake.handleCommand, body(over) as never);
@@ -225,4 +227,158 @@ it("only the command or the site flow creates a discord_announcements connector"
   const f = await connectorFixture();
   const target = { guildId: GUILD, channelId: CHANNEL };
   await assert.rejects(f.as("integrator").mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, kind: "discord_announcements", direction: "import", mode: "hold", target }), /CONNECTOR_KIND_RESERVED/);
+});
+
+const BOT = "400000000000000001";
+const FOREIGN_GUILD = "100000000000000009";
+
+/** Answers Discord REST paths from a table, 404 otherwise, and records what was asked. */
+function stubDiscord(test: TestContext, routes: Record<string, () => Response>) {
+  process.env.DISCORD_BOT_TOKEN = "test-bot-token";
+  process.env.DISCORD_APPLICATION_ID = "700000000000000001";
+  process.env.VRDEX_DISCORD_INTAKE_ENABLED = "true";
+  const paths: string[] = [];
+  test.mock.method(globalThis, "fetch", async (url: string) => {
+    const path = String(url).replace("https://discord.com/api/v10", "");
+    paths.push(path);
+    return routes[path]?.() ?? new Response(null, { status: 404 });
+  });
+  return paths;
+}
+const textChannel = (over: Record<string, unknown> = {}) => () => Response.json({ id: CHANNEL, guild_id: GUILD, type: 0, name: "announcements", ...over });
+const siteArgs = (communityProfileId: Id<"profiles">) => ({ communityProfileId, guildId: GUILD, guildName: "Night Server", channelId: CHANNEL, channelName: "announcements", mode: "hold" as const });
+const siteUser = (t: T, clerkUserId: string) => t.withIdentity(clerkTestIdentity(clerkUserId));
+
+it("site connect requires a manager-level guild proof", async test => {
+  const { t, clerkUserId, authorityUserId, communityProfileId } = await seedDiscordIntake();
+  await clearConnectors(t);
+  const paths = stubDiscord(test, { [`/channels/${CHANNEL}`]: textChannel() });
+  const user = siteUser(t, clerkUserId);
+  await assert.rejects(user.action(api.discordIntake.connectChannel, siteArgs(communityProfileId)), /CONTROL_NOT_VERIFIED/);
+  assert.deepEqual(paths, []);
+  await seedGuildProof(t, authorityUserId, GUILD, "manager");
+  assert.ok(await user.action(api.discordIntake.connectChannel, siteArgs(communityProfileId)));
+  assert.equal((await connectors(t)).length, 1);
+  assert.equal((await guildLinks(t)).length, 1);
+});
+
+it("site connect needs manage_integrations as well as the guild proof", async test => {
+  const { t, clerkUserId, authorityUserId, communityProfileId } = await seedDiscordIntake();
+  await clearConnectors(t);
+  await seedGuildProof(t, authorityUserId, GUILD, "manager");
+  await revokeManageIntegrations(t, communityProfileId, authorityUserId);
+  const paths = stubDiscord(test, {});
+  await assert.rejects(siteUser(t, clerkUserId).action(api.discordIntake.connectChannel, siteArgs(communityProfileId)), /CONNECTOR_FORBIDDEN/);
+  assert.deepEqual(paths, []);
+});
+
+it("site connect refuses a channel Discord does not place in that guild, and writes nothing", async test => {
+  const { t, clerkUserId, authorityUserId, communityProfileId } = await seedDiscordIntake();
+  await clearConnectors(t);
+  await seedGuildProof(t, authorityUserId, GUILD, "manager");
+  const user = siteUser(t, clerkUserId);
+  const refused = async (response: () => Response) => {
+    stubDiscord(test, { [`/channels/${CHANNEL}`]: response });
+    await assert.rejects(user.action(api.discordIntake.connectChannel, siteArgs(communityProfileId)), /CONNECTOR_TARGET/);
+    test.mock.restoreAll();
+  };
+  await refused(textChannel({ guild_id: FOREIGN_GUILD }));
+  await refused(textChannel({ type: 2 }));
+  await refused(() => new Response(null, { status: 403 }));
+  await refused(() => new Response(null, { status: 404 }));
+  assert.equal((await connectors(t)).length, 0);
+  assert.equal((await guildLinks(t)).length, 0);
+});
+
+it("site connect refuses a malformed channel ID before any Discord request, and an over-long name", async test => {
+  const { t, clerkUserId, authorityUserId, communityProfileId } = await seedDiscordIntake();
+  await clearConnectors(t);
+  await seedGuildProof(t, authorityUserId, GUILD, "manager");
+  const paths = stubDiscord(test, { [`/channels/${CHANNEL}`]: textChannel() });
+  const user = siteUser(t, clerkUserId);
+  await assert.rejects(user.action(api.discordIntake.connectChannel, { ...siteArgs(communityProfileId), channelId: "../users/@me" }), /CONNECTOR_TARGET/);
+  assert.deepEqual(paths, []);
+  await assert.rejects(user.action(api.discordIntake.connectChannel, { ...siteArgs(communityProfileId), channelName: "x".repeat(101) }), /CONNECTOR_TARGET/);
+  await assert.rejects(user.action(api.discordIntake.connectChannel, { ...siteArgs(communityProfileId), guildName: "x".repeat(101) }), /CONNECTOR_TARGET/);
+  assert.equal((await connectors(t)).length, 0);
+});
+
+it("the slash command also refuses an ID that is not a Discord snowflake", async () => {
+  const { t, authorityUserId } = await seedDiscordIntake();
+  await linkDiscord(t, authorityUserId);
+  await assert.rejects(command(t, { channelId: "not-a-snowflake" }), /CONNECTOR_TARGET/);
+  await assert.rejects(command(t, { guildId: "not-a-snowflake", channelId: OTHER_CHANNEL }), /CONNECTOR_TARGET/);
+});
+
+it("lists connectable channels only after the same checks, and offers the invite when the bot is missing", async test => {
+  const { t, clerkUserId, authorityUserId, communityProfileId } = await seedDiscordIntake();
+  const user = siteUser(t, clerkUserId);
+  const list = () => user.action(api.discordIntake.listConnectableChannels, { communityProfileId, guildId: GUILD });
+  const paths = stubDiscord(test, { "/users/@me": () => Response.json({ id: BOT }) });
+  await assert.rejects(list(), /CONTROL_NOT_VERIFIED/);
+  assert.deepEqual(paths, []);
+  await seedGuildProof(t, authorityUserId, GUILD, "manager");
+  const invite = { state: "bot_missing", inviteUrl: `https://discord.com/oauth2/authorize?client_id=700000000000000001&scope=bot+applications.commands&permissions=17600776072192&guild_id=${GUILD}&disable_guild_select=true` };
+  assert.deepEqual(await list(), invite);
+  assert.deepEqual(paths, ["/users/@me", `/guilds/${GUILD}/members/${BOT}`]);
+  test.mock.restoreAll();
+  stubDiscord(test, { "/users/@me": () => Response.json({ id: BOT }), [`/guilds/${GUILD}/members/${BOT}`]: () => new Response(null, { status: 403 }) });
+  assert.deepEqual(await list(), invite);
+  test.mock.restoreAll();
+  stubDiscord(test, {
+    "/users/@me": () => Response.json({ id: BOT }),
+    [`/guilds/${GUILD}/members/${BOT}`]: () => Response.json({ roles: [] }),
+    [`/guilds/${GUILD}/roles`]: () => Response.json([{ id: GUILD, permissions: "66560" }]),
+    [`/guilds/${GUILD}/channels`]: () => Response.json([{ id: CHANNEL, name: "announcements", type: 5 }, { id: OTHER_CHANNEL, name: "voice", type: 2 }]),
+  });
+  assert.deepEqual(await list(), { state: "ready", channels: [{ channelId: CHANNEL, name: "announcements" }] });
+});
+
+it("a Discord failure other than a missing bot surfaces as a code, not the invite", async test => {
+  const { t, clerkUserId, authorityUserId, communityProfileId } = await seedDiscordIntake();
+  await seedGuildProof(t, authorityUserId, GUILD, "manager");
+  stubDiscord(test, { "/users/@me": () => Response.json({ id: BOT }), [`/guilds/${GUILD}/members/${BOT}`]: () => new Response("secret body", { status: 500 }) });
+  await assert.rejects(siteUser(t, clerkUserId).action(api.discordIntake.listConnectableChannels, { communityProfileId, guildId: GUILD }), (error: Error) => /discord_500/.test(error.message) && !/secret body/.test(error.message));
+});
+
+it("connect context preselects the linked guild, else the only guild, else none", async test => {
+  const { t, clerkUserId, authorityUserId, communityProfileId } = await seedDiscordIntake();
+  stubDiscord(test, {});
+  const user = siteUser(t, clerkUserId);
+  const context = () => user.query(api.discordIntake.connectContext, { communityProfileId });
+  assert.deepEqual(await context(), { enabled: true, guilds: [], preselectedGuildId: null });
+  await seedGuildProof(t, authorityUserId, GUILD, "manager");
+  assert.deepEqual(await context(), { enabled: true, guilds: [{ guildId: GUILD }], preselectedGuildId: GUILD });
+  await seedGuildProof(t, authorityUserId, FOREIGN_GUILD, "administrator");
+  assert.equal((await context()).preselectedGuildId, null);
+  await t.run(ctx => linkProfileToAsset(ctx, { profileId: communityProfileId, assetType: "discord_guild", assetExternalId: FOREIGN_GUILD, linkedByUserId: authorityUserId, now: Date.now() }));
+  assert.equal((await context()).preselectedGuildId, FOREIGN_GUILD);
+});
+
+it("connect context ignores a linked guild the user cannot manage", async test => {
+  const { t, clerkUserId, authorityUserId, communityProfileId } = await seedDiscordIntake();
+  stubDiscord(test, {});
+  await seedGuildProof(t, authorityUserId, GUILD, "manager");
+  await t.run(ctx => linkProfileToAsset(ctx, { profileId: communityProfileId, assetType: "discord_guild", assetExternalId: FOREIGN_GUILD, linkedByUserId: authorityUserId, now: Date.now() }));
+  assert.equal((await siteUser(t, clerkUserId).query(api.discordIntake.connectContext, { communityProfileId })).preselectedGuildId, GUILD);
+});
+
+it("with the intake flag off the site flow is hidden and refuses", async test => {
+  const { t, clerkUserId, authorityUserId, communityProfileId } = await seedDiscordIntake();
+  await clearConnectors(t);
+  await seedGuildProof(t, authorityUserId, GUILD, "manager");
+  const paths = stubDiscord(test, {});
+  process.env.VRDEX_DISCORD_INTAKE_ENABLED = "false";
+  const user = siteUser(t, clerkUserId);
+  assert.deepEqual(await user.query(api.discordIntake.connectContext, { communityProfileId }), { enabled: false, guilds: [], preselectedGuildId: null });
+  await assert.rejects(user.action(api.discordIntake.listConnectableChannels, { communityProfileId, guildId: GUILD }), /DISCORD_INTAKE_DISABLED/);
+  await assert.rejects(user.action(api.discordIntake.connectChannel, siteArgs(communityProfileId)), /DISCORD_INTAKE_DISABLED/);
+  assert.deepEqual(paths, []);
+});
+
+it("connect context needs manage_integrations", async test => {
+  const { t, clerkUserId, authorityUserId, communityProfileId } = await seedDiscordIntake();
+  stubDiscord(test, {});
+  await revokeManageIntegrations(t, communityProfileId, authorityUserId);
+  await assert.rejects(siteUser(t, clerkUserId).query(api.discordIntake.connectContext, { communityProfileId }), /CONNECTOR_FORBIDDEN/);
 });

@@ -10,6 +10,7 @@ import { Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
 import { ClubAccessNotice, useClubWorkspace } from "./club-workspace";
+import { DiscordConnect } from "./discord-connect";
 import {
   connectorTargetName,
   directionOptions,
@@ -27,12 +28,14 @@ type ConnectorId = Connector["connectorId"];
 function ConnectorRow({
   connector,
   now,
+  pending,
   run,
   onUpdate,
   onRemove,
 }: {
   connector: Connector;
   now: number;
+  pending: boolean;
   run: (action: () => Promise<unknown>) => void;
   onUpdate: (connectorId: ConnectorId, patch: ConnectorPatch) => Promise<unknown>;
   onRemove: (connectorId: ConnectorId) => Promise<unknown>;
@@ -58,11 +61,11 @@ function ConnectorRow({
       </div>
       <div className="order-last flex flex-wrap items-start gap-2 sm:order-none sm:col-start-2 sm:row-start-1">
         {state === "paused" ? (
-          <Button size="sm" onClick={() => update({ state: "active" })}>
+          <Button size="sm" disabled={pending} onClick={() => update({ state: "active" })}>
             Resume
           </Button>
         ) : null}
-        <Button size="sm" variant="dangerGhost" onClick={() => run(() => onRemove(connectorId))}>
+        <Button size="sm" variant="dangerGhost" disabled={pending} onClick={() => run(() => onRemove(connectorId))}>
           Disconnect
         </Button>
       </div>
@@ -72,6 +75,7 @@ function ConnectorRow({
             aria-label="Direction"
             aria-describedby={help ? helpId : undefined}
             value={direction}
+            disabled={pending}
             onChange={(event) => update({ direction: event.target.value as Connector["direction"] })}
           >
             {directionOptions(kind).map((option) => (
@@ -91,6 +95,7 @@ function ConnectorRow({
             aria-label="Mode"
             className="self-start"
             value={mode}
+            disabled={pending}
             onChange={(event) => update({ mode: event.target.value as Connector["mode"] })}
           >
             {(Object.keys(MODE_LABELS) as Connector["mode"][]).map((value) => (
@@ -117,9 +122,11 @@ export function ClubIntegrationsView({
   now: number;
 }) {
   const [failed, setFailed] = useState(false);
+  const [pending, setPending] = useState(false);
   const run = (action: () => Promise<unknown>) => {
     setFailed(false);
-    action().catch(() => setFailed(true));
+    setPending(true);
+    action().catch(() => setFailed(true)).finally(() => setPending(false));
   };
   // notion is reserved and never renders.
   const rows = connectors.filter((connector) => connector.kind !== "notion");
@@ -139,6 +146,7 @@ export function ClubIntegrationsView({
                 key={connector.connectorId}
                 connector={connector}
                 now={now}
+                pending={pending}
                 run={run}
                 onUpdate={onUpdate}
                 onRemove={onRemove}
@@ -163,12 +171,15 @@ function ConnectedIntegrations({ communityProfileId }: { communityProfileId: Id<
   if (result === undefined) return null;
   if (!result.enabled) return <ClubAccessNotice />;
   return (
-    <ClubIntegrationsView
-      connectors={result.connectors}
-      now={now}
-      onUpdate={(connectorId, patch) => update({ connectorId, ...patch })}
-      onRemove={(connectorId) => remove({ connectorId })}
-    />
+    <div className="grid gap-6">
+      <ClubIntegrationsView
+        connectors={result.connectors}
+        now={now}
+        onUpdate={(connectorId, patch) => update({ connectorId, ...patch })}
+        onRemove={(connectorId) => remove({ connectorId })}
+      />
+      <DiscordConnect communityProfileId={communityProfileId} />
+    </div>
   );
 }
 
