@@ -103,6 +103,82 @@ test("resetting with unsaved edits asks first @fixture", async ({ page }) => {
   await expect(description).toHaveValue("Unsaved");
 });
 
+test("a past night keeps the series link and drops its resets @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-editor/edit?series=1&past=1");
+  await expect(page.getByText("Part of a series.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Edit the series", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reset Description to series", exact: true })).toHaveCount(0);
+});
+
+test("an ended series offers only this night @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-editor/edit?series=1&state=ended");
+  await expect(page.getByText("Part of a series.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Edit this night", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Edit the series", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Reset Description to series", exact: true })).toHaveCount(0);
+});
+
+for (const variant of ["state=ended", "flag=off"]) test(`scope=series falls back to the night editor with ${variant} @fixture`, async ({ page }) => {
+  await page.goto(`${seriesEditorPath}&${variant}`);
+  await expect(page.getByRole("navigation", { name: "Event editor" })).toBeVisible();
+  await expect(page.getByText("Part of a series.", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Repeats", { exact: true })).toHaveCount(0);
+});
+
+async function fillRepeatingEvent(page: Page, endsOn: string) {
+  await (await hydrated(page.getByLabel("Event title", { exact: true }))).fill("Harbor Night");
+  await page.getByLabel("Starts", { exact: true }).fill("2027-10-15T20:00");
+  await page.getByLabel("Repeats", { exact: true }).selectOption({ label: "Weekly" });
+  await page.getByLabel("Ends", { exact: true }).fill(endsOn);
+}
+
+async function publish(page: Page) {
+  await page.getByRole("navigation", { name: "Event editor" }).getByRole("button", { name: "Review", exact: true }).click();
+  await page.getByRole("button", { name: /^(Publish event|Save changes)$/ }).click();
+}
+
+const editorMutations = (page: Page) => page.evaluate(() => (window as unknown as { editorMutations?: { name: string; args: unknown }[] }).editorMutations ?? []);
+const seriesCreate = { eventSlug: "harbor-night", repeat: { frequency: "weekly", endsOn: "2027-12-31" } };
+
+test("choosing a repeat creates one series on publish @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-editor?connected=1");
+  await fillRepeatingEvent(page, "2027-12-31");
+  await publish(page);
+  await expect.poll(async () => (await editorMutations(page)).map(mutation => mutation.name)).toEqual(["events:createCommunityEvent", "eventSeries:create"]);
+  expect((await editorMutations(page))[1]!.args).toEqual(seriesCreate);
+});
+
+test("a rejected series create retries without a second create of the event @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-editor?connected=1&fail=1");
+  await fillRepeatingEvent(page, "2027-12-31");
+  await publish(page);
+  await expect(page.getByText("Backend error - please try again later", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/connected=1/);
+  await page.getByRole("button", { name: /^(Publish event|Save changes)$/ }).click();
+  await expect.poll(async () => (await editorMutations(page)).map(mutation => mutation.name)).toEqual([
+    "events:createCommunityEvent", "eventSeries:create", "events:updateCommunityEvent", "eventSeries:create",
+  ]);
+  expect((await editorMutations(page))[3]!.args).toEqual(seriesCreate);
+});
+
+test("an Ends date before the start blocks publish @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-editor?connected=1");
+  await fillRepeatingEvent(page, "2027-10-14");
+  await publish(page);
+  const ends = page.getByLabel("Ends", { exact: true });
+  await expect(ends).toBeVisible();
+  await expect(ends).toHaveJSProperty("validity.rangeUnderflow", true);
+  expect(await editorMutations(page)).toEqual([]);
+});
+
+test("an Ends date before the series start blocks a series save @fixture", async ({ page }) => {
+  await page.goto(seriesEditorPath);
+  await (await hydrated(page.getByLabel("Ends", { exact: true }))).fill("2099-09-01");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(page.getByLabel("Ends", { exact: true })).toHaveJSProperty("validity.rangeUnderflow", true);
+  expect(await seriesUpdates(page)).toEqual([]);
+});
+
 test("Edit this night moves focus into the form @fixture", async ({ page }) => {
   await page.goto("/playwright/event-editor/edit?series=1");
   await (await hydrated(page.getByRole("link", { name: "Edit this night", exact: true }))).click();

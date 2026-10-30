@@ -3,6 +3,7 @@ import Link from "next/link";
 import { EventDiscordExportPanel } from "../_components/event-discord-export-panel";
 import { EventEditorForm, type EditableEvent } from "./event-editor-form";
 import { EventSeriesEditor } from "./event-series-controls";
+import { seriesEditable } from "@/lib/event-series-editor";
 import { buttonVariants } from "@/components/ui/button";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
@@ -13,6 +14,7 @@ export function EventEditorPage({
   savedTimezonePreference = null,
   discordPostText,
   event,
+  recurringEnabled = false,
   scope,
 }: {
   communityName: string;
@@ -21,10 +23,11 @@ export function EventEditorPage({
   savedTimezonePreference?: string | null;
   discordPostText?: string | null;
   event?: EditableEvent;
+  recurringEnabled?: boolean;
   scope?: string;
 }) {
   const routePath = event === undefined ? undefined : `/${communitySlug}/events/${event.slug}`;
-  const series = scope === "series" ? event?.series : undefined;
+  const series = scope === "series" && event?.series && seriesEditable(event.series, recurringEnabled) ? event.series : undefined;
   const heading = <header className="pt-2">
     {event === undefined ? (
       <Link className="text-sm font-medium text-muted underline-offset-4 hover:underline" href={`/${communitySlug}`}>

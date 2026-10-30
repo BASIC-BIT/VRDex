@@ -741,6 +741,16 @@ function emptyDiscoveryData() {
   };
 }
 
+export async function fetchRecurringEventsEnabled(): Promise<boolean> {
+  try {
+    return await fetchQuery(api.eventSeries.isEnabled, {});
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Server-side Convex recurring events flag fetch failed: ${message}`);
+    return false;
+  }
+}
+
 export async function fetchEditableEventBySlug(slug: string) {
   if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
     return { kind: "missing-url" as const, event: null };

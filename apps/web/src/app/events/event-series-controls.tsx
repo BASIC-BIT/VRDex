@@ -12,16 +12,14 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
-import { changedSeriesFields, seriesEditorFields, seriesOverrideRows, type EditableSeries, type SeriesEditorFields } from "@/lib/event-series-editor";
+import { changedSeriesFields, seriesEditorFields, seriesOverrideRows, type EditableSeries, type RepeatValue, type SeriesEditorFields } from "@/lib/event-series-editor";
 import { EditorSection, EventEditorSteps } from "./event-editor-steps";
 import { EventLocationField } from "./event-location-field";
 import { useEventEditorLeaveGuard } from "./use-event-editor-leave-guard";
 
-export type RepeatValue = { frequency: "none" | SeriesRule["frequency"]; endsOn: string };
-
 const noteLinkClassName = "font-medium underline-offset-4 hover:underline";
 
-export function RepeatControl({ allowNone = true, value, onChange }: { allowNone?: boolean; value: RepeatValue; onChange(next: RepeatValue): void }) {
+export function RepeatControl({ allowNone = true, min, value, onChange }: { allowNone?: boolean; min?: string; value: RepeatValue; onChange(next: RepeatValue): void }) {
   return <div className="grid items-start gap-4 sm:grid-cols-2">
     <Field>
       Repeats
@@ -32,12 +30,13 @@ export function RepeatControl({ allowNone = true, value, onChange }: { allowNone
         <option value="monthly_weekday">Monthly</option>
       </Select>
     </Field>
-    {value.frequency !== "none" ? <Field>Ends<Input type="date" value={value.endsOn} onChange={change => onChange({ ...value, endsOn: change.currentTarget.value })} /></Field> : null}
+    {value.frequency !== "none" ? <Field>Ends<Input type="date" min={min} value={value.endsOn} onChange={change => onChange({ ...value, endsOn: change.currentTarget.value })} /></Field> : null}
   </div>;
 }
 
-export function EventSeriesNote({ communitySlug, eventSlug, overrides, onReset }: {
+export function EventSeriesNote({ communitySlug, editSeries, eventSlug, overrides, onReset }: {
   communitySlug: string;
+  editSeries: boolean;
   eventSlug: string;
   overrides: string[];
   onReset(fields: string[]): Promise<void>;
@@ -61,7 +60,7 @@ export function EventSeriesNote({ communitySlug, eventSlug, overrides, onReset }
         click.preventDefault();
         click.currentTarget.closest("form")?.querySelector<HTMLElement>("input:not([type=hidden])")?.focus();
       }}>Edit this night</Link>
-      <Link className={noteLinkClassName} href={`${editPath}?scope=series`}>Edit the series</Link>
+      {editSeries ? <Link className={noteLinkClassName} href={`${editPath}?scope=series`}>Edit the series</Link> : null}
     </div>
     {rows.length > 0 ? <ul className="grid gap-2 border-t border-border pt-3">
       {rows.map(row => <li className="flex flex-wrap items-center justify-between gap-2" key={row.label}>
@@ -116,7 +115,7 @@ export function EventSeriesEditor({ communitySlug, eventSlug, heading, series }:
             <Field>Ends (optional)<Input type="time" {...text("endTime")} /></Field>
           </div>
           <EventTimezonePicker value={fields.timezone} date={series.startsOn} onChange={timezone => { if (timezone) setFields(current => ({ ...current, timezone })); }} />
-          <RepeatControl allowNone={false} value={fields} onChange={next => setFields(current => ({ ...current, ...next, frequency: next.frequency as SeriesRule["frequency"] }))} />
+          <RepeatControl allowNone={false} min={series.startsOn} value={fields} onChange={next => setFields(current => ({ ...current, ...next, frequency: next.frequency as SeriesRule["frequency"] }))} />
         </EditorSection>
         <EditorSection title="Source">
           <Field>Announcement link<Input {...text("sourceUrl")} placeholder="https://..." /></Field>

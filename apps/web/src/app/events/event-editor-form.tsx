@@ -36,8 +36,8 @@ import { changeLineupDuration, generateLineupTimings, getLineupEndAt, getLineupE
 import { EventSlotRemove, EventLineupSetup, EventLineupInsert, EventSlotDuration, EventLineupReset, EventLineupConflict } from "./event-lineup-controls";
 import { resolveAuthoredEventEndAt } from "@/lib/calendar/event-end-time";
 import { EditorSection, EventEditorSteps, type EventEditorStep } from "./event-editor-steps";
-import { EventSeriesNote, RepeatControl, type RepeatValue } from "./event-series-controls";
-import type { EditableSeries } from "@/lib/event-series-editor";
+import { EventSeriesNote, RepeatControl } from "./event-series-controls";
+import { seriesCreateArgs, seriesNoteActions, seriesRepeatAvailable, type EditableSeries, type RepeatValue } from "@/lib/event-series-editor";
 import { EventLocationField } from "./event-location-field";
 import type { EventIdentityOption } from "@/lib/event-editor-identity";
 import { EventEditorPreview, EventCommunitySummary, useEventCommunity } from "./event-editor-preview";
@@ -470,7 +470,11 @@ function ConnectedEventEditorForm({
   const [timeTba, setTimeTba] = useState(event?.scheduleKind === "date_only");
   const [repeat, setRepeat] = useState<RepeatValue>({ frequency: "none", endsOn: "" });
   const recurringEnabled = useQuery(api.eventSeries.isEnabled, demoMode ? "skip" : {});
-  const repeatAvailable = !event?.series && !timeTba && (demoMode || recurringEnabled === true);
+  const repeatGate = { hasSeries: Boolean(event?.series), timeTba };
+  const seriesEnabled = demoMode || recurringEnabled === true;
+  const repeatAvailable = seriesRepeatAvailable({ ...repeatGate, enabled: seriesEnabled });
+  const [loadedAt] = useState(() => Date.now());
+  const seriesActions = event?.series ? seriesNoteActions({ series: event.series, overrides: event.overrides ?? [], startAt: event.startAt }, seriesEnabled, loadedAt) : undefined;
   const createSeries = useMutation(api.eventSeries.create);
   const resetOverride = useMutation(api.eventSeries.resetOverride);
   const performers = useEventPerformerEditor([...(event?.slots.flatMap(row => row.performer ? [row.performer] : []) ?? []), ...(event?.participants ?? []), ...(event?.lineup?.flatMap(row => row.performer ? [row.performer] : []) ?? [])].map(person => ({ kind: "person", slug: person.slug, title: person.displayName, href: `/${person.slug}`, imageUrl: person.imageUrl, imageKind: "profile", trustLabel: person.trustLabel })));
@@ -799,9 +803,9 @@ function ConnectedEventEditorForm({
         savedLineupRevision.current = submittedLineupRevision;
         savedLineupStartAt.current = startAt;
       }
-      if (intent === "publish" && repeatAvailable && repeat.frequency !== "none" && !demoMode) {
-        await createSeries({ eventSlug: result.slug, repeat: { frequency: repeat.frequency, ...(repeat.endsOn ? { endsOn: repeat.endsOn } : {}) } });
-      }
+      // The flag query is skipped in demoMode, so a demo save never creates a series.
+      const seriesArgs = seriesCreateArgs({ ...repeatGate, intent, eventSlug: result.slug, repeat, enabled: recurringEnabled === true });
+      if (seriesArgs) await createSeries(seriesArgs);
       setPersisted(submittedSnapshot);
       if (intent === "publish") setReturnPath(result.eventPath ?? `/${communitySlug}/events/${result.slug}`);
       startTransition(() =>
@@ -1053,7 +1057,7 @@ function ConnectedEventEditorForm({
     <form ref={formRef} data-event-dirty={dirty} className="grid gap-8" noValidate onSubmit={onSubmit}>
       <EventEditorSteps heading={heading} steps={["Details", "Lineup", "Review"]} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview editingTimezone={editingTimezone} fields={previewFields} artwork={preview.artwork || undefined} community={community} world={world} />}>
       <div hidden={activeStep !== "Details"} data-editor-step="Details" className="space-y-8">
-      {event?.series ? <EventSeriesNote communitySlug={communitySlug} eventSlug={currentSlug!} overrides={event.overrides ?? []} onReset={onResetOverride} /> : null}
+      {seriesActions ? <EventSeriesNote communitySlug={communitySlug} editSeries={seriesActions.editSeries} eventSlug={currentSlug!} overrides={seriesActions.overrides} onReset={onResetOverride} /> : null}
       <EditorSection title="Details">
         <Field>
           Event title
@@ -1096,7 +1100,7 @@ function ConnectedEventEditorForm({
             </details>
           </div> : null}
         </div>
-        {repeatAvailable ? <RepeatControl value={repeat} onChange={setRepeat} /> : null}
+        {repeatAvailable ? <RepeatControl min={eventDate} value={repeat} onChange={setRepeat} /> : null}
       </EditorSection>
 
       <EditorDisclosure title="Source">

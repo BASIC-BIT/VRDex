@@ -17,6 +17,35 @@ export type EditableSeries = {
   state: "active" | "ended" | "removed";
 };
 
+export type RepeatValue = { frequency: "none" | SeriesRule["frequency"]; endsOn: string };
+
+type RepeatGate = { hasSeries: boolean; timeTba: boolean; enabled: boolean };
+
+export function seriesRepeatAvailable({ hasSeries, timeTba, enabled }: RepeatGate): boolean {
+  return !hasSeries && !timeTba && enabled;
+}
+
+/** The `eventSeries.create` arguments a save calls for, or null when it creates no series. */
+export function seriesCreateArgs({ intent, eventSlug, repeat, ...gate }: RepeatGate & { intent: string; eventSlug: string; repeat: RepeatValue }) {
+  if (intent !== "publish" || repeat.frequency === "none" || !seriesRepeatAvailable(gate)) return null;
+  return { eventSlug, repeat: { frequency: repeat.frequency, ...(repeat.endsOn ? { endsOn: repeat.endsOn } : {}) } };
+}
+
+/** Series writes reach upcoming nights only on an active series, and fail outright with the flag off. */
+export function seriesEditable(series: Pick<EditableSeries, "state">, enabled: boolean): boolean {
+  return series.state === "active" && enabled;
+}
+
+/** What the series note can offer on this night. A reset needs a night that has not started. */
+export function seriesNoteActions(
+  { series, overrides, startAt }: { series: Pick<EditableSeries, "state">; overrides: string[]; startAt?: number },
+  enabled: boolean,
+  now: number,
+): { editSeries: boolean; overrides: string[] } {
+  const editSeries = seriesEditable(series, enabled);
+  return { editSeries, overrides: editSeries && startAt !== undefined && startAt > now ? overrides : [] };
+}
+
 /** The editor's own label for each series-owned field. `Where` covers both the world and the free-text venue. */
 const SERIES_FIELD_LABELS: Record<SeriesOwnedEventField, string> = {
   title: "Event title",

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { EventBackendNotice } from "../_components/event-public-page";
 import { EventEditorPage } from "./event-editor-page";
-import { fetchEditableEventBySlug } from "@/convex/server";
+import { fetchEditableEventBySlug, fetchRecurringEventsEnabled } from "@/convex/server";
 import { formatDiscordEventPost } from "../../../../../convex/_eventDiscordExport";
 
 function firstHeaderValue(value: string | null): string | undefined {
@@ -38,6 +38,7 @@ export async function EventEditPage({ communitySlug, eventSlug, scope }: { commu
     notFound();
   }
 
+  const recurringEnabled = scope === "series" && await fetchRecurringEventsEnabled();
   const routePath = `/${communitySlug}/events/${result.event.slug}`;
   const origin = requestOrigin(await headers());
   const canonicalUrl = origin === undefined ? routePath : new URL(routePath, origin).href;
@@ -52,6 +53,7 @@ export async function EventEditPage({ communitySlug, eventSlug, scope }: { commu
         communitySlug={communitySlug}
         discordPostText={discordPostText}
         event={result.event}
+        recurringEnabled={recurringEnabled}
         scope={scope}
       />
     </div>
