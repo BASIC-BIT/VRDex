@@ -97,6 +97,16 @@ place; each closes as `connectors_disabled` when its run claims it. Keep it off
 until a kind plan registers a sync handler: with no handler every export job
 fails and the connector failure alarm fires.
 
+`VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` turns on the Discord event board when
+set to `true`: Discord board jobs, the daily board refresh, and the board
+Connect button. Scope: the Convex deployment environment only. Default: unset,
+which means off; board jobs then fail with `CONNECTOR_KIND_DISABLED`. It also
+needs `VRDEX_EVENT_CONNECTORS_ENABLED`, `DISCORD_BOT_TOKEN`, and `SITE_URL`.
+Owner: the deployment operator (BASIC). Not a secret; recreate it with
+`npx convex env set`, and roll back by setting it to `false`. Pause or
+disconnect existing boards first: while it is `false`, their queued jobs fail
+toward the five-failure connector alarm.
+
 Connector OAuth tokens are stored encrypted with AES-256-GCM in the
 `v1:iv:tag:ciphertext` format, keyed by `VRDEX_CONNECTOR_TOKEN_KEY` (secret).
 
@@ -137,8 +147,17 @@ again at once. Current alarms:
   after five failed deliveries to PostHog. The email names the row ID, event
   name, attempt count, and creation time only. The next delivered row resolves
   it.
+- `series_materialize_failed:` plus the series ID: the daily
+  `materialize event series` cron (06:20 UTC) failed to create a recurring
+  series' upcoming nights.
+  The body names the series ID and the error. Each series runs on its own, so
+  the others still materialise. The next successful run for that series
+  resolves it.
+- `series_materialize_failed:all`: that cron could not list the active series,
+  so no series ran. The body names the error. The next run that lists them
+  resolves it.
 
-Gateway, Google watch, and recurrence alarms in later plans use the same path.
+Gateway and Google watch alarms in later plans use the same path.
 
 Alerts send through the SES settings in
 [Transactional Email Environment](#transactional-email-environment):
@@ -202,6 +221,16 @@ Runs reuse `SITE_URL` as the poster bridge origin. They also read
 well as the web app before turning Discord intake on, plus the Langfuse
 variables above when runs should be traced. With extraction off, every run
 fails with `extraction_unavailable`.
+
+## Recurring events
+
+`VRDEX_RECURRING_EVENTS_ENABLED` turns recurring events on when set to `true`.
+Scope: the Convex deployment environment, all deployments. Default: unset,
+which means off. Owner: BASIC. It is not a secret, so there is nothing to
+rotate; change it with `npx convex env set VRDEX_RECURRING_EVENTS_ENABLED true`.
+It gates creating and editing series and the daily `materialize event series`
+cron. Turning it off stops new series and stops the cron. Nights already
+created stay in place as events and keep their `seriesId` and series link.
 
 ## Locked Decision
 
@@ -524,7 +553,7 @@ Development/staging Convex env names:
 - `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord credentials for the purpose-scoped community-verification round-trip. These are **not** sign-in credentials — Clerk holds those — but `convex/discordVerification.ts` still requires them
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`
 - `DISCORD_OAUTH_AUTHORIZE_URL`: optional consent-screen override, for pointing the OAuth round-trip at a stub instead of Discord. Defaults to `https://discord.com/oauth2/authorize`. The browser follows it carrying the `state` that authorizes the round-trip, so it must be https unless it is loopback
-- `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment. It is not a real bot token, so the site Discord connect flow does not work on staging; see [Discord intake](#discord-intake)
+- `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment. It is not a real bot token, so the site Discord connect flow does not work on staging; see [Discord intake](#discord-intake). The Discord board connector also uses it from Convex in any deployment where `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` is on
 - `VRCHAT_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCLINKING_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching the hosted app environment
@@ -539,6 +568,7 @@ Production Convex auth env names:
 - `CLERK_JWT_ISSUER_DOMAIN=https://<clerk-frontend-api>`: production Clerk Frontend API origin, read by `convex/auth.config.ts`. Must match the issuer of the `convex` JWT template on the production Clerk instance
 - `SITE_URL=https://vrdex.net`: builds the Discord verification callback URL
 - `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: production Discord credentials for the purpose-scoped community-verification round-trip. Still required by `convex/discordVerification.ts`; they are no longer sign-in credentials
+- `DISCORD_BOT_TOKEN` (secret): bot token of the production Discord application, read by `convex/_discordRest.ts` for the Discord board connector and by `convex/profileClaims.ts` for the bot claim path. Needed once `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` is on. Scope: the production Convex environment. Owner: BASIC. Rotate or recreate it by resetting the token in the Discord Developer Portal and setting the new value with `npx convex env set DISCORD_BOT_TOKEN`. Resetting the token revokes the old value for every service that uses it, so update each holder
 
 Retired when Clerk replaced Convex Auth, and safe to delete from every Convex
 deployment once the cutover is verified:

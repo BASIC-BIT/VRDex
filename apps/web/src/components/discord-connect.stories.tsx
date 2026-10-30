@@ -68,15 +68,13 @@ function IntegrationsPage(props: Parameters<typeof Flow>[0]) {
     <PageShell>
       <PageContainer max="7xl">
         <ClubWorkspaceView data={WORKSPACE} pathname={PATHNAME}>
-          <div className="grid gap-6">
-            <ClubIntegrationsView
-              connectors={ROWS}
-              now={0}
-              onUpdate={(connectorId, patch) => hold(held.updates, { connectorId, ...patch })}
-              onRemove={(connectorId) => hold(held.updates, { connectorId })}
-            />
-            <Flow {...props} />
-          </div>
+          <ClubIntegrationsView
+            connectors={ROWS}
+            now={0}
+            onUpdate={(connectorId, patch) => hold(held.updates, { connectorId, ...patch })}
+            onRemove={(connectorId) => hold(held.updates, { connectorId })}
+            connect={<Flow {...props} />}
+          />
         </ClubWorkspaceView>
       </PageContainer>
     </PageShell>

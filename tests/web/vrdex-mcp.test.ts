@@ -1882,6 +1882,15 @@ describe("VRDex MCP server", () => {
           },
         },
       }), 9);
+      const deniedWithReason = await call(createVrdexMcpHandler({
+        eventWrites: true,
+        authInfo,
+        adminConvex: {
+          mutation: async () => {
+            throw new ConvexError({ code: "MCP_WRITE_DENIED", message: "Repeat weekday must match the event's start day." });
+          },
+        },
+      }), 12);
       const malformedReadback = await call(createVrdexMcpHandler({
         eventWrites: true,
         authInfo,
@@ -1895,10 +1904,11 @@ describe("VRDex MCP server", () => {
         convex: { query: async () => ({ id: "event_other", slug: "afterglow-night" }) },
       }), 11);
 
-      console.log(JSON.stringify({ denied, indeterminate, malformedReadback, mismatchedReadback, readback }));
+      console.log(JSON.stringify({ denied, deniedWithReason, indeterminate, malformedReadback, mismatchedReadback, readback }));
     `);
     const result = JSON.parse(output) as {
       denied: string;
+      deniedWithReason: string;
       indeterminate: string;
       malformedReadback: string;
       mismatchedReadback: string;
@@ -1907,6 +1917,8 @@ describe("VRDex MCP server", () => {
 
     assert.match(result.denied, /VRDex rejected the event write/);
     assert.doesNotMatch(result.denied, /may already have accepted/);
+    assert.match(result.deniedWithReason, /VRDex rejected the event write\. Repeat weekday must match the event's start day\. Correct the request/);
+    assert.doesNotMatch(result.deniedWithReason, /may already have accepted/);
     assert.match(result.indeterminate, /may already have accepted the mutation/);
     assert.match(result.indeterminate, /Do not retry automatically/);
     assert.doesNotMatch(result.indeterminate, /private commit state|never-print-this-token/);

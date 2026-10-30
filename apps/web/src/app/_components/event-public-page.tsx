@@ -105,6 +105,7 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
   lineup?: PublicEventLineupEntry[];
   id: string;
   slug: string;
+  seriesId?: string;
   watchSurfaceEnabled: boolean;
   watchMode?: ProjectedEvent["watchMode"];
   authoredBannerImageUrl?: string;
@@ -456,6 +457,9 @@ function EventPublicPageContent({ event }: { event: PublicEvent }) {
                 <span className={actionLabelClassName}>Add to calendar</span>
                 <span className={actionMetaClassName}>Download .ics</span>
               </a> : null}
+              {event.seriesId && event.communitySlug ? <Link className={actionCardVariants({ variant: "accent" })} href={`/${event.communitySlug}/series/${event.seriesId}`}>
+                <span className={actionLabelClassName}>Upcoming nights</span>
+              </Link> : null}
               {sourceUrl ? (
                 <a className={actionCardVariants({ variant: "accent" })} href={sourceUrl} rel="noreferrer" target="_blank">
                   <span className={actionLabelClassName}>

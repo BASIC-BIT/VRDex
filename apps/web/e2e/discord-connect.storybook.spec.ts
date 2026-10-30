@@ -150,7 +150,7 @@ const openPage = async (page: Page, story: string) => {
   await expect(page.getByRole("heading", { name: "Integrations", level: 1 })).toBeVisible();
 };
 
-test("the Discord section sits under the connector list in the workspace @storybook-visual", async ({ page }) => {
+test("the Discord section sits in the Integrations page in the workspace @storybook-visual", async ({ page }) => {
   await openPage(page, "in-integrations-page");
   await expect(page.getByRole("heading", { name: "Discord", level: 2 })).toBeVisible();
   await expect(link(page)).toBeVisible();

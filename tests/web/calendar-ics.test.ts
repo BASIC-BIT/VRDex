@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
 import { describe, it } from "node:test";
+import vm from "node:vm";
+import ts from "typescript";
 
 import {
   createPublicEventFeedIcs,
@@ -9,6 +14,8 @@ import {
   formatIcsUtcTimestamp,
   publicEventIcsFilename,
 } from "../../apps/web/src/lib/calendar/ics";
+
+const webRequire = createRequire(path.resolve("apps/web/package.json"));
 
 function unfoldIcs(calendar: string): string {
   return calendar.replace(/\r\n[ \t]/g, "");
@@ -161,5 +168,71 @@ describe("public event ICS serialization", () => {
         ),
       /absolute HTTP URL/,
     );
+  });
+});
+
+describe("series calendar feed", () => {
+  it("a series feed emits each occurrence and no RRULE", () => {
+    const night = (id: string, startAt: number) => ({ id, slug: id, title: "Harbor Night", startAt, worlds: [] });
+    const calendar = createPublicEventFeedIcs([night("n1", Date.UTC(2026, 10, 7, 1)), night("n2", Date.UTC(2026, 10, 14, 2))],
+      { feedName: "Harbor Night", feedUrl: "https://vrdex.example/faceless/series/s1", eventUrl: e => `https://vrdex.example/faceless/events/${e.slug}` });
+    assert.match(calendar, /DTSTART:20261107T010000Z/);
+    assert.match(calendar, /DTSTART:20261114T020000Z/);
+    assert.doesNotMatch(calendar, /RRULE/);
+  });
+
+  const series = {
+    id: "s1",
+    title: "Harbor Night",
+    communitySlug: "faceless",
+    communityName: "The Faceless",
+    nights: [{ id: "n1", slug: "abc", title: "Harbor Night", startAt: Date.UTC(2026, 10, 7, 1), worlds: [] }],
+  };
+  const routeRequest = new Request("https://vrdex.example/faceless/series/s1/calendar.ics");
+  const params = (slug: string) => ({ params: Promise.resolve({ slug, seriesId: "s1" }) });
+
+  function loadSeriesModule(relative: string, result: unknown) {
+    const source = readFileSync(path.resolve("apps/web/src/app/[slug]/series/[seriesId]", relative), "utf8");
+    const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } });
+    const dependencies: Record<string, unknown> = {
+      "@/convex/server": { fetchPublicEventSeries: async () => result },
+      "@/lib/calendar/ics": { createPublicEventFeedIcs, publicEventIcsFilename },
+      "@/components/ui/button": { buttonVariants: () => "" },
+      "@/components/ui/card": { Card: () => null },
+      "@/components/ui/page-shell": { BrandLink: () => null, PageContainer: () => null, PageNav: () => null, PageShell: () => null },
+      "next/navigation": { notFound: () => { throw new Error("NOT_FOUND"); } },
+      "../../../_components/event-public-page": { EventBackendNotice: () => null, EventPreviewCard: () => null },
+    };
+    const exports: Record<string, any> = {};
+    vm.runInNewContext(outputText, { exports, require: (name: string) => dependencies[name] ?? webRequire(name), Response, URL });
+    return exports;
+  }
+
+  it("the feed route serves a series only under its own community", async () => {
+    const { GET } = loadSeriesModule("calendar.ics/route.ts", { kind: "live", series });
+
+    const response = await GET(routeRequest, params("faceless"));
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("Content-Type"), "text/calendar; charset=utf-8");
+    assert.equal(response.headers.get("Cache-Control"), "public, max-age=60");
+    assert.equal(response.headers.get("Content-Disposition"), 'attachment; filename="s1.ics"');
+    const body = unfoldIcs(await response.text());
+    assert.match(body, /X-WR-CALNAME:Harbor Night\r\n/);
+    assert.match(body, /URL:https:\/\/vrdex\.example\/faceless\/series\/s1\r\n/);
+    assert.match(body, /URL:https:\/\/vrdex\.example\/faceless\/events\/abc\r\n/);
+
+    assert.equal((await GET(routeRequest, params("elsewhere"))).status, 404);
+    const missing = loadSeriesModule("calendar.ics/route.ts", { kind: "live", series: null });
+    assert.equal((await missing.GET(routeRequest, params("faceless"))).status, 404);
+    const failed = loadSeriesModule("calendar.ics/route.ts", { kind: "error" });
+    assert.equal((await failed.GET(routeRequest, params("faceless"))).status, 503);
+  });
+
+  it("the series page renders only under its own community", async () => {
+    const page = loadSeriesModule("page.tsx", { kind: "live", series });
+    assert.ok(await page.default(params("faceless")));
+    await assert.rejects(page.default(params("elsewhere")), /NOT_FOUND/);
+    const missing = loadSeriesModule("page.tsx", { kind: "live", series: null });
+    await assert.rejects(missing.default(params("faceless")), /NOT_FOUND/);
   });
 });
