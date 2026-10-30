@@ -136,17 +136,19 @@ export async function runSyncJob(t: T, job: {
   return rerunJob(t, jobId);
 }
 
+export const workerArgs = (t: T) => t.run(async (ctx) => {
+  const integration = (await ctx.db.query("communityVrchatIntegrations").first())!;
+  return {
+    epochStartedAt: integration.telemetryEpochStartedAt!, collectorAccountId: integration.assignedCollectorAccountId!,
+    integrationId: integration._id, workerKeyHash: "hash", workerId: "worker", fencingToken: 1,
+  };
+});
+
 // Claims the next operation as the collector, authorizes it with calendar grants, and reports the outcome.
 export async function workerSettle(t: T, outcome: {
   status: "succeeded" | "rejected" | "indeterminate"; code?: string; result?: Infer<typeof operationResult>;
 }) {
-  const worker = await t.run(async (ctx) => {
-    const integration = (await ctx.db.query("communityVrchatIntegrations").first())!;
-    return {
-      epochStartedAt: integration.telemetryEpochStartedAt!, collectorAccountId: integration.assignedCollectorAccountId!,
-      integrationId: integration._id, workerKeyHash: "hash", workerId: "worker", fencingToken: 1,
-    };
-  });
+  const worker = await workerArgs(t);
   const claimed = await t.mutation(internal.clubOperations.claim, worker);
   if (!claimed) throw new Error("No operation to claim.");
   const authorization = await t.mutation(internal.clubOperations.authorizeSubmission, {

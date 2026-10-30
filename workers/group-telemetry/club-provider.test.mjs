@@ -275,14 +275,27 @@ test("list follows hasNext, drops deleted items, slices descriptions, refuses fo
   const foreign = fixture({ handler: async () => ({ results: [{ ...item(1), ownerId: otherGroup }], hasNext: false }) });
   await assert.rejects(foreign.adapter.listCalendar({ from: "2026-11-02T00:00:00.000Z", to: "2026-11-30T00:00:00.000Z" }), { category: "provider_scope" });
 });
+test("list stops by UTF-8 bytes, not characters", async () => {
+  const item = (n) => ({ id: `cal_00000000-0000-0000-0000-${String(n).padStart(12, "0")}`, title: "T", description: "語".repeat(2000), startsAt: "2026-11-08T01:00:00.000Z", endsAt: "2026-11-08T02:00:00.000Z", updatedAt: "2026-10-02T00:00:00.000Z" });
+  const { adapter } = fixture({ handler: async (path) => path.startsWith("/calendar/") ? { results: Array.from({ length: 100 }, (_, i) => item(i + 1)), hasNext: false } : undefined });
+  const out = await adapter.listCalendar({ from: "2026-11-02T00:00:00.000Z", to: "2026-11-30T00:00:00.000Z" });
+  assert.equal(out.calendarEventsTruncated, true);
+  assert.ok(Buffer.byteLength(JSON.stringify(out)) <= 500_000);
+});
 test("artwork fetch keeps only bounded https PNG responses", async () => {
   const png = new Uint8Array([137, 80, 78, 71]);
   const respond = (url, body = png, type = "image/png") => async () => Object.defineProperty(new Response(body, { headers: { "content-type": type } }), "url", { value: url });
-  assert.deepEqual(await fetchArtwork("https://vrdex.test/a.png", { fetcher: respond("https://cdn.vrdex.test/a.png") }), { bytes: png, contentType: "image/png" });
+  const seen = [];
+  assert.deepEqual(await fetchArtwork("https://vrdex.test/a.png", { fetcher: async (url, options) => { seen.push(options.redirect); return respond(url)(); } }), { bytes: png, contentType: "image/png" });
+  assert.deepEqual(seen, ["error"]);
   await assert.rejects(fetchArtwork("http://vrdex.test/a.png", { fetcher: respond("http://vrdex.test/a.png") }));
-  await assert.rejects(fetchArtwork("https://vrdex.test/a.png", { fetcher: respond("http://evil.test/a.png") }));
   await assert.rejects(fetchArtwork("https://vrdex.test/a.png", { fetcher: respond("https://vrdex.test/a.png", png, "image/jpeg") }));
   await assert.rejects(fetchArtwork("https://vrdex.test/a.png", { fetcher: respond("https://vrdex.test/a.png", new Uint8Array(5)), maxBytes: 4 }));
+});
+test("a redirected artwork URL is a soft drop", async () => {
+  const { adapter } = fixture({ handler: async () => undefined });
+  adapter.fetchImage = (url) => fetchArtwork(url, { fetcher: async () => { throw new TypeError("fetch failed"); } });
+  assert.equal(await adapter.artwork("https://vrdex.test/a.png"), undefined);
 });
 test("a refused, denied or malformed artwork upload rejects the operation without the event write", async () => {
   const refuse = (category) => async () => { throw new VrchatProviderError("x", { status: 403, category }); };

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { beforeEach, it } from "node:test";
 import { makeFunctionReference } from "convex/server";
-import { enqueueEventSync, enqueueSyncJob } from "../../convex/_eventSync";
+import type { Doc, Id } from "../../convex/_generated/dataModel";
+import { enqueueEventSync, enqueueSyncJob, failureAlertKey } from "../../convex/_eventSync";
 import { carriedFieldsHash } from "../../convex/_eventConnectors";
 import { correctionFields } from "../../convex/eventCorrections";
 import { syncKindHandlers } from "../../convex/eventSyncKinds/index";
@@ -16,6 +17,31 @@ const complete = makeFunctionReference<"mutation">("eventSync:completeJob");
 const NOW = Date.UTC(2027, 0, 10, 12);
 beforeEach(test => test.mock.timers.enable({ apis: ["Date", "setTimeout"], now: NOW }));
 const jobs = (f: Awaited<ReturnType<typeof connectorFixture>>) => f.t.run(ctx => ctx.db.query("eventSyncJobs").collect());
+
+it("a bidirectional connector's reads never clear a failure streak, an error, or the alert; an export does", async () => {
+  const f = await connectorFixture();
+  const { eventId } = await f.createEvent();
+  const connectorId = await f.insertConnector({ direction: "bidirectional", consecutiveFailures: 3, lastError: "provider_permissions" });
+  await f.t.run(ctx => ctx.db.insert("opsAlerts", { key: failureAlertKey(connectorId), lastSentAt: NOW - 1 }));
+  const finish = async (kind: Doc<"eventSyncJobs">["kind"], eventId?: Id<"events">) => {
+    const jobId = await f.t.run(ctx => ctx.db.insert("eventSyncJobs", { connectorId, kind, eventId, payload: {}, dueAt: NOW, attempts: 0, state: "running", leaseExpiresAt: NOW + 1, createdAt: NOW, updatedAt: NOW }));
+    await f.t.mutation(complete, { jobId, durationMs: 1 });
+    const connector = (await f.t.run(ctx => ctx.db.get(connectorId)))!;
+    const alert = (await f.t.run(ctx => ctx.db.query("opsAlerts").first()))!;
+    return [connector.consecutiveFailures, connector.lastError, connector.lastSyncedAt, alert.resolvedAt];
+  };
+  for (const kind of ["import_poll", "import_item", "reconcile"] as const) assert.deepEqual(await finish(kind), [3, "provider_permissions", NOW, undefined]);
+  assert.deepEqual(await finish("export_upsert", eventId), [0, undefined, NOW, NOW]);
+});
+
+it("an import-only connector's reads still clear its streak", async () => {
+  const f = await connectorFixture();
+  const connectorId = await f.insertConnector({ direction: "import", consecutiveFailures: 3, lastError: "provider_permissions" });
+  const jobId = await f.t.run(ctx => ctx.db.insert("eventSyncJobs", { connectorId, kind: "import_poll", payload: {}, dueAt: NOW, attempts: 0, state: "running", leaseExpiresAt: NOW + 1, createdAt: NOW, updatedAt: NOW }));
+  await f.t.mutation(complete, { jobId, durationMs: 1 });
+  const connector = (await f.t.run(ctx => ctx.db.get(connectorId)))!;
+  assert.deepEqual([connector.consecutiveFailures, connector.lastError], [0, undefined]);
+});
 
 it("keeps one pending job per connector per event and cancels the replaced schedule", async () => {
   const f = await connectorFixture();

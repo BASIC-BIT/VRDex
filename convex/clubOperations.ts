@@ -41,6 +41,7 @@ import {
 import { operationResult } from "./_clubOperations";
 import { userAuthSubject } from "./_eventConnectors";
 import { vrchatCalendarReadiness } from "./_vrchatCalendarConnector";
+import { vrchatCalendarEnabled } from "./eventSyncKinds/vrchatCalendar";
 
 // A unique nonce prevents Convex from replaying a cached clock result when a
 // composer checks a schedule immediately before submission.
@@ -73,6 +74,8 @@ export async function enqueueConnectorOperation(ctx: MutationCtx, args: {
   if (!readiness.ready)
     return { refused: readiness.code === "feature_disabled" ? "feature_disabled" : "integration_unavailable" };
   const { integration } = readiness;
+  // The community swapped groups: this connector's links and target name the old one.
+  if (integration.vrchatGroupId !== connector.target.groupId) return { refused: "integration_unavailable" };
   validatePayload(payload, integration.vrchatGroupId);
   const now = Date.now();
   const requestId = `sync_${syncJobId}_${now}`;
@@ -340,6 +343,12 @@ async function resolvedOperation(
   | { status: "ready"; payload: OperationPayload }
   | { status: "pending" | "rejected"; code: string }
 > {
+  // Claim and authorize both pass here, so Disconnect, pause, Off, and the kind flag stop a queued connector write.
+  if (job.connectorSync) {
+    const connector = await ctx.db.get(job.connectorSync.connectorId);
+    if (connector?.state !== "active" || connector.direction === "off" || !vrchatCalendarEnabled())
+      return { status: "rejected", code: "connector_inactive" };
+  }
   if (job.payload.kind !== "invite_to_created_instance")
     return { status: "ready", payload: job.payload };
   const dependency = await ctx.db.get(job.payload.creationOperationId);
@@ -1258,7 +1267,8 @@ function calendarResultValid(kind: OperationPayload["kind"], result: Infer<typeo
     return false;
   if ((result.calendarEvents !== undefined || result.calendarEventsTruncated !== undefined) && kind !== "list_calendar_events")
     return false;
-  return (result.calendarEvents?.length ?? 0) <= 200 && JSON.stringify(result).length <= 500_000;
+  const items = result.calendarEvents ?? [];
+  return items.length <= 200 && items.every(item => CALENDAR_EVENT_ID.test(item.id)) && new TextEncoder().encode(JSON.stringify(result)).length <= 500_000;
 }
 
 // Independent of collector authorization and leases. Paginate in immutable

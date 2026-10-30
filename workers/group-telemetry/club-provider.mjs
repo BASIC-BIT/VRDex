@@ -19,7 +19,7 @@ const ARTWORK_MAX_BYTES = 10 * 1024 * 1024;
 const CALENDAR_ITEMS = 200;
 // Convex refuses a result over 500,000 JSON characters; escaping can inflate
 // a 2000-character description, so count the serialized size too.
-const CALENDAR_RESULT_CHARS = 490_000;
+const CALENDAR_RESULT_BYTES = 490_000;
 function fail(code = "invalid_input") { throw new VrchatProviderError(code, { category: code }); }
 function matches(value, prefix) { return typeof value === "string" && new RegExp(`^${prefix}_${UUID}$`).test(value); }
 function id(value, prefix) {
@@ -64,12 +64,11 @@ export async function fetchArtwork(url, { fetcher = fetch, timeoutMs = 15_000, m
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetcher(url, { redirect: "follow", signal: controller.signal });
+    const response = await fetcher(url, { redirect: "error", signal: controller.signal });
     const contentType = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
     const reader = response.body?.getReader();
     try {
-      // Redirects are followed, so check where the bytes finally came from.
-      if (!response.ok || !reader || new URL(response.url || url).protocol !== "https:" || contentType !== "image/png" || Number(response.headers.get("content-length")) > maxBytes) fail("artwork");
+      if (!response.ok || !reader || contentType !== "image/png" || Number(response.headers.get("content-length")) > maxBytes) fail("artwork");
       const chunks = [];
       let length = 0;
       for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
@@ -157,8 +156,8 @@ export class ClubProvider {
         for (const row of rows) {
           const item = this.calendarItem(row);
           if (!item || found.has(item.id) || Date.parse(item.startsAt) < start || Date.parse(item.startsAt) >= end) continue;
-          size += JSON.stringify(item).length + 1;
-          if (found.size === CALENDAR_ITEMS || size > CALENDAR_RESULT_CHARS) return { calendarEvents: [...found.values()], calendarEventsTruncated: true };
+          size += Buffer.byteLength(JSON.stringify(item)) + 1;
+          if (found.size === CALENDAR_ITEMS || size > CALENDAR_RESULT_BYTES) return { calendarEvents: [...found.values()], calendarEventsTruncated: true };
           found.set(item.id, item);
         }
         offset += rows.length;

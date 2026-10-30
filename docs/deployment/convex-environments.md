@@ -99,10 +99,11 @@ fails and the connector failure alarm fires.
 `VRDEX_CONNECTOR_VRCHAT_CALENDAR_ENABLED` turns the VRChat calendar connector
 kind on when set to `true`. Scope: the Convex deployment environment only.
 Default: unset, which means off. Owner: BASIC. Non-secret; rotation does not
-apply. While it is off, the Integrations page hides the Connect control, connector
-creation throws `CONNECTOR_UNAVAILABLE`, polls are not enqueued, and VRChat
-calendar sync jobs fail with `CONNECTOR_KIND_DISABLED` and enqueue no club
-operations. Enable it only after
+apply. While it is off, the Integrations page hides the Connect control and the
+group's Calendar feature toggle (the stored feature is untouched), connector
+creation throws `CONNECTOR_UNAVAILABLE`, polls are not enqueued, VRChat calendar
+sync jobs fail with `CONNECTOR_KIND_DISABLED` and enqueue no club operations, and
+operations already queued are rejected with `connector_inactive`. Enable it only after
 the collector release-readiness check shows a collector running the worker that
 executes calendar operations.
 
@@ -134,8 +135,12 @@ again at once. Current alarms:
 - `connector-failures:` plus the connector ID: a connector's fifth and every
   later consecutive finally failed sync job, including jobs failed by recovery
   as `lease_expired` or `stalled`, so a long streak re-alerts every six hours.
-  Retries, skips, and `superseded` closes do not count. The next completed job
-  for that connector, or removing the connector, resolves it.
+  Retries, skips, and `superseded` closes do not count. A VRChat calendar job
+  waiting more than six hours on one operation also alerts under this key, at
+  once. The next completed job for that connector, or removing the connector,
+  resolves it, except that a `bidirectional` connector's `import_poll`,
+  `import_item`, and `reconcile` jobs neither clear the count nor resolve the
+  alert: a successful read says nothing about writes.
 - `product-analytics-delivery`: a product analytics outbox row stops retrying
   after five failed deliveries to PostHog. The email names the row ID, event
   name, attempt count, and creation time only. The next delivered row resolves

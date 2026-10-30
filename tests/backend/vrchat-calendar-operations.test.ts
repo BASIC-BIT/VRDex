@@ -156,6 +156,35 @@ describe("connector operations", () => {
     assert.deepEqual(await t.run((ctx) => ctx.db.query("clubOperationNotifications").collect()), []);
   });
 
+  it("refuses when the community's group is no longer the connector's", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, integrationId } = await seedVrchatConnector(t);
+    const jobId = await job(t, connectorId!);
+    await t.run((ctx) => ctx.db.patch(integrationId, { vrchatGroupId: "grp_99999999-9999-9999-9999-999999999999" }));
+    const out = await t.run(async (ctx) => enqueueConnectorOperation(ctx, { connector: (await ctx.db.get(connectorId!))!, payload: create, syncJobId: jobId }));
+    assert.deepEqual(out, { refused: "integration_unavailable" });
+    assert.equal((await operations(t)).length, 0);
+  });
+
+  const listed = { kind: "list_calendar_events" as const, from: "2026-11-02T00:00:00.000Z", to: "2027-01-31T00:00:00.000Z" };
+  it("measures a list result in bytes", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedVrchatConnector(t);
+    const jobId = await job(t, connectorId!);
+    await t.run(async (ctx) => enqueueConnectorOperation(ctx, { connector: (await ctx.db.get(connectorId!))!, payload: listed, syncJobId: jobId }));
+    // About 400,000 characters, but 1.2 MB of UTF-8.
+    const items = Array.from({ length: 200 }, (_, n) => vrchatItem({ id: calId(n + 1), description: "語".repeat(2000) }));
+    await assert.rejects(workerSettle(t, { status: "succeeded", result: { calendarEvents: items } }), /Invalid operation result/);
+  });
+
+  it("refuses a listed entry whose ID is not a calendar ID", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedVrchatConnector(t);
+    const jobId = await job(t, connectorId!);
+    await t.run(async (ctx) => enqueueConnectorOperation(ctx, { connector: (await ctx.db.get(connectorId!))!, payload: listed, syncJobId: jobId }));
+    await assert.rejects(workerSettle(t, { status: "succeeded", result: { calendarEvents: [vrchatItem({ id: "cal_nope" })] } }), /Invalid operation result/);
+  });
+
   it("complete stores calendar results and refuses oversized lists", async () => {
     const t = convexTest({ schema, modules });
     const { connectorId } = await seedVrchatConnector(t);

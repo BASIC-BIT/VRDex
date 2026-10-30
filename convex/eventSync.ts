@@ -130,11 +130,14 @@ export const claimJob = internalMutation({
     if (job.eventId && (kind === "export_upsert" || kind === "export_delete")) {
       event = await ctx.db.get(job.eventId);
       link = await linkFor(ctx.db, connector._id, job.eventId);
-      if (kind === "export_upsert" && !eventIsPublic(event)) {
-        if (!link) return await skipJob(ctx, job, connector, "event_not_public");
-        kind = "export_delete";
-      } else if (kind === "export_delete" && eventIsPublic(event)) return await skipJob(ctx, job, connector, "event_public");
-      if (kind === "export_upsert" && await pendingLinkDraft(ctx.db, link, now)) return await skipJob(ctx, job, connector, "pending_draft");
+      // A re-claim settles the operation in flight; it never re-decides the job. completeJob retracts what went private, and a re-publish has its own job.
+      if ((job.payload as { operationId?: unknown } | null)?.operationId === undefined) {
+        if (kind === "export_upsert" && !eventIsPublic(event)) {
+          if (!link) return await skipJob(ctx, job, connector, "event_not_public");
+          kind = "export_delete";
+        } else if (kind === "export_delete" && eventIsPublic(event)) return await skipJob(ctx, job, connector, "event_public");
+        if (kind === "export_upsert" && await pendingLinkDraft(ctx.db, link, now)) return await skipJob(ctx, job, connector, "pending_draft");
+      }
       if (kind === "export_delete" && link?.state !== "linked") return await skipJob(ctx, job, connector, "no_link");
     }
     // Only the first claim: a re-claim after a club-operation wait would queue a second export per event.
@@ -166,10 +169,12 @@ export const completeJob = internalMutation({
     }
     if (job.kind === "export_delete" && link) await ctx.db.patch(link._id, { state: "vrdex_retracted", updatedAt: now });
     await wakePendingSibling(ctx, job);
-    await resolveOps(ctx, failureAlertKey(job.connectorId));
     const connector = await ctx.db.get(job.connectorId);
+    // A bidirectional connector's reads prove nothing about its writes (a list needs no provider grant), so only an export clears its streak.
+    const readOnly = connector?.direction === "bidirectional" && (job.kind === "import_poll" || job.kind === "import_item" || job.kind === "reconcile");
+    if (!readOnly) await resolveOps(ctx, failureAlertKey(job.connectorId));
     if (!connector) return;
-    await ctx.db.patch(connector._id, { lastSyncedAt: now, lastError: undefined, consecutiveFailures: 0, updatedAt: now });
+    await ctx.db.patch(connector._id, { lastSyncedAt: now, ...(readOnly ? {} : { lastError: undefined, consecutiveFailures: 0 }), updatedAt: now });
     await recordJob(ctx, job, connector, "done", args.durationMs);
   },
 });

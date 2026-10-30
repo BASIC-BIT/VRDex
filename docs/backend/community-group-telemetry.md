@@ -40,11 +40,11 @@ an obsolete release.
 
 `create_calendar_event`, `update_calendar_event`, `delete_calendar_event`, and `list_calendar_events` are the club operations behind the [VRChat calendar connector](event-schema.md#vrchat-calendar). All four need the `calendar` feature and the `manage_events` staff permission. The three writes also need the `group-calendar-manage` provider grant; the list needs none.
 
-Only connectors enqueue them. They are hidden from the staff operation list, cannot be created or edited through the staff API, and file no failure notice: the connector's `lastError` is their failure surface. A terminal state resumes the sync job waiting on the operation.
+Only connectors enqueue them. They are hidden from the staff operation list, cannot be created or edited through the staff API, and file no failure notice: the connector's `lastError` is their failure surface. A terminal state resumes the sync job waiting on the operation. Claim and authorize both reject a queued one with `connector_inactive` unless its connector is `active`, its direction is not `off`, and the kind flag is on. A list operation is deleted once its job has read it.
 
-For a create or update with artwork, the worker fetches the PNG over HTTPS and uploads it through `/file/image` before the event write. A fetch that fails, or returns anything but a bounded PNG, only drops the image: the event write goes ahead without it. A refused or malformed upload rejects the operation with its own code, and the event write is not sent.
+For a create or update with artwork, the worker fetches the PNG over HTTPS and uploads it through `/file/image` before the event write. A fetch that fails, redirects, or returns anything but a bounded PNG only drops the image: the event write goes ahead without it. A refused or malformed upload rejects the operation with its own code, and the event write is not sent.
 
-A `missed` calendar operation was never claimed, so the waiting sync job enqueues it again without spending an attempt. A job still waiting on one operation after six hours records a failed attempt with `vrchat_operation_stalled`.
+A `missed` calendar operation was never submitted, so the waiting sync job enqueues it again without spending an attempt. A job still waiting on one operation after six hours records a failed attempt with `vrchat_operation_stalled` and emails ops.
 
 ## Automatic candidate queue
 
