@@ -7,7 +7,7 @@ export type DiscordEventPostInput = {
   canonicalUrl: string;
 };
 
-function cleanPublicText(value: string): string {
+export function cleanPublicText(value: string): string {
   return value.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
@@ -53,6 +53,17 @@ function formatMediaLinkLine(link: PublicEvent["mediaLinks"][number]): string {
   return `- ${cleanPublicText(link.label)}: ${cleanPublicText(url)}`;
 }
 
+/** The lineup rows of a Discord post: the canonical lineup, else timed slots, else participants. */
+export function formatDiscordLineupLines(event: PublicEvent): string[] {
+  const timed = event.scheduleKind !== "date_only" && event.startAt !== undefined;
+  return event.lineup !== undefined ? event.lineup.map(row => {
+    const range = row.startAt === undefined || !timed ? "" : `${createDiscordTimestampSet(row.startAt).shortTime}${row.endAt === undefined ? "" : `-${createDiscordTimestampSet(row.endAt).shortTime}`} - `;
+    return `- ${range}${cleanPublicText(row.displayLabel)}${formatLabelSuffix(row.roleLabel ?? "")}`;
+  }) : timed && event.slots.length > 0
+    ? event.slots.map(formatSlotLine)
+    : event.participants.map(formatParticipantLine);
+}
+
 export function formatDiscordEventPost({ canonicalUrl, event }: DiscordEventPostInput): string | null {
   if (event.status === "cancelled") {
     return null;
@@ -87,12 +98,7 @@ export function formatDiscordEventPost({ canonicalUrl, event }: DiscordEventPost
     lines.push(`End: ${createDiscordTimestampSet(event.endAt).shortDateTime}`);
   }
 
-  const lineupLines = event.lineup !== undefined ? event.lineup.map(row => {
-    const range = row.startAt === undefined || eventTime === undefined ? "" : `${createDiscordTimestampSet(row.startAt).shortTime}${row.endAt === undefined ? "" : `-${createDiscordTimestampSet(row.endAt).shortTime}`} - `;
-    return `- ${range}${cleanPublicText(row.displayLabel)}${formatLabelSuffix(row.roleLabel ?? "")}`;
-  }) : eventTime !== undefined && event.slots.length > 0
-    ? event.slots.map(formatSlotLine)
-    : event.participants.map(formatParticipantLine);
+  const lineupLines = formatDiscordLineupLines(event);
 
   if (lineupLines.length > 0) {
     lines.push("", "Lineup:", ...lineupLines);

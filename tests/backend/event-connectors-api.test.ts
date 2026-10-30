@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { beforeEach, it } from "node:test";
+import { afterEach, beforeEach, it } from "node:test";
 import { api } from "../../convex/_generated/api";
 import { connectorFixture } from "./_eventConnectorFixture";
 
-beforeEach(test => test.mock.timers.enable({ apis: ["setTimeout"] }));
+// Board rows are created below; create refuses the kind while its flag is off.
+beforeEach(test => { test.mock.timers.enable({ apis: ["setTimeout"] }); process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED = "true"; });
+afterEach(() => { delete process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED; });
 const google = { kind: "google_calendar" as const, direction: "bidirectional" as const, mode: "hold" as const, target: { calendarId: "club@example.com", calendarName: "Club nights" } };
 
 it("create enqueues one reconcile job and lists the connector", async () => {
@@ -92,6 +94,8 @@ it("state active resumes a paused connector under the caller and never clears ne
 it("update enforces the kind's allowed directions", async () => {
   const f = await connectorFixture();
   const as = f.as("integrator");
+  // A board needs the staffer's proof of its guild.
+  await f.t.run(ctx => ctx.db.insert("externalControlProofs", { userId: f.users.integrator, assetType: "discord_guild", assetExternalId: "123456789012345678", controlLevel: "manager", state: "active", evidenceSource: "discord_oauth", verifiedAt: Date.now(), createdAt: Date.now(), updatedAt: Date.now() }));
   const board = await as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, kind: "discord_board", direction: "export", mode: "hold", target: { guildId: "123456789012345678", channelId: "223456789012345678" } });
   await assert.rejects(as.mutation(api.eventConnectors.update, { connectorId: board, direction: "bidirectional" }), /CONNECTOR_DIRECTION_INVALID/);
   const intake = await as.mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, kind: "discord_announcements", direction: "import", mode: "hold", target: { guildId: "123456789012345678", channelId: "323456789012345678" } });

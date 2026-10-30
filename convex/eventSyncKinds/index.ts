@@ -1,10 +1,11 @@
 import type { ConnectorKind } from "../_eventConnectors";
+import { discordBoardHandler } from "./discordBoard";
 import type { SyncKindHandler } from "./types";
 
 // Kind plans register one module each here.
 export const syncKindHandlers: Record<ConnectorKind, SyncKindHandler> = {
   discord_announcements: {},
-  discord_board: {},
+  discord_board: discordBoardHandler,
   discord_scheduled_events: {},
   google_calendar: {},
   vrchat_calendar: {},
