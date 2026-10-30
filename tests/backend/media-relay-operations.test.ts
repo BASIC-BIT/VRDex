@@ -355,3 +355,17 @@ test("unique reviewed worker slots enable only the in-memory operator fixture", 
   assert.equal(rows[0]?.enabled, true);
   assert.equal(rows[0]?.evidenceId, "reviewed-proof");
 });
+
+test("deployment-only guard rejects registered and unregistered browser impersonation before writes", async () => {
+  const t = convexTest({ schema, modules });
+  await t.run(ctx => ctx.db.insert("users", {clerkUserId:"registered-operator"}));
+  for (const subject of ["registered-operator", "unregistered-operator"]) {
+    const browser = t.withIdentity({subject});
+    await assert.rejects(browser.mutation(ref("setRelayEnabled"), {enabled:false}), /impersonation is forbidden/);
+    await assert.rejects(browser.mutation(ref("drainWorker"), {workerId:"slot-0"}), /impersonation is forbidden/);
+  }
+  assert.deepEqual(await t.run(ctx => ctx.db.query("mediaRelayOperations").collect()), []);
+  // Internal dispatch is the deployment-admin boundary; no browser identity is expected.
+  await t.mutation(ref("setRelayEnabled"), {enabled:false});
+  assert.equal((await t.run(ctx => ctx.db.query("mediaRelayOperations").unique()))?.enabled, false);
+});

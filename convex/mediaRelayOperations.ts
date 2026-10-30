@@ -3,10 +3,7 @@ import { v } from "convex/values";
 import { ReleaseEvidenceSchema } from "../packages/media-relay/src/worker/release-evidence";
 import { WorkerBindingsSchema } from "../packages/media-relay/src/worker/deployment";
 import { relayOperationState } from "./_mediaRelayOperations";
-async function operator(ctx: MutationCtx) {
-  if (await ctx.auth.getUserIdentity())
-    throw Error("Deployment operator required; impersonation is forbidden");
-}
+import { rejectBrowserIdentityForDeploymentOperation } from "./_browserSessionAuthority";
 async function update(
   ctx: MutationCtx,
   patch: { enabled?: boolean; drainingWorkers?: string[]; evidenceId?: string },
@@ -25,7 +22,7 @@ async function update(
 export const drainWorker = internalMutation({
   args: { workerId: v.string() },
   handler: async (ctx, args) => {
-    await operator(ctx);
+    await rejectBrowserIdentityForDeploymentOperation(ctx);
     const bindings = WorkerBindingsSchema.parse(
       JSON.parse(process.env.MEDIA_RELAY_WORKERS ?? "null"),
     );
@@ -42,7 +39,7 @@ export const drainWorker = internalMutation({
 export const setRelayEnabled = internalMutation({
   args: { enabled: v.boolean() },
   handler: async (ctx, args) => {
-    await operator(ctx);
+    await rejectBrowserIdentityForDeploymentOperation(ctx);
     if (!args.enabled) {
       await update(ctx, { enabled: false });
       return null;

@@ -72,7 +72,7 @@ zero capacity never means unlimited. This switch is independent of event output.
   never enter application logs. RPC publication uses the actual Convex transaction.
 - Control/demand/snapshot reads have 1.5-second physical cancellation deadlines;
   storage writes/sweeps and initial secret reads have 4.5-second deadlines.
-  Gateway responses retain their existing <=2-second budget. DynamoDB's store
+  Gateway responses retain their existing `<=2`-second budget. DynamoDB's store
   interface has no caller signal, so each actual transport has its own finite
   abort deadline. It does not detach an uncancelled promise.
 - Uploads stream files, cap each segment at 32 MiB and snapshots at 128 KiB, and

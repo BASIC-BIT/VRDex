@@ -29,7 +29,20 @@ for (const media of [video, audio]) {
     if (event === "error") message(`Playback failed (media error ${media.error?.code ?? "unknown"}). Save the log.`);
   });
 }
+function playbackSource(selectedMode) {
+  switch (selectedMode) {
+    case "relay-audio": return "/relay/audio/index.m3u8";
+    case "relay": return "/relay/index.m3u8";
+    case "live": return "https://stream.vrcdn.live/live/basicbit.live.mp4";
+    case "video": return "/media/video.m3u8";
+    case "audio": return "/media/audio.m3u8";
+    default: return null;
+  }
+}
 document.querySelector("#start").addEventListener("click", async () => {
+  const selectedMode = mode.value;
+  const source = playbackSource(selectedMode);
+  if (source === null) return;
   if (run) { run.notes = document.querySelector("#notes").value; record("replaced"); }
   release();
   active = ["audio", "relay-audio"].includes(mode.value) ? audio : video;
@@ -39,7 +52,7 @@ document.querySelector("#start").addEventListener("click", async () => {
   run = { startedAt: new Date().toISOString(), mode: mode.value, sample: mode.value.startsWith("relay") ? `vrcdn-basicbit-live-hls-${mode.value}` : mode.value === "live" ? "vrcdn-basicbit-live-mp4" : "prerecorded-synthetic-hls", durationSeconds: ["live", "relay", "relay-audio"].includes(mode.value) ? null : 2100, notes: "", events: [] };
   runs.push(run); document.querySelector("#notes").value = ""; record("start");
   if (mode.value !== "live" && !active.canPlayType("application/vnd.apple.mpegurl")) { message("Native HLS is unavailable in this browser. Try Safari on iPhone or Chrome on Android."); record("native-hls-unavailable"); return; }
-  active.src = mode.value === "relay-audio" ? "/relay/audio/index.m3u8" : mode.value === "relay" ? "/relay/index.m3u8" : mode.value === "live" ? "https://stream.vrcdn.live/live/basicbit.live.mp4" : `/media/${mode.value}.m3u8`;
+  active.src = source;
   message("Connecting");
   const thisRun = run;
   setTimeout(() => {
