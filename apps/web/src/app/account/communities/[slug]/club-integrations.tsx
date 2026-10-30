@@ -11,6 +11,7 @@ import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
 import { VrchatCalendarConnect } from "./club-vrchat-calendar";
 import { ClubAccessNotice, useClubWorkspace } from "./club-workspace";
+import { DiscordBoardConnect } from "./discord-board-connect";
 import {
   connectorTargetName,
   directionOptions,
@@ -112,12 +113,15 @@ export function ClubIntegrationsView({
   onRemove,
   now,
   vrchatCalendarConnect,
+  connect,
 }: {
   connectors: readonly Connector[];
   onUpdate: (connectorId: ConnectorId, patch: ConnectorPatch) => Promise<unknown>;
   onRemove: (connectorId: ConnectorId) => Promise<unknown>;
   now: number;
   vrchatCalendarConnect?: ReactNode;
+  /** Connect controls; the page passes its Convex-backed ones. */
+  connect?: ReactNode;
 }) {
   const [failed, setFailed] = useState(false);
   const run = (action: () => Promise<unknown>) => {
@@ -129,6 +133,7 @@ export function ClubIntegrationsView({
   return (
     <div className="grid gap-6">
       <h1 className="text-3xl font-semibold tracking-tight">Integrations</h1>
+      {connect}
       {failed ? (
         <Notice variant="error" role="alert">
           Try again.
@@ -174,6 +179,7 @@ function ConnectedIntegrations({ communityProfileId }: { communityProfileId: Id<
       onUpdate={(connectorId, patch) => update({ connectorId, ...patch })}
       onRemove={(connectorId) => remove({ connectorId })}
       vrchatCalendarConnect={<VrchatCalendarConnect communityProfileId={communityProfileId} />}
+      connect={<DiscordBoardConnect communityProfileId={communityProfileId} />}
     />
   );
 }

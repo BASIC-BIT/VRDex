@@ -131,6 +131,10 @@ crons.interval("reconcile orphan group observations", { hours: 6 }, makeFunction
 crons.interval("admit queued group observations", { minutes: 1 }, makeFunctionReference<"mutation">("groupObservations:admitQueued"), {});
 
 crons.interval("recover event sync jobs", { minutes: 5 }, internal.eventSync.recoverExpiredJobs, {});
+crons.daily("refresh discord event boards", { hourUTC: 6, minuteUTC: 15 }, internal.eventSyncKinds.discordBoard.enqueueBoardRefreshes, {});
+
+// Inert unless VRDEX_RECURRING_EVENTS_ENABLED; a failed series emails ops.
+crons.daily("materialize event series", { hourUTC: 6, minuteUTC: 20 }, internal.eventSeries.materializeAll, {});
 
 // VRChat group calendar (plan 09): only enqueues runner jobs; the runner owns retries and the failure alarm.
 crons.interval("poll VRChat calendars", { minutes: 30 }, internal.vrchatCalendarConnector.enqueuePolls, {});

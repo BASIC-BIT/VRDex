@@ -6,6 +6,7 @@ import {
 } from "@/app/account/communities/[slug]/club-integrations";
 import type { Connector } from "@/app/account/communities/[slug]/club-integrations-model";
 import { VrchatCalendarConnectView } from "@/app/account/communities/[slug]/club-vrchat-calendar";
+import { DiscordBoardConnectView } from "@/app/account/communities/[slug]/discord-board-connect";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 const NOW = Date.UTC(2026, 9, 29, 12);
@@ -38,10 +39,65 @@ const fixtures: Connector[] = [
   row({ connectorId: id("notion"), kind: "notion", direction: "off", mode: "hold", state: "active", target: {} }),
 ];
 
+const guilds = [
+  { guildId: "123456789012345678", guildName: "Afterhours" },
+  { guildId: "423456789012345678", guildName: "Afterhours Staff" },
+];
+const channelsByGuild: Record<string, { id: string; name: string }[]> = {
+  "123456789012345678": [
+    { id: "523456789012345678", name: "announcements" },
+    { id: "623456789012345678", name: "upcoming-events" },
+  ],
+  "423456789012345678": [{ id: "723456789012345678", name: "staff-board" }],
+};
+
+type BoardState = { open?: boolean; guildId?: string; channelId?: string };
+function BoardConnect({ initial, onConnected }: { initial: BoardState; onConnected: (connector: Connector) => void }) {
+  const [open, setOpen] = useState(initial.open ?? false);
+  const [guildId, setGuildId] = useState(initial.guildId ?? "");
+  const [channelId, setChannelId] = useState(initial.channelId ?? "");
+  const channels = guildId ? channelsByGuild[guildId] : undefined;
+  const reset = () => {
+    setGuildId("");
+    setChannelId("");
+  };
+  return (
+    <DiscordBoardConnectView
+      open={open}
+      guilds={guilds}
+      guildId={guildId}
+      channels={channels}
+      channelId={channelId}
+      pending={false}
+      failed={false}
+      onToggle={() => {
+        reset();
+        setOpen(!open);
+      }}
+      onGuildChange={(next) => {
+        setGuildId(next);
+        setChannelId("");
+      }}
+      onChannelChange={setChannelId}
+      onConnect={() => {
+        const channel = channels?.find((row) => row.id === channelId);
+        if (!channel) return;
+        onConnected(row({
+          connectorId: id(`board-${channel.id}`), kind: "discord_board", direction: "export", mode: "hold", state: "active",
+          target: { guildId, channelId: channel.id, channelName: channel.name },
+        }));
+        reset();
+        setOpen(false);
+      }}
+    />
+  );
+}
+
 const withoutCalendar = fixtures.filter((connector) => connector.kind !== "vrchat_calendar");
 
-function Preview({ connectors = fixtures, calendar, connectFails = false }: {
+function Preview({ connectors = fixtures, board, calendar, connectFails = false }: {
   connectors?: Connector[];
+  board?: BoardState;
   calendar?: { enabled: boolean; ready: boolean };
   connectFails?: boolean;
 }) {
@@ -69,6 +125,7 @@ function Preview({ connectors = fixtures, calendar, connectFails = false }: {
             }}
           />
         }
+        connect={board ? <BoardConnect initial={board} onConnected={(added) => setRows((current) => [...current, added])} /> : undefined}
       />
       <output aria-label="Submitted connector update" className="sr-only">{submitted}</output>
     </div>
@@ -88,3 +145,5 @@ export const CalendarReady: Story = { args: { connectors: withoutCalendar, calen
 export const CalendarNotReady: Story = { args: { connectors: withoutCalendar, calendar: { enabled: true, ready: false } } };
 export const CalendarFlagOff: Story = { args: { connectors: withoutCalendar, calendar: { enabled: false, ready: false } } };
 export const CalendarConnectFails: Story = { args: { connectors: [], calendar: { enabled: true, ready: true }, connectFails: true } };
+export const BoardClosed: Story = { args: { board: {} } };
+export const BoardOpen: Story = { args: { board: { open: true, guildId: "123456789012345678" } } };

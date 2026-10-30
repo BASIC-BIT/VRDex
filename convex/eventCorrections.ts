@@ -18,6 +18,7 @@ import { reindexEventSearchDocument } from "./_searchDocuments";
 import { enqueueEventSync } from "./_eventSync";
 import { canReadProfile } from "./_profilePermissions";
 import { getEventBySlug } from "./_eventSlugs";
+import { recordOccurrenceOverrides } from "./_eventSeries";
 import { canUpdateEvent, eventParticipantRoleLabels, linkedPublishedEventWorld, managedCommunitiesForBrowser, reconcileEventMediaScheduleChange, recordEventAuditEvent, replaceEventWorldLink, retireConfirmedEventInstanceAssociations, settleEventMediaForCancellation, syncPreservedEventAssociations } from "./events";
 
 export const REMOVED_EVENT_SUPPRESSION_MS = 30 * 86_400_000;
@@ -115,7 +116,9 @@ export async function updateActorContribution(ctx: MutationCtx, actorUserId: Id<
   if (event.startAt !== undefined && updated.startAt === undefined) {
     await retireConfirmedEventInstanceAssociations(db, event._id, now);
   }
+  const worldChanged = patch.worldSlug !== undefined && (await linkedPublishedEventWorld(db, event._id, true))?.slug !== checked.world?.slug;
   if (patch.worldSlug !== undefined) await replaceEventWorldLink(db, updated, checked.world, now, { confirmationState: "unconfirmed" });
+  if (event.seriesId !== undefined) await recordOccurrenceOverrides(db, event, updated, worldChanged);
   await refreshProjections(db, updated, now, checked.lineup.flatMap(entry => entry.roleLabel ? [entry.roleLabel] : []));
   await recordEventAuditEvent(db, { eventId: event._id, actorUserId, actor, actorSurface: actor ? "browser" : actorSurface, action: "updated", changedFields: Object.keys(patch), now });
   await enqueueEventSync(db, ctx.scheduler, event._id, "upsert");
