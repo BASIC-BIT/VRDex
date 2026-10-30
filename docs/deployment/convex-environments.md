@@ -165,9 +165,11 @@ server holds the bucket role. Scope: the Convex deployment environment and the
 web app (Vercel Terraform variable `discord_poster_token` in
 `infra/terraform/vercel`). Owner: BASIC. Value: at least 32 random bytes,
 generated with `openssl rand -base64 32`. Unset on either side, runs store no
-posters and continue with the post text. Rotation: write the new value to the
-web app first, then to Convex; runs in between store no posters and continue
-text-only.
+posters and continue with the post text. A run that has posters and stores none
+emails the `discord-intake-posters` ops alert, naming the failure code; the next
+run that stores one resolves it. Rotation: write the new value to the web app
+first, then to Convex; runs in between store no posters, continue text-only, and
+can raise that alert.
 
 Runs reuse `SITE_URL` as the poster bridge origin. They also read
 `OPENAI_API_KEY`, `VRDEX_EVENT_INTAKE_AI_ENABLED`, and

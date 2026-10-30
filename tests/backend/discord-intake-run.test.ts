@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { beforeEach, it } from "node:test";
 import { api, internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
+import { ConvexError } from "convex/values";
 import { buildSourceText, pickPosterAttachments } from "../../convex/_discordIntake";
+import { failureReason } from "../../convex/discordIntakeRun";
 import { EVENT_POSTER_MAX_BYTES, resolveEventLocalTime } from "../../packages/api-contracts/src/event-intake";
 import { newClerkUserId } from "./_clerkTestIdentity";
 import { AUTHOR_B, CHANNEL, GUILD, M1, M2, message, record, revokeManageIntegrations, seedCommunity, seedDiscordIntake } from "./helpers/discord-intake";
@@ -380,8 +382,18 @@ it("closes the run even when extraction fails", async () => {
     await t.action(internal.discordIntakeRun.runPending, { runId });
     const run = await getRun(t, runId);
     assert.equal(run.state, "failed");
+    assert.equal(run.reason, "invalid_response");
     assert.ok(run.finishedAt);
   });
+});
+
+it("stores only a code as a failure reason, never a message that carries a URL", () => {
+  const signed = "https://cdn.discordapp.com/attachments/1/2/f.png?ex=1&hm=abc";
+  assert.equal(failureReason(new Error(`request to ${signed} failed`)), "run_failed");
+  assert.equal(failureReason(new Error(signed)), "run_failed");
+  assert.equal(failureReason(new Error("POSTER_READ_FAILED")), "POSTER_READ_FAILED");
+  assert.equal(failureReason(new ConvexError({ code: "DISCORD_INTAKE_RUN_NOT_RUNNING" })), "DISCORD_INTAKE_RUN_NOT_RUNNING");
+  assert.equal(failureReason("not an error"), "run_failed");
 });
 
 it("runs the agent through list_events and get_event and applies with the updatedAt get_event saw", async () => {
@@ -423,4 +435,96 @@ it("keeps connector posters out of the authority's own poster quota", async () =
   for (let index = 0; index < 20; index++) await begin(own);
   await assert.rejects(begin(own), /POSTER_QUOTA/);
   await begin(connectorDraft);
+});
+
+const POSTER = { url: "https://cdn.discordapp.com/attachments/1/2/f.png", contentType: "image/png", byteLength: 10 };
+const LINK = "https://bucket.example/profile-assets/quarantine/x?X-Amz-Signature=sig";
+const DISPLAY = Buffer.from([1, 2, 3, 250, 251, 252, 7]);
+type Requests = { bridge: Array<Record<string, unknown>>; model: Array<{ input: Array<{ content: Array<{ type: string; image_url?: string; detail?: string }> }> }> };
+/** A run's fetches: the poster bridge, the signed link it returns, and a model that answers not_event. */
+const routedFetch = (t: T, requests: Requests, routes: { store?: () => Response; read?: () => Response; link?: () => Response } = {}): typeof fetch => async (url, init) => {
+  const href = String(url);
+  if (href === LINK) {
+    assert.equal(init?.redirect, "error");
+    return routes.link?.() ?? new Response(DISPLAY);
+  }
+  if (href === "https://api.openai.com/v1/responses") {
+    requests.model.push(JSON.parse(String(init?.body)));
+    const text = JSON.stringify(candidate({ kind: "not_event", reason: "" }));
+    return Response.json({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text }] }], usage: { input_tokens: 1, output_tokens: 1 } });
+  }
+  assert.equal(href, "https://vrdex.test/api/internal/discord-intake/poster");
+  assert.equal(new Headers(init?.headers).get("authorization"), `Bearer ${"p".repeat(40)}`);
+  const body = JSON.parse(String(init?.body));
+  requests.bridge.push(body);
+  if (body.op === "read") return routes.read?.() ?? Response.json({ url: LINK, mimeType: "image/webp" });
+  if (routes.store) return routes.store();
+  const now = Date.now();
+  // The ready source the web bridge leaves behind after its upload and freeze.
+  const posterAssetId = await t.run(ctx => ctx.db.insert("eventPosterSources", { purpose: "event_poster", actorUserId: body.actorUserId, draftId: body.draftId, contentType: body.contentType, byteLength: body.byteLength, sha256: "a".repeat(64), reservedBytes: 20, state: "ready", uploadedAt: now, lastActivityAt: now, expiresAt: now + 86_400_000, uploadExpiresAt: now }));
+  return Response.json({ posterAssetId });
+};
+const opsSends = (t: T) => t.run(async ctx => (await ctx.db.system.query("_scheduled_functions").collect()).filter(job => job.name.includes("opsAlertEmail")).map(job => job.args[0] as { to: string; subject: string; body: string }));
+
+it("stores the run's poster and gives the model the data URL rebuilt from the signed link", async () => {
+  const { t, authorityUserId } = await seedDiscordIntake();
+  const requests: Requests = { bridge: [], model: [] };
+  await record(t, "create", message(M1, { attachments: [POSTER] }));
+  const runId = (await pendingRun(t))._id;
+  await withModel(routedFetch(t, requests), () => t.action(internal.discordIntakeRun.runPending, { runId }));
+  assert.equal(requests.bridge.length, 2);
+  const [store, read] = requests.bridge;
+  const run = await getRun(t, runId);
+  assert.deepEqual(store, { op: "store", actorUserId: authorityUserId, draftId: run.draftId, ...POSTER });
+  const posterAssetId = (await t.run(ctx => ctx.db.query("eventPosterSources").collect()))[0]._id;
+  assert.deepEqual(read, { op: "read", actorUserId: authorityUserId, posterAssetId });
+  const image = requests.model[0].input[0].content.find(part => part.type === "input_image");
+  assert.equal(image?.image_url, `data:image/webp;base64,${DISPLAY.toString("base64")}`);
+  assert.equal(run.state, "done");
+  assert.equal(run.reason, "not_event");
+});
+
+for (const [name, routes, code] of [
+  ["the bridge refuses the read", { read: () => new Response(null, { status: 503 }) }, "POSTER_BRIDGE_FAILED"],
+  ["the signed link fails", { link: () => new Response(null, { status: 403 }) }, "POSTER_READ_FAILED"],
+] as const) {
+  it(`logs the real cause and closes the run when ${name}`, async test => {
+    const warn = test.mock.method(console, "warn", () => {});
+    const { t } = await seedDiscordIntake();
+    await record(t, "create", message(M1, { attachments: [POSTER] }));
+    const runId = (await pendingRun(t))._id;
+    await withModel(routedFetch(t, { bridge: [], model: [] }, routes), () => t.action(internal.discordIntakeRun.runPending, { runId }));
+    assert.deepEqual(warn.mock.calls.map(call => call.arguments), [["discord intake poster read failed", { runId, reason: code }]]);
+    const run = await getRun(t, runId);
+    assert.equal(run.state, "failed");
+    assert.ok(run.finishedAt);
+  });
+}
+
+it("alarms when no poster stores, continues text-only, and resolves when one stores again", async test => {
+  test.mock.method(console, "warn", () => {});
+  const { t } = await seedDiscordIntake();
+  const requests: Requests = { bridge: [], model: [] };
+  await record(t, "create", message(M1, { attachments: [POSTER] }));
+  const failed = (await pendingRun(t))._id;
+  await withModel(routedFetch(t, requests, { store: () => new Response(null, { status: 503 }) }), () => t.action(internal.discordIntakeRun.runPending, { runId: failed }));
+  assert.deepEqual(await opsSends(t), [{ to: "basic@basicbit.net", subject: "[VRDex ops] Discord intake posters failing", body: "Poster storage failed: POSTER_BRIDGE_FAILED." }]);
+  assert.equal((await getRun(t, failed)).state, "done");
+  assert.equal(requests.model.length, 1);
+  assert.equal(requests.model[0].input[0].content.some(part => part.type === "input_image"), false);
+
+  await record(t, "create", message(M2, { attachments: [POSTER] }));
+  const stored = (await pendingRun(t))._id;
+  await withModel(routedFetch(t, requests), () => t.action(internal.discordIntakeRun.runPending, { runId: stored }));
+  assert.deepEqual((await opsSends(t)).map(send => send.subject), ["[VRDex ops] Discord intake posters failing", "[VRDex ops] Resolved: discord-intake-posters"]);
+});
+
+it("neither alarms nor resolves on a run with no posters", async () => {
+  const { t } = await seedDiscordIntake();
+  await record(t, "create", message(M1));
+  const runId = (await pendingRun(t))._id;
+  await t.run(ctx => ctx.db.insert("opsAlerts", { key: "discord-intake-posters", lastSentAt: Date.now() }));
+  await withModel(routedFetch(t, { bridge: [], model: [] }), () => t.action(internal.discordIntakeRun.runPending, { runId }));
+  assert.deepEqual(await opsSends(t), []);
+  assert.equal((await t.run(ctx => ctx.db.query("opsAlerts").collect()))[0].resolvedAt, undefined);
 });

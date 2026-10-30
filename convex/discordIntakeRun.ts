@@ -4,10 +4,12 @@ import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction } from "./_generated/server";
+import { notifyOps, resolveOps } from "./_opsAlerts";
 import { composeSinks, createLangfuseSink, createPostHogSink, extractEventIntake, type EventIntakeSink } from "../packages/event-intake-agent/src/index";
 
 const POSTER_ROUTE = "/api/internal/discord-intake/poster";
 const REASON = /^[A-Za-z][A-Za-z0-9_]{2,63}$/;
+const POSTER_ALERT_KEY = "discord-intake-posters";
 
 /** The web poster bridge: only the web server holds the bucket role. */
 async function posterBridge<T>(body: Record<string, unknown>): Promise<T> {
@@ -21,16 +23,22 @@ async function posterBridge<T>(body: Record<string, unknown>): Promise<T> {
 }
 
 /** The same data URL the web poster handlers build, fetched through the bridge's short-lived link. */
-async function readPoster(actorUserId: Id<"users">, posterAssetId: string) {
-  const { url, mimeType } = await posterBridge<{ url: string; mimeType: string }>({ op: "read", actorUserId, posterAssetId });
-  const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(30_000) });
-  if (!response.ok) throw new Error("POSTER_READ_FAILED");
-  return `data:${mimeType};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`;
+async function readPoster(runId: Id<"discordIntakeRuns">, actorUserId: Id<"users">, posterAssetId: string) {
+  try {
+    const { url, mimeType } = await posterBridge<{ url: string; mimeType: string }>({ op: "read", actorUserId, posterAssetId });
+    const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) throw new Error("POSTER_READ_FAILED");
+    return `data:${mimeType};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`;
+  } catch (error) {
+    // The agent reports any read failure as invalid_response, so the real cause is logged here.
+    console.warn("discord intake poster read failed", { runId, reason: failureReason(error) });
+    throw error;
+  }
 }
 
 // Errors can carry signed URLs; keep messages for logs only after stripping them.
 const scrub = (message: string) => message.replace(/https?:\/\/\S+/g, "[url]").slice(0, 500);
-function failureReason(error: unknown) {
+export function failureReason(error: unknown) {
   const code = (error as { data?: { code?: unknown } } | null)?.data?.code;
   if (typeof code === "string" && REASON.test(code)) return code;
   const message = error instanceof Error ? error.message : "";
@@ -47,14 +55,18 @@ export const runPending = internalAction({
     try {
       const draftId = await ctx.runMutation(internal.discordIntake.saveRunDraft, { runId, sourceText: claim.sourceText, sourceUrl: claim.sourceUrl });
       const posterIds: string[] = [];
+      let posterFailure = "";
       for (const poster of claim.posters) {
         try {
           posterIds.push((await posterBridge<{ posterAssetId: string }>({ op: "store", actorUserId: claim.authorityUserId, draftId, ...poster })).posterAssetId);
         } catch (error) {
           // A poster that cannot be stored drops out; the run continues with the rest and the text.
-          console.warn("discord intake poster skipped", { runId, reason: failureReason(error) });
+          posterFailure = failureReason(error);
+          console.warn("discord intake poster skipped", { runId, reason: posterFailure });
         }
       }
+      if (posterIds.length) await resolveOps(ctx, POSTER_ALERT_KEY);
+      else if (claim.posters.length) await notifyOps(ctx, { key: POSTER_ALERT_KEY, subject: "Discord intake posters failing", body: `Poster storage failed: ${posterFailure}.` });
       const updatedAt = new Map<string, number>();
       const lookup = async (query: string, limit: number, profileType: "person" | "community") =>
         (await ctx.runQuery(api.search.searchUniversal, { query, limit, entityType: "profile", profileType })).map(row => ({ slug: row.slug, displayName: row.title }));
@@ -75,7 +87,7 @@ export const runPending = internalAction({
           updatedAt.set(slug, event.updatedAt);
           return event.fields;
         },
-        readPoster: posterAssetId => readPoster(claim.authorityUserId, posterAssetId),
+        readPoster: posterAssetId => readPoster(runId, claim.authorityUserId, posterAssetId),
         sink: composeSinks(...sinks),
       });
       // The agent never throws: an unavailable model or a provider error comes back as a fallback asking about the source.
