@@ -2,20 +2,31 @@
 
 ## Status
 
-Current recommendation for the first `program/restream/discord-gateway` leaf. The checked-in runtime is ACK/routing-only; it does not enqueue Convex commands or mutate live media.
+Current recommendation for the first `program/restream/discord-gateway` leaf. Media controls in the checked-in runtime are ACK/routing-only; they do not enqueue Convex commands or mutate live media. The runtime also relays connected-channel posts to Convex and serves `/vrdex`.
 
 ## Runtime Shape
 
-`apps/discord-gateway` is a dedicated long-running Discord Gateway adapter for VRDex media controls. It uses `discord.js` v14 on Node 22 and starts with only the `Guilds` intent.
+`apps/discord-gateway` is a dedicated long-running Discord Gateway adapter for VRDex media controls and Discord announcement intake. It uses `discord.js` v14 on Node 24 and requests the `Guilds`, `GuildMessages`, `MessageContent`, and `GuildScheduledEvents` intents. `MessageContent` is privileged: enable it in the Discord developer portal. Verification is not needed under 100 servers.
 
 The service is intentionally Gateway-first. Do not configure a Discord HTTP Interactions Endpoint URL for this app while interactions are delivered through Gateway events.
 
-The first runtime entrypoint acknowledges interactions quickly and keeps provider mutation out of the package:
+The runtime entrypoint acknowledges interactions quickly and keeps provider mutation out of the package:
 
 - It does not create or update Discord applications.
-- It does not register global or guild commands.
 - It does not mutate guild state.
-- It does not request privileged intents.
+- It does not register commands at startup; `pnpm --filter @vrdex/discord-gateway register-commands` is the separate step that does.
+
+## Announcement Intake
+
+- Posts are relayed only from channels with an active `discord_announcements` connector, looked up per channel and cached for 60 seconds. Creates, edits, and deletes all follow this path.
+- Bot posts, system messages, and posts with neither text nor an image are dropped. Image attachments are the only attachments relayed.
+- At startup the runtime replays up to 100 posts per connected channel made while it was down, starting from the newest stored post. Channels with no stored post are skipped. Replays are safe to repeat because Convex upserts by message ID.
+- A relay failure logs one JSON line with the message ID and is not retried. The post is recovered only if a later restart's replay still reaches it.
+- `/vrdex connect`, `/vrdex disconnect`, and `/vrdex status` need Manage Server by default. `pnpm --filter @vrdex/discord-gateway register-commands` registers them globally through `DISCORD_APPLICATION_ID` and `DISCORD_BOT_TOKEN`. Rerun it when the command tree changes.
+- The runtime posts a heartbeat to Convex at startup and every minute. Heartbeat failures log one JSON line and never stop the process.
+- Logs never carry the bot token, the intake secret, or message content.
+
+Plan 05 owns deployment and the heartbeat alarm.
 
 ## Shared Media Command Routing
 
@@ -44,8 +55,13 @@ Dangerous live actions such as `stop` and `fallback` are marked confirmation-gat
 ## Required Environment
 
 - `DISCORD_BOT_TOKEN`: Discord bot token from the selected staging or production Discord application.
+- `DISCORD_APPLICATION_ID`: that application's ID, read by `register-commands`.
+- `CONVEX_SITE_URL`: the Convex HTTP actions origin for the matching deployment.
+- `DISCORD_INTAKE_SECRET`: the same value as the Convex environment variable of that name.
 
-Future Convex enqueue integration should add an explicit Convex deployment URL and a scoped service credential. Do not store stream keys, ingest URLs, or provider credentials in Discord messages, command payloads, logs, or ordinary event records.
+Startup throws when `DISCORD_BOT_TOKEN`, `CONVEX_SITE_URL`, or `DISCORD_INTAKE_SECRET` is missing.
+
+Future media enqueue integration should add a scoped service credential. Do not store stream keys, ingest URLs, or provider credentials in Discord messages, command payloads, logs, or ordinary event records.
 
 ## Local Control Demo
 
@@ -63,6 +79,6 @@ Provider setup remains manual until explicitly approved:
 
 - Create separate staging and production Discord applications if practical.
 - Invite the bot with the minimum scopes required for commands and bot operation.
-- Register commands out-of-band after the command schema is finalized.
-- Keep privileged intents disabled unless a later approved feature requires member, presence, or message content access.
+- Register commands with `pnpm --filter @vrdex/discord-gateway register-commands` once per application.
+- Enable the `MessageContent` privileged intent. Keep the other privileged intents disabled unless a later approved feature requires member or presence access.
 - Leave the HTTP Interactions Endpoint URL empty for the Gateway-first app.
