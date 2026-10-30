@@ -192,6 +192,7 @@ import type * as eventScheduleMigration from "../eventScheduleMigration.js";
 import type * as eventSync from "../eventSync.js";
 import type * as eventSyncKinds_index from "../eventSyncKinds/index.js";
 import type * as eventSyncKinds_types from "../eventSyncKinds/types.js";
+import type * as eventSyncKinds_vrchatCalendar from "../eventSyncKinds/vrchatCalendar.js";
 import type * as eventTimeline from "../eventTimeline.js";
 import type * as events from "../events.js";
 import type * as groupMemberSnapshots from "../groupMemberSnapshots.js";
@@ -428,6 +429,7 @@ declare const fullApi: ApiFromModules<{
   eventSync: typeof eventSync;
   "eventSyncKinds/index": typeof eventSyncKinds_index;
   "eventSyncKinds/types": typeof eventSyncKinds_types;
+  "eventSyncKinds/vrchatCalendar": typeof eventSyncKinds_vrchatCalendar;
   eventTimeline: typeof eventTimeline;
   events: typeof events;
   groupMemberSnapshots: typeof groupMemberSnapshots;

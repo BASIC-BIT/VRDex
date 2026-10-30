@@ -9,8 +9,8 @@ import type { AuthSubject } from "./_communityAuthority";
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import { sanitizeEventIntakePatch } from "./_eventIntake";
 import { eventContributionFingerprint, preflightEventContribution } from "./_eventContributionPreflight";
-import { eventDateForInstant, requireDateOnlyEventsEnabled } from "./_eventSchedule";
-import { resolveEventLocalTime, type EventIntakePatch, type EventIntakeLocalTime } from "../packages/api-contracts/src/event-intake";
+import { eventDateForInstant, eventLocalTime, requireDateOnlyEventsEnabled } from "./_eventSchedule";
+import type { EventIntakePatch } from "../packages/api-contracts/src/event-intake";
 import { replaceEventLineup } from "./_eventLineup";
 import { contributorStaffLock } from "./_eventContributorLock";
 import { syncClubEventOperations } from "./_clubOperationEvents";
@@ -36,15 +36,7 @@ export async function correctionFields(db: DatabaseReader, event: Doc<"events">)
   const community = event.communityProfileId ? await db.get(event.communityProfileId) : null;
   const date = event.eventDate ?? eventDateForInstant(event.startAt!, event.timezone);
   const timezone = event.timezone ?? "UTC";
-  const local = (instant?: number): EventIntakeLocalTime | undefined => {
-    if (instant === undefined) return undefined;
-    const localDate = eventDateForInstant(instant, timezone);
-    const time = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(instant);
-    const value: EventIntakeLocalTime = { time, dayOffset: (Date.parse(localDate) - Date.parse(date)) / 86_400_000 };
-    const choices = resolveEventLocalTime(date, value, timezone);
-    if (choices.length > 1) value.occurrence = choices[0] === instant ? "earlier" : "later";
-    return value;
-  };
+  const local = (instant?: number) => instant === undefined ? undefined : eventLocalTime(instant, date, timezone);
   const [world, slots, untimed] = await Promise.all([
     linkedPublishedEventWorld(db, event._id, true),
     db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).take(81),
