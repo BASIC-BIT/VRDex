@@ -217,7 +217,7 @@ test("release evidence cannot turn sampled disk, alerts, or local measurements i
     ownerApprovalReference: "review-ticket-123",
     monthlyBudgetUsd: 200,
   };
-  assert.equal(ReleaseEvidenceSchema.safeParse(evidence).success, true);
+  assert.equal(ReleaseEvidenceSchema.safeParse(evidence).success, false);
   for (const patch of [
     { target: "local" },
     { partialDiskBoundVerified: false },
@@ -232,7 +232,7 @@ test("release evidence cannot turn sampled disk, alerts, or local measurements i
       false,
     );
 });
-function configureReviewedRelease() {
+function configureReviewedRelease(payg = false) {
   process.env.MEDIA_RELAY_ENABLED = "true";
   process.env.MEDIA_RELAY_MAX_SOURCES = "2";
   process.env.CONVEX_CLOUD_URL = "https://selected.convex.cloud";
@@ -258,9 +258,11 @@ function configureReviewedRelease() {
     remoteOperations: 20,
     cleanupPassed: true,
     timestampWarnings: 0,
-    trafficDecision: "owner-accepted-payg-exposure",
-    ownerApprovalReference: "review-ticket-123",
-    monthlyBudgetUsd: 200,
+    ...(payg ? {
+      trafficDecision: "owner-accepted-payg-exposure",
+      ownerApprovalReference: "review-ticket-123",
+      monthlyBudgetUsd: 200,
+    } : {}),
   });
 }
 test("enable cannot count configured or persisted drained slots as recovery capacity", async () => {
@@ -340,20 +342,22 @@ test("duplicate worker IDs cannot enable or supply recovery capacity, including 
     );
   }
 });
-test("unique reviewed worker slots enable only the in-memory operator fixture", async () => {
-  configureReviewedRelease();
+test("otherwise-valid PAYG evidence cannot enable and disable remains idempotent", async () => {
+  configureReviewedRelease(true);
   process.env.MEDIA_RELAY_WORKERS = JSON.stringify([
     reviewedBinding("slot-0"),
     reviewedBinding("slot-1"),
   ]);
   const t = convexTest({ schema, modules });
-  await t.mutation(ref("setRelayEnabled"), { enabled: true });
+  await t.mutation(ref("setRelayEnabled"), { enabled: false });
+  await assert.rejects(t.mutation(ref("setRelayEnabled"), { enabled: true }), /release|measurement/i);
+  await t.mutation(ref("setRelayEnabled"), { enabled: false });
   const rows = await t.run((ctx) =>
     ctx.db.query("mediaRelayOperations").collect(),
   );
   assert.equal(rows.length, 1);
-  assert.equal(rows[0]?.enabled, true);
-  assert.equal(rows[0]?.evidenceId, "reviewed-proof");
+  assert.equal(rows[0]?.enabled, false);
+  assert.equal(rows[0]?.evidenceId, undefined);
 });
 
 test("deployment-only guard rejects registered and unregistered browser impersonation before writes", async () => {
@@ -367,5 +371,14 @@ test("deployment-only guard rejects registered and unregistered browser imperson
   assert.deepEqual(await t.run(ctx => ctx.db.query("mediaRelayOperations").collect()), []);
   // Internal dispatch is the deployment-admin boundary; no browser identity is expected.
   await t.mutation(ref("setRelayEnabled"), {enabled:false});
+  assert.equal((await t.run(ctx => ctx.db.query("mediaRelayOperations").unique()))?.enabled, false);
+});
+
+test("complete hosted measurements still encounter the checked-in release blocker", async () => {
+  configureReviewedRelease();
+  process.env.MEDIA_RELAY_WORKERS = JSON.stringify([reviewedBinding("slot-0"), reviewedBinding("slot-1")]);
+  const t = convexTest({ schema, modules });
+  await t.mutation(ref("setRelayEnabled"), { enabled: false });
+  await assert.rejects(t.mutation(ref("setRelayEnabled"), { enabled: true }), /hard traffic\/cost enforcement/);
   assert.equal((await t.run(ctx => ctx.db.query("mediaRelayOperations").unique()))?.enabled, false);
 });

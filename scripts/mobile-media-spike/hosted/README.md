@@ -127,11 +127,14 @@ FFmpeg (installed via `apt-get update` and `apt-get install ffmpeg`). Input is
 fixed to public `basicbit.live.mp4`. No credentials or arbitrary URL forwarding.
 It stream-copies into a rolling eight-segment HLS playlist, with stale/unready
 playlists returning 503, and bounded reconnect attempts. The relay process
-also stops after 110 minutes, clears its files and terminates FFmpeg.
+requests shutdown after 110 minutes. It sends FFmpeg SIGTERM and waits for exit
+before clearing its files; it has no bounded TERM-to-KILL escalation. A child
+that ignores TERM can prevent script cleanup. The outer sandbox hard deadline
+is the process-lifetime backstop, not a guarantee that this script clears files.
 For this session its process deadline is 2026-10-28T20:42:45Z (16:42 Indianapolis),
 before the sandbox's hard timeout. No automatic extension or permanent hosting
 has been configured. To stop early, use Vercel Sandbox stop-session on the
-session ID above; normal signal shutdown of the relay also cleans up FFmpeg.
+session ID above; normal signal shutdown cleans up only after FFmpeg exits.
 
 Verification: public health returned ready with eight fresh segments; two
 playlist reads six seconds apart differed; all referenced segments downloaded;

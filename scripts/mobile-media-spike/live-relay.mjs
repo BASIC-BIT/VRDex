@@ -52,6 +52,8 @@ let deadline;
 async function close() {
   if (stopped) return;
   stopped = true; clearTimeout(retry); clearTimeout(deadline);
+  // Archived prototype: TERM can wait indefinitely; the outer sandbox hard
+  // deadline is the lifetime backstop, not guaranteed script cleanup.
   const exit = child && child.exitCode === null && child.signalCode === null ? new Promise(resolve => { child.once("close", resolve); child.kill("SIGTERM"); }) : Promise.resolve();
   server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await exit;
   await rm(directory, { recursive: true, force: true });

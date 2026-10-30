@@ -18,6 +18,7 @@ export type LineupObservedSource = {
   setMode?(mode: PlaybackMode): Promise<boolean>;
   recover?(explicit: boolean): Promise<boolean>;
   rebind?(slot: LineupSlot): Promise<boolean>;
+  installIdentity?(slot: LineupSlot): void;
   refresh?(): Promise<void>;
 };
 export type NativeLineupOptions = {
@@ -38,6 +39,8 @@ const backoff = [1000, 2000, 4000, 10000];
 export class EventLineupSession {
   state: LineupSnapshot = { started: false, following: true, paused: true, muted: false, volume: 1, connected: false, unavailable: false };
   private rebinding = false;
+  private identityRequest = 0;
+  private pendingIdentity?: { active: Connection; target: LineupSlot; request: number };
   private queuedRebind?: { target: LineupSlot; request: number };
   private promoting?: Connection;
   private mode: PlaybackMode = "video";
@@ -89,6 +92,7 @@ export class EventLineupSession {
     this.continuation?.release(); this.continuation = undefined;
   }
   private releaseCurrent(retainProof = false) {
+    this.identityRequest++; this.pendingIdentity = undefined;
     const source = this.current?.source;
     this.currentGeneration++; this.currentPending = false;
     if (!retainProof) source?.release();
@@ -113,7 +117,7 @@ export class EventLineupSession {
         // A revoked source needs explicit viewer action, never an automatic substitute.
         this.state.paused = true;
       } else {
-        if (this.native && this.current && match.key !== this.current.slot.key) { void this.rebindCurrent(match); this.resetEvidence(); this.emit(); return; }
+        if (this.native && this.current && (this.rebinding || this.pendingIdentity || match.key !== this.current.slot.key)) { this.identityRequest++; this.pendingIdentity = undefined; void this.rebindCurrent(match); this.resetEvidence(); this.emit(); return; }
         this.selected = match;
         if (this.current) this.current.slot = match;
         this.state.current = match.key;
@@ -122,9 +126,11 @@ export class EventLineupSession {
     this.resetEvidence(); this.emit();
   }
   private select(slot: LineupSlot | undefined) {
+    const pendingIdentity = this.pendingIdentity;
+    this.identityRequest++; this.pendingIdentity = undefined;
     this.releaseNext();
     if (slot?.stream && this.current && sameLineupSource(this.current.slot, slot)) {
-      if (this.native && (this.rebinding || slot.key !== this.current.slot.key)) { void this.rebindCurrent(slot); return; }
+      if (this.native && (this.rebinding || pendingIdentity || slot.key !== this.current.slot.key)) { void this.rebindCurrent(slot); return; }
       this.current.slot = slot; this.selected = slot; this.state.current = slot.key; this.resetEvidence();
       return;
     }
@@ -218,27 +224,37 @@ export class EventLineupSession {
     else { this.state.paused = false; this.state.playbackBlocked = false; this.resetEvidence(); this.emit(); }
   }
   get media() { return this.current?.source.media; }
-  async refresh() { await this.current?.source.refresh?.(); }
+  async refresh() { this.installPendingIdentity(); await this.current?.source.refresh?.(); }
   async setMode(mode: PlaybackMode) {
     this.mode = mode; this.playRequest++; this.releaseNext(); this.resetEvidence();
     return await this.current?.source.setMode?.(mode) ?? true;
   }
+  private installPendingIdentity() {
+    const pending = this.pendingIdentity;
+    if (!pending || this.disposed || document.visibilityState !== "visible") return;
+    this.pendingIdentity = undefined;
+    if (pending.active !== this.current || pending.request !== this.identityRequest) return;
+    const { active, target } = pending;
+    active.slot = target; this.selected = target; this.state.current = target.key;
+    active.source.installIdentity?.(target);
+    this.native?.onCurrent(active.source, target); this.emit();
+  }
   private async rebindCurrent(target: LineupSlot) {
-    const active = this.current, request = this.playRequest;
+    const active = this.current, request = this.identityRequest;
     if (!active || !this.native) return;
     if (this.rebinding) { this.queuedRebind = { target, request }; return; }
     this.rebinding = true;
     try {
       const accepted = await active.source.rebind?.(target);
-      if (this.disposed || active !== this.current || request !== this.playRequest || document.visibilityState !== "visible") return;
-      if (accepted) { active.slot = target; this.selected = target; this.state.current = target.key; this.native.onCurrent(active.source, target); }
+      if (this.disposed || active !== this.current || request !== this.identityRequest) return;
+      if (accepted) { this.pendingIdentity = { active, target, request }; this.installPendingIdentity(); }
       else { this.state.unavailable = true; this.pause(); }
       this.emit();
-    } catch { if (!this.disposed && active === this.current && request === this.playRequest) { this.state.unavailable = true; this.pause(); } }
+    } catch { if (!this.disposed && active === this.current && request === this.identityRequest) { this.state.unavailable = true; this.pause(); } }
     finally {
       this.rebinding = false;
       const queued = this.queuedRebind; this.queuedRebind = undefined;
-      if (queued && !this.disposed && queued.request === this.playRequest) void this.rebindCurrent(queued.target);
+      if (queued && !this.disposed && queued.request === this.identityRequest) void this.rebindCurrent(queued.target);
     }
   }
   private async promoteNative(connection: Connection, gesture = false) {
@@ -329,6 +345,7 @@ export class EventLineupSession {
     }
   }
   private tick() {
+    this.installPendingIdentity();
     if (this.disposed || !this.state.started || this.state.paused) return;
     const at = performance.now();
     const visible = document.visibilityState === "visible";

@@ -198,3 +198,11 @@ backend state; actual Firefox resume and decoded playback must still pass.
 Manual-engine evidence includes trusted activation, AudioContext resume/state
 changes, media capabilities, network requests and a context trace. Retry tracing
 borrows a chunk from the runner's session rather than starting a second session.
+
+Independent review corrections separate same-source identity decisions from
+Play/Pause and mode requests. Successful rebind authority can be retained while
+installed identity waits for a visible session commit; refresh cannot publish
+uninstalled metadata. Pause does not resume media, newer selection supersedes old
+identity, and hidden completion cannot switch current DJ. Selecting the existing
+mode preserves legacy playback. PiP capability and action both use the retained
+owner's actual video element; adapters without that element expose no PiP utility.

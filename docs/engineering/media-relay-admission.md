@@ -128,7 +128,7 @@ No configuration in this implementation enables production admission.
 
 | Variable | Default | Accepted values |
 | --- | --- | --- |
-| `MEDIA_RELAY_ENABLED` | disabled | Exactly `true` enables admission subject to all limits. |
+| `MEDIA_RELAY_ENABLED` | disabled | Exactly `true` is necessary, alongside persisted enable and limits; the enable operation is currently release-blocked. |
 | `MEDIA_RELAY_MAX_SOURCES` | 0 | 1–1,000 concurrent queued/starting/ready/recovering/draining source rows. |
 | `MEDIA_RELAY_MAX_GRANTS` | 0 | 1–10,000 unreleased, unexpired grants globally. |
 | `MEDIA_RELAY_ADMISSIONS_PER_MINUTE` | 0 | 1–10,000 successful admissions in a rolling 60,000 ms global window. |
@@ -237,3 +237,9 @@ up to 30 retries, matching the relay recovery budget. This permits a newly
 playable recovery window to arrive after transient 503 responses. Normal Hls
 4xx rejection and fatal-error handling remain in effect; native playback keeps
 the browser's own request behavior.
+
+Admission metadata only publishes an artwork asset ID/revision when the authorized
+surface's selected asset is also selected by the profile-page file route and
+satisfies supported raster MIME, size and known pixel limits. SVG and surface
+selection mismatches return null IDs, using existing neutral artwork. The file
+route still reauthorizes and decodes bytes; privacy and originals are unchanged.

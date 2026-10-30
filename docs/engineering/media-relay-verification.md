@@ -89,8 +89,7 @@ node --import tsx scripts/media-relay-control.ts --target dev drain slot-0
 These examples select environments explicitly through the same `convexTargetEnv`
 implementation as `pnpm cx`. Unknown targets, environment override flags, extra
 credentials and missing targets are rejected. Commands resolve existing bindings;
-they never create credentials. `enable` is implemented but is not authorized for
-this task. The operator CLI does not deploy/push functions.
+they never create credentials. `enable` is deliberately unavailable through a checked-in release blocker. The operator CLI does not deploy/push functions.
 
 Effective availability requires **both** `MEDIA_RELAY_ENABLED=true` and persisted
 `mediaRelayOperations.enabled=true`. An empty database stays disabled even if
@@ -107,18 +106,19 @@ separately reviewed operator-state migration, rather than a worker clearing its
 own drain. Disable remains available without evidence or worker configuration.
 
 Enable reads `MEDIA_RELAY_RELEASE_EVIDENCE` from server configuration, never from
-the request. `ReleaseEvidenceSchema` is the authoritative shape. It requires
-hosted measurements, exact `CONVEX_CLOUD_URL`, evidence age at most seven days,
-matching allocation evidence IDs, CPU peak at most 70%, memory below 70% of each
-allocation, disk/partial-disk measurements and a verified physical bound, queue,
-upstream/audience bytes, startup/reconnect, actual remote-operation evidence,
-clean cleanup, zero timestamp warnings and explicit owner acceptance of PAYG
-exposure plus a budget/approval reference. Global capacity must survive loss of
-the largest available slot; configured or persisted drained slots contribute no
-recovery capacity. Worker IDs must be unique across the complete installed binding
-list, including across epochs; duplicate entries cannot represent independent
-capacity or authenticate a worker. Billing alerts do not satisfy a traffic
-decision. The current local proof cannot populate an acceptable release record.
+the request. `HostedMeasurementsSchema` preserves future hosted measurement and
+capacity validation: exact deployment, at most seven-day age, allocation evidence
+IDs, CPU/memory headroom, disk/partial-disk physical bound, queue and traffic
+measurements, startup/recovery, remote operations, cleanup and timestamp checks.
+Global capacity must survive loss of the largest available slot; drained slots
+contribute no recovery capacity and worker IDs must be unique across epochs.
+Passing those checks still throws the checked-in `RELEASE_BLOCKER`.
+`ReleaseEvidenceSchema` rejects every release record while implementation and
+verification gates remain open. PAYG acceptance, a budget, an approval reference,
+or a new schema field cannot lift this block. There is no environment or CLI
+override. Release requires separately reviewed hard traffic/cost enforcement and
+current-integration verification, followed by a reviewed code change to the gate.
+The previous PAYG proposal was not approved and is not accepted release evidence.
 
 The deployment operator owns this nonsecret JSON setting and the persisted state.
 Recreation/rotation means review fresh evidence, set it through the selected
@@ -209,7 +209,8 @@ Admission, source/object-size limits, Lambda concurrency and API throttles do no
 provide a global CDN byte cap. Billing alarms/Budgets are delayed and are never a
 hard dollar stop. No total-relay traffic/dollar ceiling is implemented.
 
-Two concrete owner options remain open:
+The approved hard-ceiling requirement remains binding. The following historical
+options are proposals only; neither is an accepted enable path:
 
 1. Accept PAYG replay exposure explicitly, with the reviewed budget/alerts and
    incident response, and approve the resulting specification tradeoff. This is
@@ -333,3 +334,23 @@ cleanup. Capture audible observations separately from screenshots and counters.
 
 These boxes remain unchecked. Chromium viewport screenshots, MSE playback and
 separate HTTP demand polling cannot complete physical-device acceptance.
+
+## Independent review corrections and retained-state limit
+
+See [independent review evidence](media-relay-independent-review.md) for six-section
+and interface coverage, correction dispositions and remaining release gaps.
+Terminal failure fences publication immediately. Ownership-clearing observation
+waits for physical attempt setup and stop to succeed; pending or rejected cleanup
+retains local quarantine and the backend lease until its natural expiry. Native
+failure/retry remains fail-closed; no polling-based restart is added.
+
+AUTH-02 is deferred maintenance: terminal sources retain their full last rendition
+windows indefinitely. This grows with lifetime distinct sources, despite active
+source and per-window bounds. Before raising release scale, implement bounded
+retirement to compact durable epoch/sequence/discontinuity continuity tombstones.
+Do not delete source rows or reset their fencing history as a shortcut.
+
+Baseline CI now runs the relay package typecheck and full tests, plus Terraform
+`init -backend=false`, `validate` and mock-provider `test`. These checks use no
+provider credentials, plan/apply workflow or deployment authority. Terraform mock
+runs contain synthetic plans; they do not exercise cloud providers.

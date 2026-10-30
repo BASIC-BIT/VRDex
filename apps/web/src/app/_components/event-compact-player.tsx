@@ -76,12 +76,13 @@ export function EventCompactPlayer({ owner, state, mount }: { owner: EventPlayba
     }
   }, [request, fullscreen]);
   useEffect(() => {
-    const video = mount.current?.querySelector<HTMLVideoElement>("video");
+    const media = owner.media;
+    const video = media instanceof HTMLVideoElement && state.mode === "video" ? media : null;
     const sync = () => setPip(pictureInPictureState(video ?? null));
     sync();
     video?.addEventListener("enterpictureinpicture", sync); video?.addEventListener("leavepictureinpicture", sync); video?.addEventListener("webkitpresentationmodechanged", sync);
     return () => { video?.removeEventListener("enterpictureinpicture", sync); video?.removeEventListener("leavepictureinpicture", sync); video?.removeEventListener("webkitpresentationmodechanged", sync); };
-  }, [mount, state.status, state.mode, state.lineup]);
+  }, [owner, state.status, state.mode, state.lineup]);
   const compact = !placement;
   const fallback = twitch && limited;
   const visibleWidth = viewport ? `${viewport.width}px` : "100vw";

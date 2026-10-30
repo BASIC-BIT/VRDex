@@ -1,3 +1,4 @@
+import { supportsNowPlayingArtwork } from "../packages/media-relay/src/artwork-policy";
 import { getPublicProfileMediaKit } from "./_profileAssets";
 import type { Doc } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
@@ -26,7 +27,12 @@ async function profileMetadata(
   const kit = await getPublicProfileMediaKit(db, profile, { surface });
   const image =
     kit.compactDisplay === "logo" ? kit.primaryLogo : kit.profileImage;
-  const asset = image ? await db.get(image.assetId) : null;
+  // The derivative route always authorizes selection on profile_page. Never
+  // substitute a less-public image when discovery selected something else.
+  const routeKit = surface === "profile_page" ? kit : await getPublicProfileMediaKit(db, profile, { surface: "profile_page" });
+  const routeImage = routeKit.compactDisplay === "logo" ? routeKit.primaryLogo : routeKit.profileImage;
+  const candidate = image && image.assetId === routeImage?.assetId ? await db.get(image.assetId) : null;
+  const asset = candidate && supportsNowPlayingArtwork(candidate) ? candidate : null;
   return {
     displayName: profile.displayName,
     artworkAssetId: asset?._id ?? null,

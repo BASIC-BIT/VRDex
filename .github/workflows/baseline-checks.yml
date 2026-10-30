@@ -121,6 +121,27 @@ jobs:
       - name: Run MCP package verification
         run: pnpm verify:vrdex-mcp
 
+      - name: Verify media relay package
+        run: |
+          pnpm --filter @vrdex/media-relay typecheck
+          pnpm --filter @vrdex/media-relay test
+
+      - name: Setup Terraform for relay mocks
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+
+      - name: Validate media relay with mock providers
+        env:
+          TF_IN_AUTOMATION: "true"
+          TF_INPUT: "false"
+          AWS_EC2_METADATA_DISABLED: "true"
+        run: |
+          terraform -chdir=infra/terraform/media-relay init -backend=false
+          terraform -chdir=infra/terraform/media-relay validate
+          terraform -chdir=infra/terraform/media-relay test
+
   typecheck-web:
     name: Typecheck Web
     runs-on: ubuntu-latest

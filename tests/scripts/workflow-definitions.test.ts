@@ -256,3 +256,17 @@ describe("optional browser and visual evidence contract", () => {
     assert.doesNotMatch(JSON.stringify(job), /actions\/checkout|workflow_dispatch|createWorkflowDispatch/);
   });
 });
+
+it("baseline runs credential-free relay package and Terraform mock verification", () => {
+  const workflow = parseYaml(readFileSync(".github/workflows/baseline-checks.yml","utf8"));
+  const steps = workflow.jobs["verify-api-mcp"].steps;
+  const commands = steps.map((step: {run?: string}) => step.run ?? "").join("\n");
+  assert.match(commands,/pnpm --filter @vrdex\/media-relay typecheck/);
+  assert.match(commands,/pnpm --filter @vrdex\/media-relay test/);
+  assert.match(commands,/terraform -chdir=infra\/terraform\/media-relay init -backend=false/);
+  assert.match(commands,/terraform -chdir=infra\/terraform\/media-relay validate/);
+  assert.match(commands,/terraform -chdir=infra\/terraform\/media-relay test/);
+  assert.doesNotMatch(JSON.stringify(steps),/configure-aws-credentials|secrets\.|terraform[^\n]*(?: apply| plan )/);
+  assert.equal(workflow.permissions.contents,"read");
+  assert.match(readFileSync("infra/terraform/media-relay/tests/relay.tftest.hcl","utf8"),/mock_provider "aws"/);
+});

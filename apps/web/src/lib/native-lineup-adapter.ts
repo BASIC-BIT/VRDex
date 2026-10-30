@@ -50,7 +50,7 @@ export function createNativeLineupAdapter({ request, mount, notify, mode: initia
           if (!prepared && result.kind === "unavailable" && result.reason === "unsupported") notify({ status: "unavailable", unavailableReason: "unsupported" });
           cleanup(); throw Error("Unavailable source");
         }
-        let admission = result;
+        let admission = result, installedAdmission = result;
         const observed = await createNativeObservedSource({ grant: admission, mode, isCurrent, mount,
           onNativePause: () => session.nativePlayback(true, observed.media),
           onNativePlay: () => session.nativePlayback(false, observed.media),
@@ -60,13 +60,17 @@ export function createNativeLineupAdapter({ request, mount, notify, mode: initia
           ...observed,
           get media() { return observed.media; },
           get grantId() { return id; },
-          get metadata() { return admission.metadata; },
+          get metadata() { return installedAdmission.metadata; },
+          installIdentity(target) {
+            if (admission.grant.context.kind !== "event" || admission.grant.context.selectedSourceId !== target.key) return;
+            installedAdmission = admission; observed.updateGrant(admission);
+          },
           pause() { sourceIntent++; observed.pause(); },
           async setMode(next) { sourceIntent++; return observed.setMode(next); },
           retire() { retired = true; identityGeneration++; sourceIntent++; observed.release(); },
           release() { sourceIntent++; observed.release(); cleanup(); },
           async recover(explicit) {
-            if (released || disposed || retired || !id || rebinding) return false;
+            if (released || disposed || retired || !id || rebinding || admission.grant.contextRevision !== installedAdmission.grant.contextRevision) return false;
             const generation = identityGeneration;
             const token = ++sourceIntent;
             let result = AdmissionSchema.parse(await (explicit ? client.restart(id) : client.get(id)));
@@ -91,7 +95,7 @@ export function createNativeLineupAdapter({ request, mount, notify, mode: initia
               if (result.kind === "unavailable" && result.reason === "unsupported" && session.media === observed.media) notify({ status: "unavailable", unavailableReason: "unsupported" });
               return false;
             }
-            admission = result;
+            admission = result; installedAdmission = result;
             return observed.recoverMedia(result);
           },
           async rebind(target: LineupSlot) {
@@ -100,7 +104,7 @@ export function createNativeLineupAdapter({ request, mount, notify, mode: initia
             try {
               const result = PlaybackRebindSchema.parse(await client.rebind(id, target.key, admission.grant.context.selectedSourceId, admission.grant.contextRevision));
               if (released || disposed || retired || result.kind !== "rebound") return false;
-              admission = { ...admission, grant: result.grant, metadata: result.metadata }; observed.updateGrant(admission); return true;
+              admission = { ...admission, grant: result.grant, metadata: result.metadata }; return true;
             } finally { identityGeneration++; rebinding = false; }
           },
           async refresh() {
@@ -108,7 +112,14 @@ export function createNativeLineupAdapter({ request, mount, notify, mode: initia
             const generation = identityGeneration, grantId = id;
             const result = AdmissionSchema.parse(await client.refresh(grantId));
             if (disposed || released || generation !== identityGeneration || id !== grantId) return;
-            if (result.kind === "ready") { admission = result; observed.updateGrant(result); if (session.media === observed.media) notify({ metadata: result.metadata }); }
+            if (result.kind === "ready") {
+              admission = result;
+              // A successful authority rebind can await a visible session commit.
+              // Refresh must not install that identity through a different path.
+              if (result.grant.context.kind !== "event" || installedAdmission.grant.context.kind !== "event" || result.grant.context.selectedSourceId !== installedAdmission.grant.context.selectedSourceId) return;
+              installedAdmission = result; observed.updateGrant(result);
+              if (session.media === observed.media) notify({ metadata: result.metadata });
+            }
             else if (result.kind === "unavailable") { observed.pause(); notify({ status: "unavailable" }); }
           },
         };

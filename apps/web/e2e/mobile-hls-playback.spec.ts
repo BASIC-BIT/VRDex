@@ -216,6 +216,10 @@ test("reordered real packager output is rejected and a current discontinuity dec
   const media=page.locator("[data-event-playback-mount] video").first();
   await expect.poll(()=>media.evaluate(n=>(n as HTMLMediaElement).currentTime),{timeout:30000}).toBeGreaterThan(1);
   const before=await api("state"), grant=before.grants[0].grantId;
+  const oldBufferedTail = await media.evaluate(n => {
+    const m = n as HTMLMediaElement;
+    return m.buffered.length ? m.buffered.end(m.buffered.length - 1) : m.currentTime;
+  });
   await api("action",{action:"reorder-output"});
   await expect.poll(async()=>(await api("state")).metrics.perturbations.length,{timeout:15000}).toBe(1);
   const injected=(await api("state")).metrics.perturbations[0];
@@ -232,9 +236,10 @@ test("reordered real packager output is rejected and a current discontinuity dec
       state.metrics.lastObjects.some((key:string)=>key===snapshot.segments.at(-1).objectKey);
   },{timeout:35000}).toBe(true);
   const recoveredTime=await media.evaluate(n=>(n as HTMLMediaElement).currentTime);
-  await expect.poll(()=>media.evaluate(n=>(n as HTMLMediaElement).currentTime),{timeout:10000}).toBeGreaterThan(recoveredTime+1);
+  await expect.poll(()=>media.evaluate(n=>(n as HTMLMediaElement).currentTime),{timeout:10000}).toBeGreaterThan(Math.max(oldBufferedTail + 1, recoveredTime + 1));
+  await info.attach("retained-controls", { body: await page.getByRole("region", {name:"Event playback",exact:true}).filter({visible:true}).screenshot(), contentType:"image/png" });
   const state=await api("state");
-  await info.attach("reordered-output-proof",{body:JSON.stringify({injected,epoch:state.sources[0].epoch,snapshot:state.sources[0].snapshots.video,decodedAfterRecovery:await media.evaluate(n=>(n as HTMLMediaElement).currentTime)}),contentType:"application/json"});
+  await info.attach("reordered-output-proof",{body:JSON.stringify({injected,oldBufferedTail,recoveredTime,epoch:state.sources[0].epoch,snapshot:state.sources[0].snapshots.video,decodedAfterRecovery:await media.evaluate(n=>(n as HTMLMediaElement).currentTime)}),contentType:"application/json"});
 });
 
 test("late keyframes keep partial windows unplayable and terminate within recovery budget", async ({ page }, info) => {

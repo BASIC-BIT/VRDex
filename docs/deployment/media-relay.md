@@ -19,7 +19,10 @@ service with exactly one shared worker and a distinct predeclared worker ID and
 epoch. Each worker handles multiple admitted sources. Convex authenticates against
 `MEDIA_RELAY_WORKERS`, so interchangeable replicas cannot share an identity.
 `warm_min == warm_max == workers.length` is mandatory. Each service uses deployment
-maximum 100/minimum 0, preventing overlapping tasks during replacement. No dynamic
+maximum 100/minimum 0, bounding RUNNING/PENDING replacement capacity. STOPPING
+tasks can retain processes during stop grace; physical cleanup and lease fences
+remain necessary. Hosted replacement must measure duplicate-acquisition duration
+and stale-publication rejection. This is not a physical zero-overlap guarantee. No dynamic
 autoscaler is supplied until verified task enrollment exists. Provisioned aggregate
 source capacity must exceed the global admitted-source cap to leave recovery room;
 the precise spare fraction and warm count remain measured release inputs.
@@ -241,4 +244,4 @@ retries of an already-queued source do not consume another restart or grant slot
 
 ## Persisted operator gate
 
-The environment flag alone no longer enables relay work. Deployment-admin internal operations must also authorize the persisted gate, with complete server-side hosted release evidence. Empty operator state is disabled. See [verification and release controls](../engineering/media-relay-verification.md) for measured local evidence, the unapproved cost proposal, independent emergency stop, staging bootstrap and open disk/traffic gates.
+The environment flag alone no longer enables relay work. The deployment-admin enable operation is checked-in blocked pending separately reviewed hard traffic/cost enforcement and current-integration release verification. Complete hosted measurements alone cannot enable it; PAYG acceptance and budget strings are rejected. Disable remains available without evidence. Empty operator state is disabled. See [verification and release controls](../engineering/media-relay-verification.md) for measured local evidence, the unapproved cost proposal, independent emergency stop, staging bootstrap and open disk/traffic gates.

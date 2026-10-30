@@ -173,12 +173,18 @@ export function createPackager({
       return stopPromise;
     };
     const onAbort = () => {
-      void stop();
+      // The returned stop promise still rejects for registry quarantine.
+      void stop().catch(() => {});
     };
     const fail = (failure: PackagerFailure) => {
       if (stopped || failureSent) return;
       failureSent = true;
-      void stop().then(() => options.onFailure(failure));
+      // Deliver failure on either teardown outcome. Handling this detached chain
+      // must not convert stopPromise into successful physical cleanup.
+      void stop().then(
+        () => options.onFailure(failure),
+        () => options.onFailure(failure),
+      ).catch(() => { /* A consumer callback cannot kill the shared worker. */ });
     };
     options.signal.addEventListener("abort", onAbort, { once: true });
     const probe = (path: string): Promise<z.infer<typeof probeSchema>> =>

@@ -299,6 +299,7 @@ test("unsupported packager failure preserves an explicit terminal reason in cont
     const a = h.attempts[0];
     assert(a);
     a.onFailure({ kind: "unsupported", message: "codec" });
+    await flush(); // Terminal lease surrender follows physical stop settlement.
     await h.tick(1000);
     assert.equal(reason, "unsupported");
     assert.equal(h.attempts.length, 1);

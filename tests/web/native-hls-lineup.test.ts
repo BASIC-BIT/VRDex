@@ -193,7 +193,7 @@ test("current recovery during unresolved native promotion preserves the healthy 
   assert.equal(session.state.current, "a"); assert.equal(sources[0].released, false); assert.equal(sources[0].muted, false); assert.equal(sources[1].muted, true); assert.deepEqual(currentMetadata, ["a"]);
 }));
 
-async function reviewFixture(run: (f: { adapter: ReturnType<typeof createNativeLineupAdapter>; client: RelayPlaybackClient; nodes: Media[]; released: string[]; states: Array<Parameters<import("../../apps/web/src/lib/event-playback-owner").AdapterNotify>[0]>; admissions: Map<string, ReadyPlayback>; step(at: number, duration?: number): Promise<void> }) => Promise<void>, sameStream = false) {
+async function reviewFixture(run: (f: { adapter: ReturnType<typeof createNativeLineupAdapter>; client: RelayPlaybackClient; nodes: Media[]; released: string[]; request: Extract<PlaybackRequest, { kind: "performer_sequence" }>; states: Array<Parameters<import("../../apps/web/src/lib/event-playback-owner").AdapterNotify>[0]>; admissions: Map<string, ReadyPlayback>; step(at: number, duration?: number): Promise<void> }) => Promise<void>, sameStream = false) {
   const before = globalThis.document;
   let wall = 0, clock = 0, tick = () => {};
   const nodes: Media[] = [], released: string[] = [];
@@ -205,14 +205,14 @@ async function reviewFixture(run: (f: { adapter: ReturnType<typeof createNativeL
     async open(context, streamId, _mode, proof) {
       if (context.kind !== "event") throw Error("event required");
       if (wall >= 90_000 && (!proof || released.includes(proof))) return { kind: "unavailable", reason: "unavailable" };
-      const ready: ReadyPlayback = { ...grant, grant: { ...grant.grant, id: `grant-${context.selectedSourceId}`, context, streamKey: `vrcdn/${streamId}/1` }, metadata: { ...grant.metadata, displayName: context.selectedSourceId } };
+      const ready: ReadyPlayback = { ...grant, grant: { ...grant.grant, id: `grant-${context.selectedSourceId}`, context, streamKey: `vrcdn/${streamId}/1` }, metadata: { displayName: context.selectedSourceId, artworkAssetId: `art-${context.selectedSourceId}`, artworkRevision: "2" } };
       admissions.set(ready.grant.id, ready); return ready;
     },
     async get(id) { return admissions.get(id); }, async restart(id) { return admissions.get(id); }, async refresh(id) { return admissions.get(id); }, async release(id) { released.push(id); },
     async rebind(id, target, expected, revision) {
       const current = admissions.get(id);
       if (!current || current.grant.context.kind !== "event" || current.grant.context.selectedSourceId !== expected || current.grant.contextRevision !== revision) return { kind: "denied" };
-      const next: ReadyPlayback = { ...current, grant: { ...current.grant, context: { ...current.grant.context, selectedSourceId: target }, contextRevision: revision + 1 }, metadata: { ...current.metadata, displayName: target } };
+      const next: ReadyPlayback = { ...current, grant: { ...current.grant, context: { ...current.grant.context, selectedSourceId: target }, contextRevision: revision + 1 }, metadata: { displayName: target, artworkAssetId: `art-${target}`, artworkRevision: "2" } };
       admissions.set(id, next); return { kind: "rebound", grant: next.grant, metadata: next.metadata };
     },
   };
@@ -222,7 +222,7 @@ async function reviewFixture(run: (f: { adapter: ReturnType<typeof createNativeL
     mock.method(globalThis, "setInterval", callback => { tick = callback; return 1; }); mock.method(globalThis, "clearInterval", () => {}); mock.method(Date, "now", () => wall); mock.method(performance, "now", () => clock);
     adapter = createNativeLineupAdapter({ request, mount: { append() {} } as unknown as HTMLElement, notify: patch => states.push(patch), mode: "audio", client });
     await adapter.play(); await flush();
-    await run({ adapter, client, nodes, released, states, admissions, async step(at, duration = 100) { wall = at; for (let t = 0; t < duration; t += 100) { clock += 100; nodes.forEach(node => { if (!node.paused) node.currentTime += 0.1; }); tick(); await flush(); } } });
+    await run({ adapter, client, nodes, released, states, admissions, request, async step(at, duration = 100) { wall = at; for (let t = 0; t < duration; t += 100) { clock += 100; nodes.forEach(node => { if (!node.paused) node.currentTime += 0.1; }); tick(); await flush(); } } });
   } finally { adapter?.dispose(); mock.restoreAll(); Object.defineProperty(globalThis, "document", { configurable: true, value: before }); }
 }
 for (const operation of ["refresh", "recovery"] as const) test(`delayed ${operation} A cannot overwrite rebind B or poison subsequent C CAS`, () => reviewFixture(async ({ adapter, client, nodes, states, admissions, step }) => {
@@ -283,3 +283,39 @@ for (const action of ["pause", "close", "supersede"] as const) test(`manual cont
   if (action === "supersede") assert.equal(states.filter(patch => "metadata" in patch).at(-1)?.metadata?.displayName, "c");
   else { assert.equal(adapter.media, undefined); assert.equal(states.filter(patch => "metadata" in patch).at(-1)?.metadata, undefined); }
 }));
+
+for (const action of ["pause", "mode", "hidden", "hidden-cancel", "supersede", "close"] as const) test(`actual adapter pending same-source rebind remains coherent after ${action} and refresh`, () => reviewFixture(async ({adapter,client,states,admissions,step,request}) => {
+  const original = client.rebind!.bind(client);
+  let finish!: () => void;
+  const pending = new Promise<void>(resolve => {finish=resolve;});
+  let calls = 0;
+  mock.method(client,"rebind",async (...args) => {if (++calls === 1) await pending;return original(...args);});
+  adapter.manual!("b");
+  if (action === "pause") adapter.pause();
+  if (action === "mode") await adapter.setMode!("video");
+  if (action === "hidden" || action === "hidden-cancel") Object.defineProperty(document,"visibilityState",{configurable:true,value:"hidden"});
+  if (action === "supersede") {adapter.manual!("c");adapter.pause();}
+  if (action === "close") adapter.dispose();
+  finish();await flush();await flush();await adapter.refresh!();
+  const current = () => states.filter(p => p.lineup).at(-1)?.lineup?.current;
+  const metadata = () => states.filter(p => "metadata" in p).at(-1)?.metadata?.displayName;
+  if (action === "close") {assert.equal(adapter.media,undefined);return;}
+  if (action === "hidden" || action === "hidden-cancel") {
+    assert.equal(current(),"a");assert.equal(metadata(),"a");assert.equal(adapter.media?.title,"a - VRDex");
+    Object.defineProperty(document,"visibilityState",{configurable:true,value:"visible"});
+    if (action === "hidden-cancel") {adapter.manual!("a");await flush();await flush();}
+    await step(0);
+    await adapter.refresh!();
+  }
+  const expected = action === "supersede" ? "c" : action === "hidden-cancel" ? "a" : "b";
+  assert.equal(current(),expected);
+  assert.equal(metadata(),expected);
+  const latest = Object.assign({}, ...states);
+  assert.match(playbackArtwork({status:"playing",mode:"audio",volume:1,muted:false,...latest,request})!, new RegExp(`/profiles/${expected}/assets/art-${expected}/file`));
+  assert.equal(adapter.media?.title,`${expected} - VRDex`);
+  const context = admissions.get("grant-a")?.grant.context;
+  assert.equal(context?.kind === "event" && context.selectedSourceId,expected);
+  if (action === "pause" || action === "supersede") assert.equal(adapter.media?.paused,true);
+},true));
+
+import { playbackArtwork } from "../../apps/web/src/lib/playback-metadata";

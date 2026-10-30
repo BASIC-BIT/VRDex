@@ -1,6 +1,6 @@
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import { ReleaseEvidenceSchema } from "../packages/media-relay/src/worker/release-evidence";
+import { HostedMeasurementsSchema, RELEASE_BLOCKER } from "../packages/media-relay/src/worker/release-evidence";
 import { WorkerBindingsSchema } from "../packages/media-relay/src/worker/deployment";
 import { relayOperationState } from "./_mediaRelayOperations";
 import { rejectBrowserIdentityForDeploymentOperation } from "./_browserSessionAuthority";
@@ -46,7 +46,7 @@ export const setRelayEnabled = internalMutation({
     }
     let evidence;
     try {
-      evidence = ReleaseEvidenceSchema.parse(
+      evidence = HostedMeasurementsSchema.parse(
         JSON.parse(process.env.MEDIA_RELAY_RELEASE_EVIDENCE ?? "null"),
       );
     } catch {
@@ -84,7 +84,7 @@ export const setRelayEnabled = internalMutation({
         cap
     )
       throw Error("Release capacity or recovery margin unverified");
-    await update(ctx, { enabled: true, evidenceId: evidence.evidenceId });
-    return null;
+    // No configuration string, PAYG acceptance or budget can lift this blocker.
+    throw Error(RELEASE_BLOCKER);
   },
 });

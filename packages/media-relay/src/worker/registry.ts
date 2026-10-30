@@ -495,7 +495,13 @@ export function createRelayRegistry(options: RegistryOptions) {
       }
       const lease = job.lease;
       const version = `${job.state}:${job.progressAt}`;
-      if (lease && job.observed !== version) {
+      // Terminal observations surrender the distributed lease. Abort fences
+      // publication immediately, but only successful physical setup/stop may
+      // surrender ownership early. Rejected cleanup retains attempt quarantine.
+      const terminalPendingCleanup =
+        (job.state === "unavailable" || job.state === "stopped") &&
+        (job.attempt !== undefined || !job.initialize.isIdle());
+      if (lease && job.observed !== version && !terminalPendingCleanup) {
         const state = job.state,
           progressAt = job.progressAt;
         job.observe(

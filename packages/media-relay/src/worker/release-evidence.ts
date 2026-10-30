@@ -1,7 +1,7 @@
 import { z } from "zod";
 const positive = z.number().finite().positive();
 // Installed by deployment administrators after review, never supplied by a viewer/worker.
-export const ReleaseEvidenceSchema = z
+export const HostedMeasurementsSchema = z
   .strictObject({
     target: z.literal("hosted"),
     evidenceId: z.string().regex(/^[-a-zA-Z0-9_.:]{8,128}$/),
@@ -24,10 +24,6 @@ export const ReleaseEvidenceSchema = z
     remoteOperations: positive.int(),
     cleanupPassed: z.literal(true),
     timestampWarnings: z.literal(0),
-    // PAYG acceptance is explicitly a risk decision, never a claim of a hard traffic cap.
-    trafficDecision: z.literal("owner-accepted-payg-exposure"),
-    ownerApprovalReference: z.string().min(8),
-    monthlyBudgetUsd: positive,
   })
   .refine(
     (e) =>
@@ -35,3 +31,11 @@ export const ReleaseEvidenceSchema = z
       e.partialDiskPeakBytes <= e.diskPeakBytes,
     "Disk evidence exceeds limit",
   );
+
+// Measurement validation is useful for future review; it is not release authorization.
+export const RELEASE_BLOCKER =
+  "Relay release blocked: approved hard traffic/cost enforcement and current-integration release verification remain open; separately reviewed implementation and evidence required";
+export const ReleaseEvidenceSchema = HostedMeasurementsSchema.refine(
+  () => false,
+  RELEASE_BLOCKER,
+);

@@ -240,6 +240,7 @@ export class EventPlaybackOwner {
   }
   async setMode(mode: PlaybackMode) {
     writePlaybackMode(playbackModeStorage(), mode);
+    if (mode === this.state.mode) return;
     this.emit({ mode });
     const attempt = ++this.attempt;
     if (!this.adapter?.setMode) {

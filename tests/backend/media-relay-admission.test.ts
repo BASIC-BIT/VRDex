@@ -1359,3 +1359,80 @@ it("bounded grant cleanup preserves rate history, active authority, and source c
     assert.deepEqual(await ctx.db.query('mediaRelaySources').collect(),data);
   });
 });
+
+import { createConvexControl } from "../../packages/media-relay/src/providers/convex-control";
+import { harness as registryHarness, flush, source as registrySource } from "../../packages/media-relay/tests/registry-fixture";
+import type { PackagerOptions } from "../../packages/media-relay/src/worker/packager";
+for (const rejects of [false, true]) it(`terminal cleanup ${rejects ? "rejection" : "pending stop"} retains the real backend lease across explicit retry and another worker claim`, async () => {
+  const h = await fixture();
+  const admitted = preparing(await h.play());
+  process.env.MEDIA_RELAY_WORKER_TOKEN = "cleanup-test-token";
+  const bindings = ["one", "two"].map(workerId => ({workerId, workerEpoch:1, allocation:{cpuUnits:1024,memoryMiB:2048,evidenceId:"cleanup-proof"},maxSources:2,draining:false}));
+  process.env.MEDIA_RELAY_WORKERS = JSON.stringify(bindings);
+  const first = bindings[0]!;
+  const second = bindings[1]!;
+  const rpc = async (_method: "query" | "mutation", name: string, args: Record<string, unknown>) => h.t.mutation(makeFunctionReference<"mutation">(`mediaRelayWorker:${name}`), {credential:"cleanup-test-token",...args});
+  const control = createConvexControl(rpc, first);
+  const other = createConvexControl(rpc, second);
+  await other.register({workerId:"two",workerEpoch:1,observedAt:Date.now(),allocation:second.allocation,activeJobs:0,resources:null,jobs:[]},new AbortController().signal);
+  let settle!: () => void;
+  const stopped = new Promise<void>((resolve,reject) => {settle = () => rejects ? reject(Error("cleanup EIO")) : resolve();});
+  let attempt: PackagerOptions | undefined;
+  let now = Date.now();
+  const registry = registryHarness({control,binding:first,clock:{monotonic:()=>now,wall:()=>Date.now()},packager:async opts => {attempt=opts;return {stop:()=>stopped};},limits:{cleanupTimeoutMs:20}}).registry;
+  const tick = async () => {registry.reconcile();await flush();};
+  const row = () => h.t.run(ctx => ctx.db.query("mediaRelaySources").unique());
+  try {
+    await tick();
+    now += 1000;
+    await tick();
+    assert(attempt);
+    const leaseExpiry = (await row())?.leaseExpiresAt;
+    assert(leaseExpiry && leaseExpiry > Date.now());
+    control.renew = async () => {throw Error("renew transport failed");};
+    now += 10000;
+    await tick();
+    assert.equal(attempt.signal.aborted,true);
+    if (rejects) {settle();await flush();}
+    await tick();
+    await h.t.mutation(makeFunctionReference<"mutation">("mediaRelayPlayback:restartPlayback"),{grantId:admitted.grantId});
+    assert.equal((await row())?.leaseExpiresAt,leaseExpiry);
+    assert.equal((await row())?.owner?.workerId,"one");
+    await assert.rejects(other.claim(registrySource,new AbortController().signal),/already leased/);
+    assert.equal(registry.diagnostics().activeJobs,1);
+    if (!rejects) {
+      settle();await flush();await tick();
+      assert.equal((await row())?.state,"unavailable");
+      assert.equal((await row())?.leaseExpiresAt,undefined);
+      await h.t.mutation(makeFunctionReference<"mutation">("mediaRelayPlayback:restartPlayback"),{grantId:admitted.grantId});
+      const next = await other.claim(registrySource,new AbortController().signal);
+      assert.equal(next.epoch,2);
+    }
+  } finally {settle();await flush();await registry.stop();}
+});
+
+import { playbackArtwork } from "../../apps/web/src/lib/playback-metadata";
+import { NEUTRAL_NOW_PLAYING_ARTWORK } from "../../apps/web/src/lib/now-playing-artwork-url";
+for (const variant of ["svg", "surface-mismatch", "oversize", "raster"] as const) it(`artwork metadata uses neutral fallback for ${variant} unless the selected route can render it`, async () => {
+  const h = await fixture();
+  const {slotId,logoId} = await h.t.run(async ctx => {
+    await ctx.db.patch(h.eventId,{watchMode:"performer_sequence"});
+    const slotId = await ctx.db.insert("eventSlots",{eventId:h.eventId,personProfileId:h.profileId,selectedStreamId:"Alpha",position:0,startAt:Date.now()-1000,displayLabel:"DJ",roleLabel:"DJ",sourceType:"manual",sourceLabel:"test",confidence:1,reviewState:"confirmed",updatedAt:1});
+    const asset = {profileId:h.profileId,storageKey:"unchanged",mimeType:variant === "svg" ? "image/svg+xml" : "image/png",byteSize:variant === "oversize" ? 13*1024*1024 : 128,visibility:"public" as const,source:"owner_authored" as const,uploadedBy:{tokenIdentifier:"test:owner",issuer:"test",subject:"owner"},uploadedAt:1,state:"active" as const,updatedAt:2};
+    const logoId = await ctx.db.insert("profileAssets",asset);
+    await ctx.db.insert("profileAssetPlacements",{profileId:h.profileId,assetId:logoId,placement:"primary_logo",position:0,state:"active",updatedAt:2});
+    if (variant === "surface-mismatch") {
+      const avatar = await ctx.db.insert("profileAssets",{...asset,storageKey:"avatar"});
+      await ctx.db.insert("profileAssetPlacements",{profileId:h.profileId,assetId:avatar,placement:"profile_image",position:0,state:"active",updatedAt:2});
+      await ctx.db.patch(h.profileId,{fieldVisibility:{avatarImageUrl:"unlisted"}});
+    }
+    return {slotId,logoId};
+  });
+  const grant = preparing(await h.play({...h.eventContext,selectedSourceId:slotId}));
+  const result = await h.t.query(resolve,{grantId:grant.grantId,now:Date.now()});
+  assert.equal(result.kind,"valid");
+  assert.equal(result.metadata.artworkAssetId,variant === "raster" ? logoId : null);
+  const url = playbackArtwork({status:"playing",mode:"audio",volume:1,muted:false,metadata:result.metadata,request:{kind:"vrcdn",profileId:h.profileId,profileSlug:"dj",sourceId:"Alpha",src:"vrcdn:Alpha",transport:"mpegts",href:"/people/dj",title:"DJ"}});
+  if (variant === "raster") assert.match(url!,/brand=wordmark-v1-512/);
+  else assert.equal(url,NEUTRAL_NOW_PLAYING_ARTWORK);
+});

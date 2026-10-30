@@ -198,6 +198,7 @@ test("mode completion cannot override newer selection, pause or close", async ()
       return new Promise((resolve) => pending.push(resolve));
     },
   }));
+  await owner.setMode("video");
   await owner.play(request());
   const first = owner.setMode("audio");
   const second = owner.setMode("video");
@@ -266,5 +267,24 @@ test("source replacement and revocation clear authoritative current metadata", a
   await owner.play(request()); assert.equal(owner.getSnapshot().metadata?.displayName, "DJ A");
   owner.update(request("a", "https://stream/replacement")); assert.equal(owner.getSnapshot().metadata, undefined);
   await owner.play(request("a", "https://stream/replacement")); owner.revalidate(null, owner.generation); assert.equal(owner.getSnapshot().metadata, undefined);
+  owner.close();
+});
+
+test("selected Video preserves legacy playback and pending play; real unsupported Audio still suspends", async () => {
+  const {owner,adapters} = fixture();
+  await owner.setMode("video");
+  const playing = owner.play({...request(),transport:"video"});
+  await owner.setMode("video");
+  assert.equal(adapters[0].disposed,0);
+  assert.equal(owner.getSnapshot().status,"loading");
+  adapters[0].resolve(true);await playing;
+  await owner.setMode("video");
+  assert.equal(owner.getSnapshot().status,"playing");
+  assert.equal(adapters[0].plays,1);
+  assert.equal(adapters[0].pauses,0);
+  assert.equal(adapters[0].disposed,0);
+  await owner.setMode("audio");
+  assert.equal(adapters[0].disposed,1);
+  assert.equal(owner.getSnapshot().status,"blocked");
   owner.close();
 });
