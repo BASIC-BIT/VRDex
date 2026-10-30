@@ -132,4 +132,10 @@ crons.interval("admit queued group observations", { minutes: 1 }, makeFunctionRe
 
 crons.interval("recover event sync jobs", { minutes: 5 }, internal.eventSync.recoverExpiredJobs, {});
 
+// --- Google Calendar connector (event connectors plan 08) ---
+// Polling backs up push notifications; a seven-day watch channel is renewed on its last day.
+crons.interval("poll google calendar connectors", { minutes: 15 }, internal.googleCalendarConnector.enqueuePolls, {});
+crons.daily("renew google calendar watches", { hourUTC: 5, minuteUTC: 20 }, internal.googleCalendarConnector.renewWatches, {});
+// --- end Google Calendar connector ---
+
 export default crons;

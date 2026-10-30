@@ -13,6 +13,7 @@ export const schema = (schemaModule as unknown as { default?: typeof schemaModul
 export const modules = {
   ...connectorModules,
   "../../convex/googleCalendarConnector.ts": () => import("../../convex/googleCalendarConnector"),
+  "../../convex/http.ts": () => import("../../convex/http"),
 };
 export const NOW = Date.parse("2026-11-02T12:00:00.000Z");
 export const SITE = "https://vrdex.test";

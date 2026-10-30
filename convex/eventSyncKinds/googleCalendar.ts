@@ -2,7 +2,7 @@ import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import { eventDateForInstant } from "../_eventSchedule";
 import {
-  deleteEvent, GoogleApiError, googleTarget, insertEvent, listEvents, patchEvent, requireGoogleCalendarEnabled, withGoogleToken,
+  deleteEvent, ensureWatch, GoogleApiError, googleTarget, insertEvent, listEvents, patchEvent, requireGoogleCalendarEnabled, withGoogleToken,
   type GoogleCalendarEvent, type GoogleEventBody, type GoogleEventDateTime,
 } from "../_googleCalendar";
 import { EventIntakeLocalTimeSchema, resolveEventLocalTime, type EventIntakeFields, type EventIntakeLocalTime } from "../../packages/api-contracts/src/event-intake";
@@ -93,12 +93,17 @@ export function outsideImportWindow(item: GoogleCalendarEvent, fields: EventInta
   return [fields.start, fields.end].some(time => time && !EventIntakeLocalTimeSchema.safeParse(time).success);
 }
 
+const MAX_PAGES = 200;
+
 // Every page of one list; the last page carries the sync token.
 async function listAll(token: string, calendarId: string, params: { syncToken?: string; timeMin?: string; timeMax?: string }) {
   const items: GoogleCalendarEvent[] = [];
   let pageToken: string | undefined;
   let page: Awaited<ReturnType<typeof listEvents>>;
+  let pages = 0;
   do {
+    // 50,000 items; fail with a code well before the action time limit does it without one.
+    if (++pages > MAX_PAGES) throw new Error("GOOGLE_PAGE_LIMIT");
     page = await listEvents(token, calendarId, { ...params, pageToken });
     items.push(...page.items);
     pageToken = page.nextPageToken;
@@ -141,6 +146,7 @@ export const googleCalendarHandler: SyncKindHandler = {
     const today = new Date(Date.now()).toISOString().slice(0, 10);
     const list = await withGoogleToken(ctx, credentialId, token => listAll(token, calendarId, { timeMin: `${today}T00:00:00Z`, timeMax: `${addDays(today, 90)}T00:00:00Z` }));
     await ctx.runMutation(internal.googleCalendarConnector.reconcileItems, { connectorId: connector._id, items: list.items, calendarTimeZone: list.timeZone });
+    await ensureWatch(ctx, connector, false);
   },
 
   async exportUpsert(ctx, connector, event, link) {

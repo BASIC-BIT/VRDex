@@ -1,11 +1,13 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
-import { internalMutation, internalQuery, type DatabaseReader } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
+import { internalAction, internalMutation, internalQuery, type DatabaseReader, type MutationCtx } from "./_generated/server";
 import type { EventIntakeDecision, EventIntakeFields } from "../packages/api-contracts/src/event-intake";
 import { applyEventCandidate, candidateFromConnectorFields, type ApplyEventCandidateOutcome } from "./_eventCandidateApply";
 import { eventPathForRecord } from "./_eventPaths";
+import { connectorsEnabled } from "./_eventConnectors";
 import { enqueueSyncJob } from "./_eventSync";
-import { googleTarget, type GoogleCalendarEvent } from "./_googleCalendar";
+import { ensureWatch, googleCalendarEnabled, googleTarget, type GoogleCalendarEvent } from "./_googleCalendar";
 import { fieldsFromGoogleEvent, outsideImportWindow } from "./eventSyncKinds/googleCalendar";
 
 export const readCredential = internalQuery({
@@ -175,5 +177,59 @@ export const patchGoogleTarget = internalMutation({
     const connector = await ctx.db.get(connectorId);
     if (!connector) return;
     await ctx.db.patch(connectorId, { target: { ...connector.target, ...target }, ...(syncedAt === undefined ? {} : { lastSyncedAt: syncedAt }), updatedAt: Date.now() });
+  },
+});
+
+// The notify route's token carries the id as text; a forged one may not be an id at all.
+export const notifyTarget = internalQuery({
+  args: { connectorId: v.string() },
+  handler: async (ctx, { connectorId }) => {
+    const id = ctx.db.normalizeId("eventConnectors", connectorId);
+    return id ? await ctx.db.get(id) : null;
+  },
+});
+
+// Google sends a burst of notifications per change; one pending poll covers them all.
+async function enqueuePollOnce(ctx: MutationCtx, connectorId: Id<"eventConnectors">) {
+  const pending = await ctx.db.query("eventSyncJobs").withIndex("by_connectorId_eventId_state", q => q.eq("connectorId", connectorId).eq("eventId", undefined).eq("state", "pending")).collect();
+  if (pending.some(job => job.kind === "import_poll")) return;
+  await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, kind: "import_poll" });
+}
+
+export const enqueuePoll = internalMutation({
+  args: { connectorId: v.id("eventConnectors") },
+  handler: (ctx, { connectorId }) => enqueuePollOnce(ctx, connectorId),
+});
+
+async function importingConnectors(db: DatabaseReader) {
+  if (!connectorsEnabled() || !googleCalendarEnabled()) return [];
+  // ponytail: reads every google_calendar connector; add a by_kind_state index when they pass a few hundred.
+  const connectors = await db.query("eventConnectors").withIndex("by_kind_target_channelId", q => q.eq("kind", "google_calendar")).collect();
+  return connectors.filter(c => c.state === "active" && (c.direction === "import" || c.direction === "bidirectional"));
+}
+
+// The safety net under push: a lost notification or a dead channel costs at most one interval.
+export const enqueuePolls = internalMutation({
+  args: {},
+  handler: async ctx => {
+    for (const connector of await importingConnectors(ctx.db)) await enqueuePollOnce(ctx, connector._id);
+  },
+});
+
+export const watchedConnectors = internalQuery({
+  args: {},
+  handler: ctx => importingConnectors(ctx.db),
+});
+
+const DAY_MS = 86_400_000;
+
+// Channels last seven days; renew any with a day or less left, and open one where none exists.
+export const renewWatches = internalAction({
+  args: {},
+  handler: async ctx => {
+    for (const connector of await ctx.runQuery(internal.googleCalendarConnector.watchedConnectors, {})) {
+      const { watchChannelId, watchExpiresAt } = connector.target;
+      if (!watchChannelId || (watchExpiresAt ?? 0) - Date.now() <= DAY_MS) await ensureWatch(ctx, connector, true);
+    }
   },
 });

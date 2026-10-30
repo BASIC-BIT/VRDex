@@ -6,7 +6,8 @@ const TAG_BYTES = 16;
 const toBase64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
 const fromBase64 = (value: string) => Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
 
-async function connectorKey(usage: "encrypt" | "decrypt") {
+// Also keys the Google watch-channel HMAC, so one secret covers both.
+export async function connectorKey(usage: KeyUsage, algorithm: AlgorithmIdentifier | HmacImportParams = "AES-GCM") {
   const raw = process.env.VRDEX_CONNECTOR_TOKEN_KEY;
   let bytes: Uint8Array<ArrayBuffer> | undefined;
   try {
@@ -17,7 +18,7 @@ async function connectorKey(usage: "encrypt" | "decrypt") {
   if (bytes?.length !== 32) {
     throw new Error("VRDEX_CONNECTOR_TOKEN_KEY must be 32 bytes, base64 encoded.");
   }
-  return crypto.subtle.importKey("raw", bytes, "AES-GCM", false, [usage]);
+  return crypto.subtle.importKey("raw", bytes, algorithm, false, [usage]);
 }
 
 export async function encryptSecret(plain: string): Promise<string> {

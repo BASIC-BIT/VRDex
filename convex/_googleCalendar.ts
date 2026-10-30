@@ -1,7 +1,7 @@
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
-import { decryptSecret, encryptSecret } from "./_connectorCrypto";
+import { connectorKey, decryptSecret, encryptSecret } from "./_connectorCrypto";
 
 const API = "https://www.googleapis.com/calendar/v3";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -12,6 +12,11 @@ export type GoogleCalendarEvent = {
   summary?: string; description?: string; location?: string;
   start?: GoogleEventDateTime; end?: GoogleEventDateTime; recurringEventId?: string;
 };
+// Only what the mapper reads travels into mutations and job payloads: no attendee emails stored, and no user-defined
+// extendedProperties keys that Convex's field-name rules would reject and stall the poll before its sync token is stored.
+const ITEM_FIELDS = ["id", "status", "updated", "summary", "description", "location", "start", "end", "recurringEventId"] as const;
+const pickItem = (item: GoogleCalendarEvent) =>
+  Object.fromEntries(ITEM_FIELDS.filter(key => item[key] !== undefined).map(key => [key, item[key]])) as GoogleCalendarEvent;
 export type GoogleEventBody = Required<Pick<GoogleCalendarEvent, "summary" | "description" | "location" | "start" | "end" | "status">>;
 
 // The message is always a code: lastError reaches the settings page and the ops alert email.
@@ -114,7 +119,7 @@ export async function listEvents(token: string, calendarId: string, params: { sy
   const page = await google<{ items?: GoogleCalendarEvent[]; nextPageToken?: string; nextSyncToken?: string; timeZone: string }>(token, "GET", eventsPath(calendarId), {
     query: { ...params, singleEvents: "true", maxResults: "250" },
   });
-  return { ...page, items: page.items ?? [] };
+  return { ...page, items: (page.items ?? []).map(pickItem) };
 }
 
 export function insertEvent(token: string, calendarId: string, body: GoogleEventBody): Promise<GoogleCalendarEvent> {
@@ -135,12 +140,40 @@ export async function deleteEvent(token: string, calendarId: string, eventId: st
 }
 
 export async function watchEvents(token: string, calendarId: string, channel: { id: string; token: string; address: string }): Promise<{ resourceId: string; expiration: number }> {
-  const created = await google<{ resourceId: string; expiration: string }>(token, "POST", `${eventsPath(calendarId)}/watch`, { body: { ...channel, type: "web_hook" } });
+  const created = await google<{ resourceId: string; expiration: string }>(token, "POST", `${eventsPath(calendarId)}/watch`, {
+    body: { ...channel, type: "web_hook", params: { ttl: "604800" } },
+  });
   return { resourceId: created.resourceId, expiration: Number(created.expiration) };
 }
 
 export async function stopChannel(token: string, channel: { id: string; resourceId: string }): Promise<void> {
   await google(token, "POST", "/channels/stop", { body: channel });
+}
+
+// Derived from the connector key, so a channel's secret needs no stored field.
+export async function watchChannelToken(connectorId: string, channelId: string): Promise<string> {
+  const key = await connectorKey("sign", { name: "HMAC", hash: "SHA-256" });
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${connectorId}:${channelId}`)));
+  return `${connectorId}.${btoa(String.fromCharCode(...mac)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+}
+
+export async function ensureWatch(ctx: ActionCtx, connector: Doc<"eventConnectors">, force: boolean): Promise<void> {
+  if (connector.direction !== "import" && connector.direction !== "bidirectional") return;
+  const { watchChannelId, watchResourceId } = connector.target;
+  if (!force && watchChannelId) return;
+  const { credentialId, calendarId } = googleTarget(connector);
+  const id = crypto.randomUUID();
+  const created = await withGoogleToken(ctx, credentialId, async token => {
+    if (watchChannelId && watchResourceId) {
+      // An old channel that will not stop just expires; its notifications no longer match the stored id.
+      await stopChannel(token, { id: watchChannelId, resourceId: watchResourceId }).catch(() => undefined);
+    }
+    return await watchEvents(token, calendarId, { id, token: await watchChannelToken(connector._id, id), address: `${process.env.CONVEX_SITE_URL}/connectors/google/notify` });
+  });
+  await ctx.runMutation(internal.googleCalendarConnector.patchGoogleTarget, {
+    connectorId: connector._id,
+    target: { watchChannelId: id, watchResourceId: created.resourceId, watchExpiresAt: created.expiration, watchRenewedAt: Date.now() },
+  });
 }
 
 // writer, so a later direction change to export still works on any calendar offered.
