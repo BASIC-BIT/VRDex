@@ -96,6 +96,8 @@ import { ensureShortLinkForTarget } from "./_shortLinks";
 import { enqueueEventSync } from "./_eventSync";
 import { EventIntakeUpdatePatchSchema, canonicalIntakeValue, eventIntakeUpdatePatchValidator, userHasCommunityPermission } from "./_eventConnectors";
 import { correctionFields } from "./eventCorrections";
+// Cycle with _eventSeries (it imports this module): used only inside function bodies.
+import { recordOccurrenceOverrides } from "./_eventSeries";
 import { getVrcdnOutputAccount, listPublicVrcdnOutputAccounts } from "./_vrcdnOutputAccounts";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
 
@@ -130,7 +132,7 @@ const eventMediaWorkerHealthInput = v.object({
   commandFailureCount: v.optional(v.number()),
 });
 
-const eventDraftArgs = {
+export const eventDraftArgs = {
   title: v.string(),
   startAt: v.number(),
   doorsOpenAt: v.optional(v.number()),
@@ -909,7 +911,7 @@ export async function retireConfirmedEventInstanceAssociations(db: DatabaseWrite
   await Promise.all(confirmed.map(association => db.patch(association._id, { state: "suggested", updatedAt: now })));
 }
 
-async function eventSearchAssociations(db: DatabaseReader, event: Doc<"events">) {
+export async function eventSearchAssociations(db: DatabaseReader, event: Doc<"events">) {
   if (event.sourceType !== "contributor") {
     const [world, roleLabels] = await Promise.all([
       linkedPublishedEventWorld(db, event._id), eventParticipantRoleLabels(db, event._id),
@@ -1337,6 +1339,7 @@ async function updateCommunityEventRecord(
       throw new Error("You do not have permission to move this event to another community.");
     }
   }
+  const previousWorldSlug = event.seriesId === undefined ? undefined : (await linkedPublishedEventWorld(db, event._id))?.slug;
   await db.patch(event._id, {
     title: input.title,
     sortTitle: input.sortTitle,
@@ -1435,6 +1438,11 @@ async function updateCommunityEventRecord(
       preserveNonPublic: preserveNonPublicAssociations,
       preserveAssociationIds: preserveWorldAssociationIds,
     });
+  }
+  if (event.seriesId !== undefined) {
+    // The browser passes no world when the chooser keeps it, so compare the linked worlds, not the argument.
+    const worldChanged = replaceWorld && (await linkedPublishedEventWorld(db, event._id))?.slug !== previousWorldSlug;
+    await recordOccurrenceOverrides(db, event, updatedEvent, worldChanged);
   }
 
   if (replaceSlots) {

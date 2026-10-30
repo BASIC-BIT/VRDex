@@ -1,15 +1,33 @@
 import { v } from "convex/values";
 
 import { requireClubPermission, resolveClubActor } from "./_clubAccess";
-import { createSeriesFromEvent, materializeSeries, retireOccurrences } from "./_eventSeries";
+import {
+  applySeriesFields,
+  createSeriesFromEvent,
+  fanOutSeriesEdit,
+  isSeriesOwnedEventField,
+  materializeSeries,
+  retireOccurrences,
+  seriesUpdatePatch,
+} from "./_eventSeries";
 import { eventDateForInstant } from "./_eventSchedule";
-import { recurringEventsEnabled, requireRecurringEventsEnabled, seriesRepeatValidator } from "./_eventSeriesModel";
+import {
+  eventSeriesRuleValidator,
+  recurringEventsEnabled,
+  requireRecurringEventsEnabled,
+  seriesRepeatValidator,
+  type SeriesOwnedEventField,
+} from "./_eventSeriesModel";
+import { enqueueEventSync } from "./_eventSync";
 import { getEventBySlug, validateEventSlug } from "./_eventSlugs";
 import { requireUser } from "./_identity";
 import { notifyOps, resolveOps } from "./_opsAlerts";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { eventDraftArgs } from "./events";
+
+const nullableString = v.optional(v.union(v.string(), v.null()));
 
 type MaterializeResult = { created: Id<"events">[]; adopted: Id<"events">[]; skipped: string[] };
 
@@ -93,5 +111,66 @@ export const end = mutation({
     const ended = { ...series, state, endsOn: eventDateForInstant(now, series.timezone), updatedAt: now };
     await ctx.db.patch(seriesId, { state, endsOn: ended.endsOn, updatedAt: now });
     return retireOccurrences(ctx, ended, now);
+  },
+});
+
+export const update = mutation({
+  args: {
+    seriesId: v.id("eventSeries"),
+    title: v.optional(v.string()),
+    summary: nullableString,
+    timezone: v.optional(v.string()),
+    venueLabel: nullableString,
+    worldSlug: nullableString,
+    mediaLinks: eventDraftArgs.mediaLinks,
+    watchMode: eventDraftArgs.watchMode,
+    watchSurfaceEnabled: v.optional(v.boolean()),
+    bannerImageUrl: nullableString,
+    thumbnailImageUrl: nullableString,
+    sourceUrl: nullableString,
+    rule: v.optional(eventSeriesRuleValidator),
+    endsOn: nullableString,
+    count: v.optional(v.union(v.number(), v.null())),
+  },
+  handler: async (ctx, { seriesId, ...update }): Promise<{ seriesId: Id<"eventSeries">; changed: SeriesOwnedEventField[] }> => {
+    requireRecurringEventsEnabled();
+    const series = await ctx.db.get(seriesId);
+    if (series === null) throw new Error("Series was not found.");
+    requireClubPermission(await resolveClubActor(ctx, series.communityProfileId), "manage_events");
+    const now = Date.now();
+    const { patch, changed, datesChanged } = await seriesUpdatePatch(ctx.db, series, update, now);
+    await ctx.db.patch(seriesId, { ...patch, updatedAt: now });
+    const updated = (await ctx.db.get(seriesId))!;
+    // An ended or removed series has already retired its upcoming nights, so only the series record changes.
+    if (updated.state === "active") {
+      if (datesChanged) await retireOccurrences(ctx, updated, now);
+      // Retired nights are unpublished or detached by now, so fan-out never enqueues one of them a second time.
+      for (const eventId of await fanOutSeriesEdit(ctx, updated, changed)) {
+        await enqueueEventSync(ctx.db, ctx.scheduler, eventId, "upsert");
+      }
+      await materializeSeries(ctx, seriesId, now);
+    }
+    return { seriesId, changed };
+  },
+});
+
+export const resetOverride = mutation({
+  args: { eventId: v.id("events"), field: v.string() },
+  handler: async (ctx, { eventId, field }): Promise<{ eventId: Id<"events">; changed: boolean }> => {
+    requireRecurringEventsEnabled();
+    const event = await ctx.db.get(eventId);
+    if (event === null) throw new Error("Event was not found.");
+    if (event.communityProfileId === undefined) throw new Error("You do not have access to this action.");
+    requireClubPermission(await resolveClubActor(ctx, event.communityProfileId), "manage_events");
+    const overrides = event.overrides ?? [];
+    if (!isSeriesOwnedEventField(field) || !overrides.includes(field)) throw new Error("Field is not overridden on this night.");
+    const series = event.seriesId === undefined ? null : await ctx.db.get(event.seriesId);
+    if (series === null) throw new Error("Series was not found.");
+    const now = Date.now();
+    if (event.startAt !== undefined && event.startAt <= now) throw new Error("Only upcoming nights can be reset.");
+    await ctx.db.patch(eventId, { overrides: overrides.filter((name) => name !== field), updatedAt: now });
+    const changed = await applySeriesFields(ctx, series, (await ctx.db.get(eventId))!, [field], now);
+    await enqueueEventSync(ctx.db, ctx.scheduler, eventId, "upsert");
+    return { eventId, changed };
   },
 });

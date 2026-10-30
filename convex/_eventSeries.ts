@@ -1,8 +1,10 @@
 import { resolveEventLocalTime } from "../packages/api-contracts/src/event-intake";
+import { syncClubEventOperations } from "./_clubOperationEvents";
 import type { AuthSubject } from "./_communityAuthority";
-import { sanitizeEventDraftInput, type EventOwnerDraftInput } from "./_eventInputs";
+import { eventContributionFingerprint } from "./_eventContributionPreflight";
+import { createEventSortTitle, sanitizeEventDraftInput, type EventOwnerDraftInput } from "./_eventInputs";
 import { eventOutputIsAuthorized } from "./_eventOutputSetup";
-import { eventDateForInstant } from "./_eventSchedule";
+import { eventDateForInstant, normalizeEventSchedule } from "./_eventSchedule";
 import {
   SERIES_HORIZON_DAYS,
   SERIES_OWNED_EVENT_FIELDS,
@@ -14,8 +16,18 @@ import { enqueueEventSync } from "./_eventSync";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter, MutationCtx } from "./_generated/server";
 import { canReadProfile } from "./_profilePermissions";
+import { reindexEventSearchDocument } from "./_searchDocuments";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
-import { applyEventPublicationState, insertCommunityEventRecord, linkedPublishedEventWorld } from "./events";
+// Cycle with events.ts (it imports recordOccurrenceOverrides): used only inside function bodies.
+import {
+  applyEventPublicationState,
+  eventSearchAssociations,
+  insertCommunityEventRecord,
+  linkedPublishedEventWorld,
+  reconcileEventMediaScheduleChange,
+  replaceEventWorldLink,
+  syncPreservedEventAssociations,
+} from "./events";
 
 const DAY_MS = 86_400_000;
 const MAX_COUNT = 520;
@@ -438,16 +450,8 @@ export async function retireOccurrences(
 ): Promise<{ unpublished: Id<"events">[]; detached: Id<"events">[] }> {
   const result = { unpublished: [] as Id<"events">[], detached: [] as Id<"events">[] };
   const { db } = ctx;
-  const today = eventDateForInstant(now, series.timezone);
-  // A day early, so a night whose own timezone differs from the series' is still seen; startAt decides.
-  const nights = await db
-    .query("events")
-    .withIndex("by_seriesId_occurrenceDate", (q) => q.eq("seriesId", series._id).gte("occurrenceDate", fromDay(toDay(today) - 1)))
-    .collect();
-  for (const night of nights) {
+  for (const night of await upcomingPublishedNights(db, series, now)) {
     const date = night.occurrenceDate!;
-    const upcoming = night.startAt === undefined ? date >= today : night.startAt > now;
-    if (!upcoming || night.publicationState !== "published") continue;
     if (series.state === "active" && occurrenceDates(series, date, date).length > 0) continue;
     const customised =
       (night.overrides ?? []).length > 0 ||
@@ -464,4 +468,198 @@ export async function retireOccurrences(
     }
   }
   return result;
+}
+
+/** The series' published nights that have not started; a date-only night counts as upcoming through its own date. */
+async function upcomingPublishedNights(db: DatabaseReader, series: Doc<"eventSeries">, now: number): Promise<Doc<"events">[]> {
+  const today = eventDateForInstant(now, series.timezone);
+  // A day early, so a night whose own timezone differs from the series' is still seen; startAt decides.
+  const nights = await db
+    .query("events")
+    .withIndex("by_seriesId_occurrenceDate", (q) => q.eq("seriesId", series._id).gte("occurrenceDate", fromDay(toDay(today) - 1)))
+    .collect();
+  return nights.filter((night) =>
+    night.publicationState === "published" && (night.startAt === undefined ? night.occurrenceDate! >= today : night.startAt > now));
+}
+
+/**
+ * Copies `fields` from the series onto one night and never touches `overrides`. Time fields are skipped on a
+ * date-only night and on a date where the rule start does not exist. Slots move by the same delta as the start.
+ */
+export async function applySeriesFields(
+  ctx: MutationCtx,
+  series: Doc<"eventSeries">,
+  event: Doc<"events">,
+  fields: readonly SeriesOwnedEventField[],
+  now: number,
+): Promise<boolean> {
+  const { db } = ctx;
+  const times = event.startAt === undefined ? null : occurrenceTimes(series, event.occurrenceDate!);
+  const wanted = fields.filter((field) => times !== null || !NUMBER_FIELDS.has(field));
+  const withWorld = wanted.includes("worldSlug");
+  const world = withWorld ? await publishedWorldOrUndefined(db, series) : undefined;
+  const fromSeries: SeriesFieldValues = { ...series, ...times, worldSlug: world?.slug };
+  const fromEvent: SeriesFieldValues = { ...event, worldSlug: withWorld ? (await linkedPublishedEventWorld(db, event._id))?.slug : undefined };
+  const changed = wanted.filter((field) => !sameSeriesFieldValue(field, fromEvent[field], fromSeries[field]));
+  if (changed.length === 0) return false;
+
+  const patch: Record<string, unknown> = { updatedAt: now };
+  for (const field of changed) if (field !== "worldSlug") patch[field] = fromSeries[field];
+  if ("title" in patch) patch.sortTitle = createEventSortTitle(series.title);
+  if ("startAt" in patch || "timezone" in patch) {
+    const startAt = (patch.startAt as number | undefined) ?? event.startAt!;
+    const timeZone = (patch.timezone as string | undefined) ?? event.timezone;
+    Object.assign(patch, normalizeEventSchedule({ kind: "timed", startAt, date: eventDateForInstant(startAt, timeZone), timeZone }));
+  }
+  if (event.contributionFingerprint !== undefined && event.communityProfileId !== undefined) {
+    patch.contributionFingerprint = eventContributionFingerprint(
+      event.communityProfileId,
+      (patch.eventDate as string | undefined) ?? event.eventDate!,
+      (patch.title as string | undefined) ?? event.title,
+    );
+  }
+  await db.patch(event._id, patch as Partial<Doc<"events">>);
+  const updated = (await db.get(event._id))!;
+
+  if (updated.startAt !== event.startAt) {
+    const delta = updated.startAt! - event.startAt!;
+    const slots = await db.query("eventSlots").withIndex("by_eventId", (q) => q.eq("eventId", event._id)).collect();
+    for (const slot of slots) {
+      await db.patch(slot._id, { startAt: slot.startAt + delta, ...(slot.endAt === undefined ? {} : { endAt: slot.endAt + delta }), updatedAt: now });
+    }
+    await syncClubEventOperations(ctx, event._id);
+    await reconcileEventMediaScheduleChange(db, event, updated.startAt, seriesAuthSubject(series), now);
+    // ponytail: no telemetry rollup recompute; it needs a confirmed instance association, which only a started night has.
+  }
+  if (changed.includes("worldSlug")) await replaceEventWorldLink(db, updated, world, now, { preserveNonPublic: true });
+  await syncPreservedEventAssociations(db, updated, now, { preserveParticipants: true, preserveSlots: true, preserveWorld: true });
+  const community = updated.communityProfileId === undefined ? null : await db.get(updated.communityProfileId);
+  await reindexEventSearchDocument(
+    db,
+    updated,
+    { community: community?.profileType === "community" ? community : undefined, ...(await eventSearchAssociations(db, updated)) },
+    now,
+  );
+  return true;
+}
+
+/** Applies a series edit to every upcoming published night, minus that night's overrides. The caller enqueues each returned ID. */
+export async function fanOutSeriesEdit(
+  ctx: MutationCtx,
+  series: Doc<"eventSeries">,
+  changedFields: readonly SeriesOwnedEventField[],
+): Promise<Id<"events">[]> {
+  if (changedFields.length === 0) return [];
+  const now = Date.now();
+  const changed: Id<"events">[] = [];
+  for (const night of await upcomingPublishedNights(ctx.db, series, now)) {
+    if (night.moderationRemovedAt !== undefined) continue;
+    const overrides = new Set(night.overrides ?? []);
+    const fields = changedFields.filter((field) => !overrides.has(field));
+    if (fields.length > 0 && (await applySeriesFields(ctx, series, night, fields, now))) changed.push(night._id);
+  }
+  return changed;
+}
+
+/** Adds to `after.overrides` every series-owned field a night edit changed, plus worldSlug when the linked world changed. */
+export async function recordOccurrenceOverrides(
+  db: DatabaseWriter,
+  before: Doc<"events">,
+  after: Doc<"events">,
+  worldChanged: boolean,
+): Promise<void> {
+  const was: SeriesFieldValues = before;
+  const is: SeriesFieldValues = after;
+  const current = after.overrides ?? [];
+  const added = SERIES_OWNED_EVENT_FIELDS.filter((field) =>
+    !current.includes(field) && (field === "worldSlug" ? worldChanged : !sameSeriesFieldValue(field, was[field], is[field])));
+  if (added.length > 0) await db.patch(after._id, { overrides: [...current, ...added].sort() });
+}
+
+export function isSeriesOwnedEventField(field: string): field is SeriesOwnedEventField {
+  return (SERIES_OWNED_EVENT_FIELDS as readonly string[]).includes(field);
+}
+
+export type SeriesUpdate = {
+  title?: string;
+  summary?: string | null;
+  timezone?: string;
+  venueLabel?: string | null;
+  worldSlug?: string | null;
+  mediaLinks?: EventOwnerDraftInput["mediaLinks"];
+  watchMode?: EventOwnerDraftInput["watchMode"];
+  watchSurfaceEnabled?: boolean;
+  bannerImageUrl?: string | null;
+  thumbnailImageUrl?: string | null;
+  sourceUrl?: string | null;
+  rule?: SeriesRule;
+  endsOn?: string | null;
+  count?: number | null;
+};
+
+type EditableSeriesField = Exclude<SeriesOwnedEventField, "startAt" | "doorsOpenAt" | "endAt">;
+const EDITABLE_SERIES_FIELDS = SERIES_OWNED_EVENT_FIELDS.filter((field) => !NUMBER_FIELDS.has(field)) as EditableSeriesField[];
+const RULE_KEYS = ["frequency", "weekday", "ordinal", "startTime", "doorsTime", "endTime"] as const;
+const RULE_TIME_FIELDS: Partial<Record<(typeof RULE_KEYS)[number], SeriesOwnedEventField>> = {
+  startTime: "startAt",
+  doorsTime: "doorsOpenAt",
+  endTime: "endAt",
+};
+
+/**
+ * The series patch for an edit and the event fields it changes. String fields go through the event sanitiser so
+ * series values match stored event values. Bounds are validated only for the parts being changed, so an ended
+ * series (whose endsOn can precede startsOn) stays editable.
+ */
+export async function seriesUpdatePatch(
+  db: DatabaseReader,
+  series: Doc<"eventSeries">,
+  update: SeriesUpdate,
+  now: number,
+): Promise<{ patch: Partial<Doc<"eventSeries">>; changed: SeriesOwnedEventField[]; datesChanged: boolean }> {
+  const merged = Object.fromEntries(
+    EDITABLE_SERIES_FIELDS.map((field) => [field, update[field] === undefined ? series[field] : update[field] ?? undefined]),
+  );
+  // The start instant is a placeholder: only the string, link and watch fields are read back.
+  const clean: SeriesFieldValues = sanitizeEventDraftInput({ ...merged, title: merged.title as string, startAt: now } as EventOwnerDraftInput);
+  clean.timezone ??= series.timezone;
+  const patch: Record<string, unknown> = {};
+  const changed = new Set<SeriesOwnedEventField>();
+  for (const field of EDITABLE_SERIES_FIELDS) {
+    if (update[field] === undefined || sameSeriesFieldValue(field, series[field], clean[field])) continue;
+    patch[field] = clean[field];
+    changed.add(field);
+  }
+  if (typeof patch.worldSlug === "string") {
+    const validation = validateWorldSlug(patch.worldSlug);
+    const world = validation.ok ? await getWorldBySlug(db, validation.slug) : null;
+    if (world?.publicationState !== "published") throw new Error("World profile was not found or is not published.");
+    patch.worldSlug = world.slug;
+  }
+  if (changed.has("timezone")) for (const field of ["startAt", "doorsOpenAt", "endAt"] as const) changed.add(field);
+
+  let datesChanged = false;
+  if (update.rule !== undefined) {
+    const rule = update.rule;
+    const ruleDiff = RULE_KEYS.filter((key) => rule[key] !== series.rule[key]);
+    if (ruleDiff.length > 0) {
+      patch.rule = rule;
+      datesChanged = true;
+      for (const key of ruleDiff) {
+        const field = RULE_TIME_FIELDS[key];
+        if (field) changed.add(field);
+      }
+    }
+  }
+  const bounds: { startsOn: string; endsOn?: string; count?: number } = { startsOn: series.startsOn };
+  if (update.endsOn !== undefined && (update.endsOn ?? undefined) !== series.endsOn) {
+    patch.endsOn = bounds.endsOn = update.endsOn ?? undefined;
+    datesChanged = true;
+  }
+  if (update.count !== undefined && (update.count ?? undefined) !== series.count) {
+    patch.count = bounds.count = update.count ?? undefined;
+    datesChanged = true;
+  }
+  if (update.rule !== undefined || datesChanged) validateSeriesRule(update.rule ?? series.rule, bounds);
+  return { patch: patch as Partial<Doc<"eventSeries">>, changed: [...changed].sort(), datesChanged };
 }
