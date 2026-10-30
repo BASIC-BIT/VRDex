@@ -9,6 +9,7 @@ export const integrationFeature = v.union(
   v.literal("membership_management"),
   v.literal("posts"),
   v.literal("instances"),
+  v.literal("calendar"),
 );
 export const ownMemberAuthority = v.object({
   groupId: v.string(),
@@ -30,6 +31,7 @@ export const FEATURES: ClubIntegrationFeature[] = [
   "membership_management",
   "posts",
   "instances",
+  "calendar",
 ];
 export function enabledClubFeatures(
   integration: Pick<Doc<"communityVrchatIntegrations">, "enabledFeatures">,
@@ -65,4 +67,5 @@ export const FEATURE_BASELINE: Record<ClubIntegrationFeature, string[]> = {
   membership_management: ["group-members-manage"],
   posts: ["group-announcement-manage"],
   instances: ["group-instance-open-create"],
+  calendar: ["group-calendar-manage"],
 };

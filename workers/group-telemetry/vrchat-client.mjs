@@ -127,7 +127,8 @@ export class VrchatClient {
     this.twoFactorAuthCookie = cookies.get("twoFactorAuth");
   }
 
-  async request(path, { method = "GET", body, maxResponseBytes, allowEmptyResponse = false } = {}) {
+  async request(path, { method = "GET", body, form, maxResponseBytes, allowEmptyResponse = false } = {}) {
+    if (body !== undefined && form !== undefined) throw new VrchatProviderError("Request has both a JSON and a form body.", { category: "invalid_input" });
     // Empty-response endpoints still use a bounded body read and reject redirects.
     if (allowEmptyResponse && !maxResponseBytes) maxResponseBytes = 1024 * 1024;
     const controller = new AbortController();
@@ -141,11 +142,13 @@ export class VrchatClient {
         signal: controller.signal,
         headers: {
           accept: "application/json",
-          "content-type": "application/json",
+          // fetch sets the multipart boundary for FormData itself.
+          ...(form === undefined ? { "content-type": "application/json" } : {}),
           "user-agent": this.userAgent,
           cookie: `auth=${this.authCookie}${this.twoFactorAuthCookie ? `; twoFactorAuth=${this.twoFactorAuthCookie}` : ""}`,
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        ...(form === undefined ? {} : { body: form }),
       });
     } catch (error) {
       clearTimeout(timeout);

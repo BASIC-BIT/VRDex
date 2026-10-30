@@ -147,6 +147,7 @@ import type * as _twitchLinks from "../_twitchLinks.js";
 import type * as _vocabulary from "../_vocabulary.js";
 import type * as _vrcdnLinks from "../_vrcdnLinks.js";
 import type * as _vrcdnOutputAccounts from "../_vrcdnOutputAccounts.js";
+import type * as _vrchatCalendarConnector from "../_vrchatCalendarConnector.js";
 import type * as _vrchatIdentity from "../_vrchatIdentity.js";
 import type * as _vrclinkingSecretRef from "../_vrclinkingSecretRef.js";
 import type * as _worldEvents from "../_worldEvents.js";
@@ -200,6 +201,7 @@ import type * as eventSyncKinds_discordBoard from "../eventSyncKinds/discordBoar
 import type * as eventSyncKinds_googleCalendar from "../eventSyncKinds/googleCalendar.js";
 import type * as eventSyncKinds_index from "../eventSyncKinds/index.js";
 import type * as eventSyncKinds_types from "../eventSyncKinds/types.js";
+import type * as eventSyncKinds_vrchatCalendar from "../eventSyncKinds/vrchatCalendar.js";
 import type * as eventTimeline from "../eventTimeline.js";
 import type * as events from "../events.js";
 import type * as googleCalendarConnector from "../googleCalendarConnector.js";
@@ -243,6 +245,7 @@ import type * as suppressions from "../suppressions.js";
 import type * as temporalParsing from "../temporalParsing.js";
 import type * as temporalParsingActions from "../temporalParsingActions.js";
 import type * as users from "../users.js";
+import type * as vrchatCalendarConnector from "../vrchatCalendarConnector.js";
 import type * as vrclinkingCredentials from "../vrclinkingCredentials.js";
 import type * as worlds from "../worlds.js";
 
@@ -392,6 +395,7 @@ declare const fullApi: ApiFromModules<{
   _vocabulary: typeof _vocabulary;
   _vrcdnLinks: typeof _vrcdnLinks;
   _vrcdnOutputAccounts: typeof _vrcdnOutputAccounts;
+  _vrchatCalendarConnector: typeof _vrchatCalendarConnector;
   _vrchatIdentity: typeof _vrchatIdentity;
   _vrclinkingSecretRef: typeof _vrclinkingSecretRef;
   _worldEvents: typeof _worldEvents;
@@ -445,6 +449,7 @@ declare const fullApi: ApiFromModules<{
   "eventSyncKinds/googleCalendar": typeof eventSyncKinds_googleCalendar;
   "eventSyncKinds/index": typeof eventSyncKinds_index;
   "eventSyncKinds/types": typeof eventSyncKinds_types;
+  "eventSyncKinds/vrchatCalendar": typeof eventSyncKinds_vrchatCalendar;
   eventTimeline: typeof eventTimeline;
   events: typeof events;
   googleCalendarConnector: typeof googleCalendarConnector;
@@ -488,6 +493,7 @@ declare const fullApi: ApiFromModules<{
   temporalParsing: typeof temporalParsing;
   temporalParsingActions: typeof temporalParsingActions;
   users: typeof users;
+  vrchatCalendarConnector: typeof vrchatCalendarConnector;
   vrclinkingCredentials: typeof vrclinkingCredentials;
   worlds: typeof worlds;
 }>;

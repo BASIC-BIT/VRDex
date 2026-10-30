@@ -40,6 +40,8 @@ export async function removeConnector(ctx: MutationCtx, connector: Doc<"eventCon
 }
 
 export const eventIsPublic = (event: Doc<"events"> | null) => event?.publicationState === "published" && event.moderationRemovedAt === undefined;
+/** Public and still on: the events a connector may export, or pair with an external copy. */
+export const eventIsSyncable = (event: Doc<"events">) => eventIsPublic(event) && event.eventStatus === "scheduled";
 
 /** The single hook every event write path calls. Cancel is an upsert; unpublish, retraction, and moderation removal are deletes. */
 export async function enqueueEventSync(db: DatabaseWriter, scheduler: Scheduler, eventId: Id<"events">, change: "upsert" | "delete"): Promise<void> {

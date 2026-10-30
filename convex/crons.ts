@@ -136,6 +136,9 @@ crons.daily("refresh discord event boards", { hourUTC: 6, minuteUTC: 15 }, inter
 // Inert unless VRDEX_RECURRING_EVENTS_ENABLED; a failed series emails ops.
 crons.daily("materialize event series", { hourUTC: 6, minuteUTC: 20 }, internal.eventSeries.materializeAll, {});
 
+// VRChat group calendar (plan 09): only enqueues runner jobs; the runner owns retries and the failure alarm.
+crons.interval("poll VRChat calendars", { minutes: 30 }, internal.vrchatCalendarConnector.enqueuePolls, {});
+
 // --- Google Calendar connector (event connectors plan 08) ---
 // Polling backs up push notifications; a seven-day watch channel is renewed on its last day.
 crons.interval("poll google calendar connectors", { minutes: 15 }, internal.googleCalendarConnector.enqueuePolls, {});

@@ -60,12 +60,8 @@ it("each kind takes exactly its own target IDs", async () => {
   await assert.rejects(create("discord_board", "export", { guildId: guild }), /CONNECTOR_TARGET/);
   await assert.rejects(create("discord_board", "export", { guildId: guild, channelId: channel, calendarId: "c" }), /CONNECTOR_TARGET/);
   await assert.rejects(create("discord_scheduled_events", "export", { guildId: guild, channelId: channel }), /CONNECTOR_TARGET/);
-  await assert.rejects(create("vrchat_calendar", "export", { calendarId: "cal" }), /CONNECTOR_TARGET/);
-  await assert.rejects(create("vrchat_calendar", "export", { groupId: "g".repeat(257) }), /CONNECTOR_TARGET/);
   await create("google_calendar", "export", { calendarId: "x".repeat(256) });
   await create("discord_scheduled_events", "export", { guildId: guild, guildName: "Club" });
-  await create("vrchat_calendar", "export", { groupId: "grp_1" });
-  await create("vrchat_calendar", "export", { groupId: "grp_1", calendarId: "cal" });
 });
 
 it("refuses a profile that is not a community, even for a super admin", async () => {

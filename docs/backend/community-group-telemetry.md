@@ -36,6 +36,16 @@ and fleet proof gates pass. This lets the claim action distinguish a live proof
 reader from a generic running task, while the deployment gate can also reject
 an obsolete release.
 
+### Calendar operations
+
+`create_calendar_event`, `update_calendar_event`, `delete_calendar_event`, and `list_calendar_events` are the club operations behind the [VRChat calendar connector](event-schema.md#vrchat-calendar). All four need the `calendar` feature and the `manage_events` staff permission. The three writes also need the `group-calendar-manage` provider grant; the list needs none.
+
+Only connectors enqueue them. They are hidden from the staff operation list, cannot be created or edited through the staff API, and file no failure notice: the connector's `lastError` is their failure surface. A terminal state resumes the sync job waiting on the operation. Claim and authorize both reject a queued one with `connector_inactive` unless its connector is `active`, its direction is not `off`, and the kind flag is on. A list operation is deleted once its job has read it.
+
+For a create or update with artwork, the worker fetches the PNG over HTTPS and uploads it through `/file/image` before the event write. The host must resolve only to public addresses: a loopback, private, or link-local address, or IPv4 multicast or reserved space, is refused before any request, and so is a host that does not resolve. The check and the fetch resolve separately, so it does not stop DNS rebinding. A fetch that fails, redirects, or returns anything but a bounded PNG only drops the image: the event write goes ahead without it, and the result's `calendarArtworkUploaded` is set only when the upload happened. A refused or malformed upload rejects the operation with its own code, and the event write is not sent.
+
+A `missed` calendar operation was never submitted, so the waiting sync job enqueues it again without spending an attempt. A job still waiting on one operation after six hours records a failed attempt with `vrchat_operation_stalled` and emails ops.
+
 ## Automatic candidate queue
 
 Community submission and edit accept optional `primaryGroupUrl`. An explicit selection is preserved when omitted; `null` clears it and disables automatic selection. A selected URL must match one of the community's outbound group links. Without an explicit choice, a sole visible group link becomes the inferred primary. Multiple distinct group links require an explicit choice; link order never selects one. Inferred selections are recalculated when links change, and hidden links cannot qualify. The server records the authenticated contributor for new submissions and edits, then waits for the destination resolver to confirm an immutable group ID. Existing profiles without contributor provenance use the backfill quota. Admission, member sampling, and public projection recheck the current selection and immutable group ID. Explicit removal, clearing or relinking takes effect before scheduled reconciliation; verified and operator associations retain precedence.

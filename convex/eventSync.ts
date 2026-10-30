@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, type DatabaseReader, type MutationCtx } from "./_generated/server";
 import { carriedFieldsHash, connectorsEnabled, pendingLinkDraft, userHasCommunityPermission } from "./_eventConnectors";
-import { cancelPendingSchedule, enqueueSyncJob, eventIsPublic, failureAlertKey } from "./_eventSync";
+import { cancelPendingSchedule, enqueueSyncJob, eventIsPublic, eventIsSyncable, failureAlertKey } from "./_eventSync";
 import { notifyOps, resolveOps } from "./_opsAlerts";
 import { enqueueProductAnalytics } from "./_productAnalytics";
 import { correctionFields } from "./eventCorrections";
@@ -94,7 +94,7 @@ async function enqueueUnlinkedExports(ctx: MutationCtx, connector: Connector, no
   const events = await ctx.db.query("events").withIndex("by_communityProfileId_sortAt", q => q.eq("communityProfileId", connector.communityProfileId).gte("sortAt", now - DAY_MS).lte("sortAt", now + 90 * DAY_MS)).take(200);
   let index = 0;
   for (const event of events) {
-    if (event.publicationState !== "published" || event.moderationRemovedAt !== undefined || event.eventStatus !== "scheduled") continue;
+    if (!eventIsSyncable(event)) continue;
     if (await linkFor(ctx.db, connector._id, event._id)) continue;
     await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: connector._id, eventId: event._id, kind: "export_upsert", dueAt: now + index++ * RECONCILE_STAGGER_MS });
   }
@@ -130,14 +130,18 @@ export const claimJob = internalMutation({
     if (job.eventId && (kind === "export_upsert" || kind === "export_delete")) {
       event = await ctx.db.get(job.eventId);
       link = await linkFor(ctx.db, connector._id, job.eventId);
-      if (kind === "export_upsert" && !eventIsPublic(event)) {
-        if (!link) return await skipJob(ctx, job, connector, "event_not_public");
-        kind = "export_delete";
-      } else if (kind === "export_delete" && eventIsPublic(event)) return await skipJob(ctx, job, connector, "event_public");
-      if (kind === "export_upsert" && await pendingLinkDraft(ctx.db, link, now)) return await skipJob(ctx, job, connector, "pending_draft");
+      // A re-claim settles the operation in flight; it never re-decides the job. completeJob retracts what went private, and a re-publish has its own job.
+      if ((job.payload as { operationId?: unknown } | null)?.operationId === undefined) {
+        if (kind === "export_upsert" && !eventIsPublic(event)) {
+          if (!link) return await skipJob(ctx, job, connector, "event_not_public");
+          kind = "export_delete";
+        } else if (kind === "export_delete" && eventIsPublic(event)) return await skipJob(ctx, job, connector, "event_public");
+        if (kind === "export_upsert" && await pendingLinkDraft(ctx.db, link, now)) return await skipJob(ctx, job, connector, "pending_draft");
+      }
       if (kind === "export_delete" && link?.state !== "linked") return await skipJob(ctx, job, connector, "no_link");
     }
-    if (kind === "reconcile" && (connector.direction === "export" || connector.direction === "bidirectional")) await enqueueUnlinkedExports(ctx, connector, now);
+    // Only the first claim: a re-claim after a club-operation wait would queue a second export per event.
+    if (kind === "reconcile" && job.state === "pending" && (connector.direction === "export" || connector.direction === "bidirectional")) await enqueueUnlinkedExports(ctx, connector, now);
     const fields = kind === "export_upsert" && event ? await correctionFields(ctx.db, event) : null;
     await ctx.db.patch(jobId, { state: "running", attempts: job.attempts + 1, leaseExpiresAt: now + LEASE_MS, kind, updatedAt: now });
     return { job: (await ctx.db.get(jobId))!, connector, event, link, fields };
@@ -165,10 +169,12 @@ export const completeJob = internalMutation({
     }
     if (job.kind === "export_delete" && link) await ctx.db.patch(link._id, { state: "vrdex_retracted", updatedAt: now });
     await wakePendingSibling(ctx, job);
-    await resolveOps(ctx, failureAlertKey(job.connectorId));
     const connector = await ctx.db.get(job.connectorId);
+    // A bidirectional connector's reads prove nothing about its writes (a list needs no provider grant), so only an export clears its streak.
+    const readOnly = connector?.direction === "bidirectional" && (job.kind === "import_poll" || job.kind === "import_item" || job.kind === "reconcile");
+    if (!readOnly) await resolveOps(ctx, failureAlertKey(job.connectorId));
     if (!connector) return;
-    await ctx.db.patch(connector._id, { lastSyncedAt: now, lastError: undefined, consecutiveFailures: 0, updatedAt: now });
+    await ctx.db.patch(connector._id, { lastSyncedAt: now, ...(readOnly ? {} : { lastError: undefined, consecutiveFailures: 0 }), updatedAt: now });
     await recordJob(ctx, job, connector, "done", args.durationMs);
   },
 });
@@ -211,7 +217,9 @@ export const runJob = internalAction({
         case "export_upsert":
           if (!handler.exportUpsert) throw missing();
           if (!event || !fields) throw new Error("export_upsert job " + job._id + " has no event.");
-          exportedHash = carriedFieldsHash(connector.kind, fields);
+          // A kind that waits on a club operation records what that write carried: the event may have moved on since.
+          const dispatched = (job.payload as { exportedHash?: unknown } | null)?.exportedHash;
+          exportedHash = typeof dispatched === "string" ? dispatched : carriedFieldsHash(connector.kind, fields);
           result = await handler.exportUpsert(ctx, connector, event, link, job);
           break;
         case "export_delete":

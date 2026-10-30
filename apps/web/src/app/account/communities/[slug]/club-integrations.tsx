@@ -10,6 +10,7 @@ import { Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
 import { GoogleCalendarConnect } from "./club-google-calendar";
+import { VrchatCalendarConnect } from "./club-vrchat-calendar";
 import { ClubAccessNotice, useClubWorkspace } from "./club-workspace";
 import { DiscordBoardConnect } from "./discord-board-connect";
 import { DiscordConnect } from "./discord-connect";
@@ -131,6 +132,7 @@ export function ClubIntegrationsView({
   onUpdate,
   onRemove,
   now,
+  vrchatCalendarConnect,
   connect,
 }: {
   communitySlug: string;
@@ -138,6 +140,7 @@ export function ClubIntegrationsView({
   onUpdate: (connectorId: ConnectorId, patch: ConnectorPatch) => Promise<unknown>;
   onRemove: (connectorId: ConnectorId) => Promise<unknown>;
   now: number;
+  vrchatCalendarConnect?: ReactNode;
   /** Connect controls; the page passes its Convex-backed ones. */
   connect?: ReactNode;
 }) {
@@ -177,6 +180,8 @@ export function ClubIntegrationsView({
           </ul>
         </Card>
       ) : null}
+      {/* A group has one calendar, so a second connect could only fail. */}
+      {rows.some((connector) => connector.kind === "vrchat_calendar") ? null : vrchatCalendarConnect}
     </div>
   );
 }
@@ -199,6 +204,7 @@ function ConnectedIntegrations({ communityProfileId, communitySlug }: { communit
       now={now}
       onUpdate={(connectorId, patch) => update({ connectorId, ...patch })}
       onRemove={(connectorId) => remove({ connectorId })}
+      vrchatCalendarConnect={<VrchatCalendarConnect communityProfileId={communityProfileId} />}
       connect={
         <>
           <GoogleCalendarConnect connectedCalendarIds={connectedCalendarIds(result.connectors)} />
