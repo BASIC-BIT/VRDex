@@ -11,7 +11,8 @@ Membership audits retain aggregate movement and permission-controlled identifiab
 Queued provider reads and writes use the existing authenticated control plane, integration leases, credential generation and shared request budgets. Immediately before a write, the worker rechecks current human authorization, feature enablement, provider grants and relevant destination eligibility. Uncertain submitted writes are not automatically retried. Preflight retries are bounded; unsent work more than 15 minutes late becomes missed, including remaining invitation recipients. Event cancellation stops linked unsent work without undoing existing posts or instances.
 
 Fresh management preflight reserves its checks and write together. Ordinary
-actions require at least two requests per minute, normal instance closure three,
+actions require at least two requests per minute, normal instance closure and
+calendar writes with poster artwork three,
 and instance invitations four, within both account and integration limits.
 Lower configured limits reject that action with `operation_budget_too_low`;
 the worker never raises the limits itself. A reservation or execution deadline

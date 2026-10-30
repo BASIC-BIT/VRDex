@@ -6,16 +6,19 @@ import { VrchatClient, VrchatProviderError } from "./vrchat-client.mjs";
 const groupId = "grp_00000000-0000-0000-0000-000000000001";
 const botId = "usr_00000000-0000-0000-0000-000000000001";
 const targetId = "usr_00000000-0000-0000-0000-000000000003";
-function setup({ authorized = true, uncertain = false, limit = 4 } = {}) {
+const cal = "cal_00000000-0000-0000-0000-000000000001";
+const event = { title: "Bass Temple", description: "Weekly bass night.", startsAt: "2026-11-08T01:00:00.000Z", endsAt: "2026-11-08T04:00:00.000Z", accessType: "group" };
+function setup({ authorized = true, uncertain = false, limit = 4, payload = { kind: "ban_member", targetUserId: targetId } } = {}) {
   let now = 1000;
   const order = [], sends = [];
   const args = {
     assignment: { integrationId: "integration", fencingToken: 1, epochStartedAt: 1, vrchatGroupId: groupId },
     expectedUserId: botId, accountBudget: new RequestBudget(limit), integrationBudget: new RequestBudget(limit),
     clock: () => now, pause: async ms => { now += ms; },
+    fetchImage: async () => ({ bytes: new Uint8Array([137, 80, 78, 71]), contentType: "image/png" }),
     control: { async send(op, body) {
       order.push(op); sends.push({ op, body });
-      if (op === "club_operation_claim") return { operationId: "op", nonce: "nonce", payload: { kind: "ban_member", targetUserId: targetId } };
+      if (op === "club_operation_claim") return { operationId: "op", nonce: "nonce", payload };
       if (op === "budget") return { granted: true };
       if (op === "club_operation_authorize") { assert.ok(now - body.authority.observedAt <= 30000); return { authorized }; }
       return { recorded: true };
@@ -24,8 +27,11 @@ function setup({ authorized = true, uncertain = false, limit = 4 } = {}) {
       if (options?.method) {
         order.push("provider-write");
         if (uncertain) throw new Error("connection lost");
+        if (path === "/file/image") return { id: "file_00000000-0000-0000-0000-000000000001" };
+        if (path.startsWith("/calendar/")) return { id: cal, ownerId: groupId };
         return { id: "gmem_00000000-0000-0000-0000-000000000001", userId: targetId, groupId };
       }
+      if (path.startsWith("/calendar/")) { order.push("provider-calendar-read"); return { results: [], hasNext: false }; }
       order.push("provider-read");
       if (path === "/auth/user") return { id: botId };
       return { id: groupId, ownerId: "usr_00000000-0000-0000-0000-000000000002", roles: [], myMember: { userId: botId, groupId, membershipStatus: "member", permissions: ["*"], roleIds: [] } };
@@ -333,4 +339,30 @@ test("authorization that crosses the action's late deadline cannot write inside 
   assert.equal(args.clock(), 3000);
   assert.equal(order.includes("provider-write"), false);
   assert.equal(sends.at(-1).op, "club_operation_complete");
+});
+
+test("calendar create authorizes once, before the artwork upload, and reports the calendar event id", async () => {
+  const { args, order, sends } = setup({ payload: { kind: "create_calendar_event", ...event, imageUrl: "https://vrdex.test/poster.png" } });
+  assert.equal((await executeClubOperation(args)).status, "succeeded");
+  assert.equal(order.filter((x) => x === "club_operation_authorize").length, 1);
+  assert.equal(order.filter((x) => x === "provider-write").length, 2);
+  assert.equal(order[order.indexOf("provider-write") - 1], "club_operation_authorize");
+  assert.deepEqual(sends.filter((s) => s.op === "budget").map((s) => s.body.requestCount), [1, 3]);
+  assert.deepEqual(sends.at(-1).body.result, { calendarEventId: cal });
+});
+test("calendar update and delete reserve two requests; update reports the payload's event id", async () => {
+  for (const payload of [{ kind: "update_calendar_event", calendarEventId: cal, ...event }, { kind: "delete_calendar_event", calendarEventId: cal }]) {
+    const { args, sends } = setup({ payload });
+    assert.equal((await executeClubOperation(args)).status, "succeeded");
+    assert.deepEqual(sends.filter((s) => s.op === "budget").map((s) => s.body.requestCount), [1, 2]);
+    assert.deepEqual(sends.at(-1).body.result, payload.kind === "update_calendar_event" ? { calendarEventId: cal } : undefined);
+  }
+});
+test("calendar list authorizes before its first calendar read and completes with the items", async () => {
+  const { args, order, sends } = setup({ payload: { kind: "list_calendar_events", from: "2026-11-02T00:00:00.000Z", to: "2026-11-30T00:00:00.000Z" } });
+  assert.equal((await executeClubOperation(args)).status, "succeeded");
+  assert.equal(order.filter((x) => x === "club_operation_authorize").length, 1);
+  assert.ok(order.indexOf("club_operation_authorize") < order.indexOf("provider-calendar-read"));
+  assert.deepEqual(sends.filter((s) => s.op === "budget").map((s) => s.body.requestCount), [1, 2]);
+  assert.deepEqual(Object.keys(sends.at(-1).body.result).sort(), ["calendarEvents", "calendarEventsTruncated"]);
 });
