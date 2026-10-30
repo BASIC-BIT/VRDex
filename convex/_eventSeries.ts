@@ -165,7 +165,7 @@ export async function seriesOverridesFor(
 
 /**
  * Links the first upcoming, published, scheduled, unowned event of the series' community on
- * `date` whose title matches, recording the fields it differs on as overrides. Started nights are never changed.
+ * `date` whose title matches, recording the fields it differs on as overrides. Started nights are never changed; a date-only event on an upcoming date is not started.
  */
 async function adoptStandaloneEvent(
   db: DatabaseWriter,
@@ -183,7 +183,7 @@ async function adoptStandaloneEvent(
       event.moderationRemovedAt !== undefined ||
       event.publicationState !== "published" ||
       event.eventStatus !== "scheduled" ||
-      (event.startAt ?? 0) <= now ||
+      (event.startAt !== undefined && event.startAt <= now) ||
       event.title.trim().toLowerCase() !== title
     ) continue;
     await db.patch(event._id, {

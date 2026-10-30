@@ -59,6 +59,17 @@ it("never adopts a night that has already started", async (test) => {
   assert.equal(await occurrenceOrNull(t, seriesId, "2026-10-30"), null);
 });
 
+it("adopts a future date-only event instead of creating a second night beside it", async (test) => {
+  const { t, owner } = await setup(test);
+  const dateOnly = await createApiEvent(t, owner, { title: "Harbor Night", startAt: Date.parse("2026-11-07T01:00:00Z"), timezone: "America/New_York" });
+  await t.run((ctx) => ctx.db.patch(dateOnly.eventId, { startAt: undefined, scheduleKind: "date_only", eventDate: "2026-11-06" }));
+  const seriesId = await insertSeries(t, owner);
+  const result = await t.mutation(internal.eventSeries.materialize, { seriesId });
+  assert.deepEqual(result.adopted, [dateOnly.eventId]);
+  assert.equal((await occurrenceOrNull(t, seriesId, "2026-11-06"))!._id, dateOnly.eventId);
+  assert.equal((await occurrences(t, seriesId)).length, 8);
+});
+
 it("skips unpublished, removed, cancelled and differently titled candidates", async (test) => {
   const { t, owner } = await setup(test);
   const fridays = ["2026-11-07T01:00:00Z", "2026-11-14T01:00:00Z", "2026-11-21T01:00:00Z"];
