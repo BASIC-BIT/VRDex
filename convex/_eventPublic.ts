@@ -113,6 +113,7 @@ export type PublicEvent = PublicEventPreview & {
   lineup: PublicEventLineupEntry[];
   id: string;
   slug: string;
+  seriesId?: string;
   watchMode: "event_stream" | "performer_sequence";
   watchSurfaceEnabled: boolean;
   authoredBannerImageUrl?: string;
@@ -512,7 +513,7 @@ export async function getPublicEventCommunityImage(db: DatabaseReader, community
 
 export async function getPublishedCommunity(
   db: DatabaseReader,
-  event: Doc<"events">,
+  event: Pick<Doc<"events">, "communityProfileId">,
   profileCache?: Map<Id<"profiles">, Promise<Doc<"profiles"> | null>>,
 ) {
   if (event.communityProfileId === undefined) {
@@ -805,8 +806,14 @@ export async function getPublicEventBySlug(
   }
 
   const record = await getPublicEventRecord(db, event);
+  const projected = record === null ? null : toPublicEvent(record);
+  if (projected === null || event.seriesId === undefined) {
+    return projected;
+  }
 
-  return record === null ? null : toPublicEvent(record);
+  const series = await db.get(event.seriesId);
+
+  return series === null || series.state === "removed" ? projected : { ...projected, seriesId: series._id };
 }
 
 /** Caller must authorize event operations before requesting unpublished content. */

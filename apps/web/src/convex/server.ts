@@ -246,6 +246,29 @@ export async function fetchPublicEventBySlug(slug: string) {
   }
 }
 
+export async function fetchPublicEventSeries(seriesId: string) {
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const };
+  }
+
+  try {
+    const series = await fetchQuery(api.eventSeries.getPublic, { seriesId });
+
+    return {
+      kind: "live" as const,
+      series,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    console.error(`Server-side Convex event series fetch failed: ${message}`);
+
+    return {
+      kind: "error" as const,
+    };
+  }
+}
+
 /** Request-scoped auth; private host content must never enter a shared cache. */
 export async function fetchHostEventBySlug(slug: string, communitySlug: string) {
   const token = await convexAuthToken();

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { requireClubPermission, resolveClubActor } from "./_clubAccess";
+import { getPublicEventPreviews, getPublishedCommunity } from "./_eventPublic";
 import {
   applySeriesFields,
   createSeriesFromEvent,
@@ -84,6 +85,33 @@ export const materializeAll = createMaterializeAll({ notify: notifyOps, resolve:
 export const isEnabled = query({
   args: {},
   handler: async (): Promise<boolean> => recurringEventsEnabled(),
+});
+
+export const getPublic = query({
+  args: { seriesId: v.string() },
+  handler: async (ctx, args) => {
+    const seriesId = ctx.db.normalizeId("eventSeries", args.seriesId);
+    const series = seriesId === null ? null : await ctx.db.get(seriesId);
+    if (series === null || series.state === "removed") return null;
+    const community = await getPublishedCommunity(ctx.db, series);
+    if (community === undefined) return null;
+    const now = Date.now();
+    const today = eventDateForInstant(now, series.timezone);
+    const events = await ctx.db
+      .query("events")
+      .withIndex("by_seriesId_occurrenceDate", (q) => q.eq("seriesId", series._id).gte("occurrenceDate", today))
+      .collect();
+    const ids = new Map(events.map((event) => [event.slug, event._id]));
+    const previews = await getPublicEventPreviews(ctx.db, events, { now, limit: 20 });
+    return {
+      id: series._id,
+      title: series.title,
+      ...(series.summary === undefined ? {} : { summary: series.summary }),
+      communitySlug: community.slug,
+      communityName: community.displayName,
+      nights: previews.flatMap(({ slug, ...night }) => (slug === undefined ? [] : [{ ...night, slug, id: ids.get(slug)! }])),
+    };
+  },
 });
 
 export const create = mutation({
