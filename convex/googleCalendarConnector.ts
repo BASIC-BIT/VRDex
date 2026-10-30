@@ -266,9 +266,18 @@ export const insertCredential = internalMutation({
     const credentialId = await ctx.db.insert("connectorCredentials", { provider: "google", ownerUserId: actorUserId, ...grant, state: "active", createdAt: now, updatedAt: now });
     if (connector) {
       // The old channel belongs to the old grant; reconcile opens a fresh one. The reconnecting staffer becomes the authority, as on Resume.
-      const { watchChannelId: _channel, watchResourceId: _resource, watchExpiresAt: _expires, ...target } = connector.target;
+      const { watchChannelId: _channel, watchResourceId: _resource, watchExpiresAt: _expires, watchRenewedAt: _renewed, ...target } = connector.target;
+      const previous = connector.credentialId ? await ctx.db.get(connector.credentialId) : null;
+      // A sync token belongs to the account that listed it; a different account starts a full sync.
+      if (previous?.externalAccountId !== grant.externalAccountId) delete target.syncToken;
       await ctx.db.patch(connector._id, { credentialId, authorityUserId: actorUserId, state: "active", lastError: undefined, target, updatedAt: now });
       if (connector.direction !== "off") await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: connector._id, kind: "reconcile" });
+      if (previous && previous.state !== "revoked") {
+        // A credential can serve connectors in several communities its owner staffs, so this reads every google_calendar connector.
+        // ponytail: same full scan as markNeedsReauth; a by_credentialId index fixes both when they pass a few hundred.
+        const siblings = await ctx.db.query("eventConnectors").withIndex("by_kind_target_channelId", q => q.eq("kind", "google_calendar")).collect();
+        if (!siblings.some(row => row.credentialId === previous._id && row.state !== "removed")) await ctx.db.patch(previous._id, { state: "revoked", updatedAt: now });
+      }
     }
     return credentialId;
   },

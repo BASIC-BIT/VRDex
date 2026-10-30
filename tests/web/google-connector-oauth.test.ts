@@ -51,7 +51,7 @@ it("refuses a token without an account subject and never echoes Google's answer"
     fetchImplementation: async () => Response.json({ error: "invalid_grant", error_description: "code c" }, { status: 400 }) }), /^Error: GOOGLE_TOKEN_400$/);
 });
 
-it("callback refuses a mismatched state without contacting Google or Convex", () => {
+it("callback refuses a mismatched state or a short grant without reaching Convex", () => {
   execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
     import assert from "node:assert/strict";
     import { createRequire, registerHooks } from "node:module";
@@ -61,7 +61,7 @@ it("callback refuses a mismatched state without contacting Google or Convex", ()
     import { pathToFileURL } from "node:url";
     const { NextRequest }=createRequire(join(process.cwd(),"apps/web/package.json"))("next/server");
     const state=globalThis.googleRoute={admin:0,fetches:0};
-    globalThis.fetch=async()=>{state.fetches++;throw new Error("unexpected fetch");};
+    globalThis.fetch=async()=>{state.fetches++;if(!state.token)throw new Error("unexpected fetch");return Response.json(state.token);};
     const sources={
       "@/lib/server/auth":'export const convexAuthToken=async()=>"session"; export const viewerQuery={}; export const unauthenticatedRedirectResponse=()=>new Response(null,{status:303}); export const isUnauthenticatedError=()=>false;',
       "@/lib/server/convex-http":'export const convexHttpClient=()=>({setAuth(){},query:async()=>({user:{id:"user"}})}); export const convexAdminHttpClient=()=>{globalThis.googleRoute.admin++;return {query:async()=>({}),action:async()=>({credentialId:"cred"})};};',
@@ -79,6 +79,14 @@ it("callback refuses a mismatched state without contacting Google or Convex", ()
       assert.match(response.headers.get("set-cookie"),/vrdex_google_connector_state=;/);
       assert.match(response.headers.get("set-cookie"),/Max-Age=0|Expires=Thu, 01 Jan 1970/);
       assert.deepEqual([state.admin,state.fetches],[0,0]);
+
+      // A grant with one scope fails the exchange before Convex sees any token.
+      state.token={access_token:"a",refresh_token:"rt",expires_in:3600,scope:"https://www.googleapis.com/auth/calendar.events"};
+      const short=await GET(new NextRequest("https://vrdex.test/api/connectors/google/callback?code=c&state=s1",{headers:{cookie:"vrdex_google_connector_state="+cookie}}));
+      assert.ok(short.status>=300&&short.status<400);
+      assert.ok(short.headers.get("location").endsWith("/account/communities/basic-nights/integrations?googleCalendar=failed"),short.headers.get("location"));
+      assert.match(short.headers.get("set-cookie"),/vrdex_google_connector_state=;.*(Max-Age=0|Expires=Thu, 01 Jan 1970)/i);
+      assert.deepEqual([state.admin,state.fetches],[0,1]);
     } finally { for (const mock of Object.values(mocks)) unlinkSync(mock.path); rmdirSync(directory); }
-  `], { cwd: process.cwd(), env: { ...process.env, TSX_TSCONFIG_PATH: "apps/web/tsconfig.json" }, stdio: "pipe" });
+  `], { cwd: process.cwd(), env: { ...process.env, TSX_TSCONFIG_PATH: "apps/web/tsconfig.json", GOOGLE_CONNECTOR_CLIENT_ID: "client-id", GOOGLE_CONNECTOR_CLIENT_SECRET: "client-secret" }, stdio: "pipe" });
 });

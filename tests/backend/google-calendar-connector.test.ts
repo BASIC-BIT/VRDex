@@ -701,7 +701,7 @@ describe("google calendar connect", () => {
   it("reconnect swaps the credential, reactivates, and enqueues reconcile", async () => {
     const t = convexTest({ schema, modules });
     const { connectorId, credentialId: old } = await seedGoogleConnector(t, {
-      direction: "import", state: "needs_reauth", target: { calendarId: "cal-1", calendarName: "Events", syncToken: "sync-1", watchChannelId: "ch-1", watchResourceId: "res-1", watchExpiresAt: NOW + 1000 },
+      direction: "import", state: "needs_reauth", target: { calendarId: "cal-1", calendarName: "Events", syncToken: "sync-1", watchChannelId: "ch-1", watchResourceId: "res-1", watchExpiresAt: NOW + 1000, watchRenewedAt: NOW - 1000 },
     });
     // A second staffer reconnects; the runner checks the authority's role, so it moves to them.
     const otherStaff = await t.run(async (ctx) => {
@@ -718,8 +718,24 @@ describe("google calendar connect", () => {
     assert.equal(connector.state, "active");
     assert.equal(connector.authorityUserId, otherStaff);
     assert.equal(connector.lastError, undefined);
-    assert.deepEqual(connector.target, { calendarId: "cal-1", calendarName: "Events", syncToken: "sync-1" });
+    // A different Google account: the old sync token is not valid for it.
+    assert.deepEqual(connector.target, { calendarId: "cal-1", calendarName: "Events" });
+    assert.equal((await t.run((ctx) => ctx.db.get(old)))!.state, "revoked");
     assert.ok((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).some((j) => j.kind === "reconcile" && j.state === "pending"));
+  });
+
+  it("reconnect keeps a credential another live connector still uses, and the same account keeps its sync token", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, staffUserId, credentialId: old } = await seedGoogleConnector(t, { direction: "import", state: "needs_reauth", target: { calendarId: "cal-1", syncToken: "sync-1" } });
+    // The other connector sits in a second community the same staffer runs.
+    const otherCommunity = await t.run((ctx) => ctx.db.insert("profiles", { slug: "other-nights", displayName: "Other Nights", sortName: "other nights", profileType: "community", community: { categoryTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: NOW }));
+    await t.run((ctx) => ctx.db.insert("eventConnectors", {
+      communityProfileId: otherCommunity, kind: "google_calendar", direction: "export", mode: "autopublish", authorityUserId: staffUserId,
+      credentialId: old, target: { calendarId: "cal-2" }, state: "needs_reauth", createdAt: NOW, updatedAt: NOW,
+    }));
+    await t.action(internal.googleCalendarConnector.storeCredential, { actorUserId: staffUserId, communitySlug: "basic-nights", connectorId, ...grant, externalAccountId: "google-sub-1" });
+    assert.equal((await t.run((ctx) => ctx.db.get(old)))!.state, "active");
+    assert.deepEqual((await t.run((ctx) => ctx.db.get(connectorId)))!.target, { calendarId: "cal-1", syncToken: "sync-1" });
   });
 
   it("reconnect refuses a removed connector", async () => {

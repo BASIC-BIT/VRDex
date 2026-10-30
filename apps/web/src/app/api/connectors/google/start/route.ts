@@ -19,9 +19,9 @@ export async function GET(request: NextRequest) {
   const failed = () => NextResponse.redirect(resolveSameOriginUrl(appendReturnPathQuery(returnPath, { googleCalendar: "failed" }), request.nextUrl.origin));
   if (!communitySlug) return failed();
 
-  const token = await convexAuthToken();
-  if (!token) return unauthenticatedRedirectResponse(request, returnPath);
   try {
+    const token = await convexAuthToken();
+    if (!token) return unauthenticatedRedirectResponse(request, returnPath);
     const client = convexHttpClient();
     client.setAuth(token);
     const actorUserId = (await client.query(viewerQuery, {}))?.user.id;

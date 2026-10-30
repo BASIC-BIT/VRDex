@@ -30,9 +30,9 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
   if (!code) return redirect(returnPath, { googleCalendar: "failed" });
 
-  const token = await convexAuthToken();
-  if (!token) return signIn();
   try {
+    const token = await convexAuthToken();
+    if (!token) return signIn();
     const client = convexHttpClient();
     client.setAuth(token);
     const actorUserId = (await client.query(viewerQuery, {}))?.user.id;
