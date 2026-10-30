@@ -482,9 +482,28 @@ async function upcomingPublishedNights(db: DatabaseReader, series: Doc<"eventSer
     night.publicationState === "published" && (night.startAt === undefined ? night.occurrenceDate! >= today : night.startAt > now));
 }
 
+type TimeField = "startAt" | "doorsOpenAt" | "endAt";
+const TIME_FIELDS = ["startAt", "doorsOpenAt", "endAt"] as const;
+
+/** Whether a night's times and slots pass the editor's own checks: doors at or before start, end after start, slots inside. */
+function timesFit(
+  title: string,
+  times: { startAt: number; doorsOpenAt?: number; endAt?: number },
+  timezone: string,
+  slots: { startAt: number; endAt?: number }[],
+): boolean {
+  try {
+    sanitizeEventDraftInput({ title, ...times, timezone, slotLinks: slots.map((slot) => ({ displayLabel: "", ...slot })) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Copies `fields` from the series onto one night and never touches `overrides`. Time fields are skipped on a
- * date-only night and on a date where the rule start does not exist. Slots move by the same delta as the start.
+ * date-only night and on a date where the rule start does not exist. Slots, and overridden doors and end times,
+ * move by the same delta as the start; when the result still fails the editor's checks the night's times stay as they were.
  */
 export async function applySeriesFields(
   ctx: MutationCtx,
@@ -500,10 +519,35 @@ export async function applySeriesFields(
   const world = withWorld ? await publishedWorldOrUndefined(db, series) : undefined;
   const fromSeries: SeriesFieldValues = { ...series, ...times, worldSlug: world?.slug };
   const fromEvent: SeriesFieldValues = { ...event, worldSlug: withWorld ? (await linkedPublishedEventWorld(db, event._id))?.slug : undefined };
-  const changed = wanted.filter((field) => !sameSeriesFieldValue(field, fromEvent[field], fromSeries[field]));
-  if (changed.length === 0) return false;
+  let changed = wanted.filter((field) => !sameSeriesFieldValue(field, fromEvent[field], fromSeries[field]));
+  const timePatch: Record<string, number | undefined> = {};
+  if (changed.some((field) => NUMBER_FIELDS.has(field))) {
+    const pick = (field: TimeField) => (changed.includes(field) ? (fromSeries[field] as number | undefined) : event[field]);
+    const startAt = pick("startAt")!;
+    const delta = startAt - event.startAt!;
+    // An overridden doors or end time rides along with the start, like the slots, so the night keeps its shape.
+    const ride = (field: "doorsOpenAt" | "endAt") => {
+      const value = pick(field);
+      return value !== undefined && !changed.includes(field) && (event.overrides ?? []).includes(field) ? value + delta : value;
+    };
+    const next = { startAt, doorsOpenAt: ride("doorsOpenAt"), endAt: ride("endAt") };
+    const slots = await db.query("eventSlots").withIndex("by_eventId", (q) => q.eq("eventId", event._id)).collect();
+    const fits = timesFit(
+      changed.includes("title") ? series.title : event.title,
+      next,
+      (changed.includes("timezone") ? series.timezone : event.timezone) ?? "UTC",
+      slots.map((slot) => ({ startAt: slot.startAt + delta, endAt: slot.endAt === undefined ? undefined : slot.endAt + delta })),
+    );
+    if (fits) {
+      for (const field of TIME_FIELDS) if (next[field] !== event[field]) timePatch[field] = next[field];
+    } else {
+      console.warn("series times do not fit this night; its times are left unchanged", { eventId: event._id, seriesId: series._id });
+    }
+    changed = changed.filter((field) => !NUMBER_FIELDS.has(field));
+  }
+  if (changed.length === 0 && Object.keys(timePatch).length === 0) return false;
 
-  const patch: Record<string, unknown> = { updatedAt: now };
+  const patch: Record<string, unknown> = { updatedAt: now, ...timePatch };
   for (const field of changed) if (field !== "worldSlug") patch[field] = fromSeries[field];
   if ("title" in patch) patch.sortTitle = createEventSortTitle(series.title);
   if ("startAt" in patch || "timezone" in patch) {

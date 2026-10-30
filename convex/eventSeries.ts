@@ -8,6 +8,7 @@ import {
   isSeriesOwnedEventField,
   materializeSeries,
   retireOccurrences,
+  seriesOverridesFor,
   seriesUpdatePatch,
 } from "./_eventSeries";
 import { eventDateForInstant } from "./_eventSchedule";
@@ -170,6 +171,11 @@ export const resetOverride = mutation({
     if (event.startAt !== undefined && event.startAt <= now) throw new Error("Only upcoming nights can be reset.");
     await ctx.db.patch(eventId, { overrides: overrides.filter((name) => name !== field), updatedAt: now });
     const changed = await applySeriesFields(ctx, series, (await ctx.db.get(eventId))!, [field], now);
+    // A time the night's other times or slots cannot take is left as it was, so the night keeps the override.
+    const after = (await ctx.db.get(eventId))!;
+    if (!changed && (await seriesOverridesFor(ctx.db, series, after, after.occurrenceDate!)).includes(field)) {
+      await ctx.db.patch(eventId, { overrides });
+    }
     await enqueueEventSync(ctx.db, ctx.scheduler, eventId, "upsert");
     return { eventId, changed };
   },
