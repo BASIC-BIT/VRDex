@@ -99,8 +99,10 @@ test(
       await writeFile(join(otherAttempt, "video-999.ts.tmp"), Buffer.alloc(8 * 1024 * 1024));
       await until(() => failures.length === 1);
       assert.equal(failures[0]?.kind, "pressure");
+      // Pressure is reported before physical cleanup, so stop() owns the reap.
+      await handle.stop();
+      await until(() => f.counts().active === 0);
       assert.equal(published, 1);
-      assert.equal(f.counts().active, 0);
       assert.deepEqual((await readdir(f.directory)).sort(), ["input.mp4", "other-source"]);
     } finally {
       await handle?.stop();
