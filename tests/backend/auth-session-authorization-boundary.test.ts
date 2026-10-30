@@ -114,6 +114,12 @@ describe("browser auth-session authorization boundary", () => {
         ],
       ],
       [
+        // Site connect flow: both public actions run this guarded query, which
+        // reads the browser session, before their first Discord GET.
+        "convex/discordIntake.ts",
+        ["internal.discordIntake.authorizeSiteConnect", "requireActiveBrowserSessionSubject(ctx)"],
+      ],
+      [
         "convex/profileClaims.ts",
         [
           "internal.profileClaims.getDiscordCommunityClaimForAdapter",
