@@ -7,7 +7,7 @@ import {
   pickPosterAttachments, quietWindowMs, resolveDiscordUserId,
 } from "./_discordIntake";
 import { applyEventCandidate } from "./_eventCandidateApply";
-import { connectorDirection, connectorKind, connectorMode, connectorState, requireConnectorAuthority } from "./_eventConnectors";
+import { connectorDirection, connectorKind, connectorMode, connectorState, connectorsEnabled, requireConnectorAuthority } from "./_eventConnectors";
 import { saveIntakeDraft } from "./_eventIntake";
 import { getEventBySlug } from "./_eventSlugs";
 import { cancelPendingSchedule } from "./_eventSync";
@@ -111,8 +111,10 @@ const DAY_MS = 86_400_000;
 const CONTEXT_MS = 6 * 3_600_000;
 const DAILY_RUN_CAP = 20;
 const AGENT_EVENT_LIMIT = 40;
+// Longer than an action can run, so a run whose action died without failRun stops blocking its author.
+const RUNNING_LEASE_MS = 15 * 60_000;
 type SkipReason = "connector_inactive" | "authority_lost" | "binding_cap" | "source_deleted";
-const skipReason = v.union(v.literal("connector_inactive"), v.literal("authority_lost"), v.literal("binding_cap"), v.literal("source_deleted"));
+const skipReason = v.union(v.literal("connector_inactive"), v.literal("authority_lost"), v.literal("binding_cap"), v.literal("source_deleted"), v.literal("deferred"));
 const opsKey = (connectorId: Id<"eventConnectors">) => "discord-intake:" + connectorId;
 const messageUrl = (message: Doc<"discordIntakeMessages">) => `https://discord.com/channels/${message.guildId}/${message.channelId}/${message.messageId}`;
 const messageRow = (db: DatabaseReader, connectorId: Id<"eventConnectors">, messageId: string) =>
@@ -144,7 +146,17 @@ export const claimRun = internalMutation({
     };
     const connector = await ctx.db.get(run.connectorId);
     const community = connector && await ctx.db.get(connector.communityProfileId);
-    if (!connector || connector.state !== "active" || connector.direction === "off" || !community?.slug) return skip("connector_inactive");
+    if (!connectorsEnabled() || !connector || connector.state !== "active" || connector.direction === "off" || !community?.slug) return skip("connector_inactive");
+
+    // One run per author at a time: two concurrent runs over the same post would each insert its link.
+    const running = await ctx.db.query("discordIntakeRuns").withIndex("by_connectorId_authorId_state", q => q.eq("connectorId", connector._id).eq("authorId", run.authorId).eq("state", "running")).first();
+    if (running && (running.startedAt ?? 0) > now - RUNNING_LEASE_MS) {
+      await cancelPendingSchedule(ctx.db, ctx.scheduler, run.scheduledFunctionId);
+      const scheduledFunctionId = await ctx.scheduler.runAfter(quietWindowMs(connector), internal.discordIntakeRun.runPending, { runId });
+      await ctx.db.patch(runId, { scheduledFunctionId });
+      return { kind: "skip" as const, reason: "deferred" as const };
+    }
+
     const pause = (lastError: "authority_lost" | "binding_cap") => ctx.db.patch(connector._id, { state: "paused", lastError, updatedAt: now });
 
     try {
@@ -231,7 +243,7 @@ export const finishRun = internalMutation({
       for (const messageId of run.triggerMessageIds) {
         const existing = await ctx.db.query("discordIntakeSources").withIndex("by_connectorId_messageId", q => q.eq("connectorId", connector._id).eq("messageId", messageId)).first();
         if (existing) await ctx.db.patch(existing._id, values);
-        else await ctx.db.insert("discordIntakeSources", { connectorId: connector._id, messageId, ...values, createdAt: now });
+        else await ctx.db.insert("discordIntakeSources", { connectorId: connector._id, messageId, externalId, ...values, createdAt: now });
       }
     }
     if (result.outcome === "not_event" && await ctx.db.get(args.draftId)) await ctx.db.patch(args.draftId, { expiresAt: now });
@@ -253,7 +265,8 @@ export const failRun = internalMutation({
     const now = Date.now();
     const run = await ctx.db.get(runId);
     if (!run || run.state === "done" || run.state === "failed") return null;
-    await ctx.db.patch(runId, { state: "failed", reason, finishedAt: now });
+    // A run that failed before its claim still ranks in the alarm's window of recently started runs.
+    await ctx.db.patch(runId, { state: "failed", reason, startedAt: run.startedAt ?? now, finishedAt: now });
     if (run.draftId && await ctx.db.get(run.draftId)) await ctx.db.patch(run.draftId, { expiresAt: now });
     const latest = await ctx.db.query("discordIntakeRuns").withIndex("by_connectorId_startedAt", q => q.eq("connectorId", run.connectorId)).order("desc").take(3);
     if (latest.length === 3 && latest.every(row => row.state === "failed")) {

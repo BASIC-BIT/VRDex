@@ -1242,6 +1242,8 @@ export default defineSchema({
     .index("by_connectorId_startedAt", ["connectorId", "startedAt"]),
   discordIntakeSources: defineTable({
     connectorId: v.id("eventConnectors"), messageId: v.string(), eventId: v.optional(v.id("events")),
+    // The sync link's external ID this post resolved to; later runs that include the post reuse it.
+    externalId: v.string(),
     draftId: v.optional(v.id("eventIntakeDrafts")), runId: v.id("discordIntakeRuns"), createdAt: v.number(),
   }).index("by_connectorId_messageId", ["connectorId", "messageId"])
     .index("by_eventId", ["eventId"]),

@@ -65,14 +65,14 @@ export function pickPosterAttachments(messages: Doc<"discordIntakeMessages">[]):
 
 /**
  * The sync link a run applies through. A Discord announcement's external ID is the first trigger message of the run that
- * created it, so a run whose trigger messages already have source rows reuses that older run's external ID.
+ * created it; every source row stores the external ID it resolved to, so a run whose trigger messages already have source
+ * rows reuses it however later runs regroup the posts.
  */
 export async function findRunLink(db: DatabaseReader, connectorId: Id<"eventConnectors">, triggerMessageIds: string[]) {
   const sources = (await Promise.all(triggerMessageIds.map(messageId =>
     db.query("discordIntakeSources").withIndex("by_connectorId_messageId", q => q.eq("connectorId", connectorId).eq("messageId", messageId)).first())))
     .filter(row => row !== null);
-  const origin = sources.length ? await db.get(sources[0].runId) : null;
-  const externalId = origin?.triggerMessageIds[0] ?? triggerMessageIds[0];
+  const externalId = sources[0]?.externalId ?? triggerMessageIds[0];
   const link = await db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connectorId).eq("externalId", externalId)).unique();
   const priorEvents: Array<{ sourceMessageId: string; eventSlug: string }> = [];
   for (const row of sources) {
