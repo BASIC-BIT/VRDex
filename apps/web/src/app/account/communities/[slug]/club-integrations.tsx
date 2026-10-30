@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs } from "convex/server";
 import { api } from "@convex-generated-api";
@@ -10,6 +10,7 @@ import { Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
 import { ClubAccessNotice, useClubWorkspace } from "./club-workspace";
+import { DiscordBoardConnect } from "./discord-board-connect";
 import {
   connectorTargetName,
   directionOptions,
@@ -110,11 +111,14 @@ export function ClubIntegrationsView({
   onUpdate,
   onRemove,
   now,
+  connect,
 }: {
   connectors: readonly Connector[];
   onUpdate: (connectorId: ConnectorId, patch: ConnectorPatch) => Promise<unknown>;
   onRemove: (connectorId: ConnectorId) => Promise<unknown>;
   now: number;
+  /** Connect controls; the page passes its Convex-backed ones. */
+  connect?: ReactNode;
 }) {
   const [failed, setFailed] = useState(false);
   const run = (action: () => Promise<unknown>) => {
@@ -126,6 +130,7 @@ export function ClubIntegrationsView({
   return (
     <div className="grid gap-6">
       <h1 className="text-3xl font-semibold tracking-tight">Integrations</h1>
+      {connect}
       {failed ? (
         <Notice variant="error" role="alert">
           Try again.
@@ -168,6 +173,7 @@ function ConnectedIntegrations({ communityProfileId }: { communityProfileId: Id<
       now={now}
       onUpdate={(connectorId, patch) => update({ connectorId, ...patch })}
       onRemove={(connectorId) => remove({ connectorId })}
+      connect={<DiscordBoardConnect communityProfileId={communityProfileId} />}
     />
   );
 }

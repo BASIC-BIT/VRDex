@@ -1,15 +1,17 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type ActionCtx } from "../_generated/server";
+import { action, internalMutation, internalQuery, query, type ActionCtx } from "../_generated/server";
+import { requireActiveBrowserSessionSubject } from "../_browserSessionAuthority";
 import { discordRequest } from "../_discordRest";
 import { createDiscordTimestampSet } from "../_discordTimestamps";
-import { DISCORD_ID } from "../_eventConnectors";
+import { DISCORD_ID, requireConnectorAuthority } from "../_eventConnectors";
 import { cleanPublicText, formatDiscordLineupLines } from "../_eventDiscordExport";
 import { eventPathForSlugs } from "../_eventPaths";
 import { getPublicEventBySlug, type PublicEvent } from "../_eventPublic";
 import { dateOnlyEventsEnabled, eventSortAt, eventSortEndAt } from "../_eventSchedule";
 import { enqueueSyncJob } from "../_eventSync";
+import { MINIMUM_COMMUNITY_CONTROL_LEVEL, requireControlProof } from "../_externalControl";
 import { firstSafePublicImageUrl } from "../_publicFields";
 import type { SyncKindHandler } from "./types";
 
@@ -116,6 +118,40 @@ type BoardEvent = { projection: PublicEventProjection | null; status: "scheduled
 export function boardEnabled(): boolean {
   return process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED === "true";
 }
+
+export const isEnabled = query({ args: {}, handler: async (): Promise<boolean> => boardEnabled() });
+
+/** The signed-in staffer manages the community's integrations and has proved control of the guild. */
+export const authorizeBoardTarget = internalQuery({
+  args: { communityProfileId: v.id("profiles"), guildId: v.string() },
+  handler: async (ctx, { communityProfileId, guildId }): Promise<void> => {
+    if (!DISCORD_ID.test(guildId)) throw new ConvexError({ code: "BOARD_TARGET_INVALID" });
+    const { userId } = await requireActiveBrowserSessionSubject(ctx);
+    await requireConnectorAuthority(ctx, communityProfileId, userId);
+    await requireControlProof(ctx.db, userId, "discord_guild", guildId, MINIMUM_COMMUNITY_CONTROL_LEVEL);
+  },
+});
+
+const BOARD_CHANNEL_TYPES = new Set([0, 5]); // text, announcement
+
+/** The guild's text and announcement channels, in Discord's order, for the board picker. */
+export const listBoardChannels = action({
+  args: { communityProfileId: v.id("profiles"), guildId: v.string() },
+  handler: async (ctx, args): Promise<Array<{ id: string; name: string }>> => {
+    if (!boardEnabled()) throw new ConvexError({ code: "CONNECTOR_KIND_DISABLED" });
+    if (!DISCORD_ID.test(args.guildId)) throw new ConvexError({ code: "BOARD_TARGET_INVALID" });
+    await ctx.runQuery(internal.eventSyncKinds.discordBoard.authorizeBoardTarget, args);
+    const response = await discordRequest({ method: "GET", path: `/guilds/${args.guildId}/channels` });
+    if (!response.ok) throw new ConvexError({ code: `discord_${response.status}` });
+    const rows = (await response.json()) as unknown;
+    if (!Array.isArray(rows)) throw new ConvexError({ code: "discord_bad_response" });
+    return rows
+      .filter((row): row is { id: string; name: string; type: number; position?: number } =>
+        typeof row?.id === "string" && DISCORD_ID.test(row.id) && typeof row.name === "string" && BOARD_CHANNEL_TYPES.has(row.type))
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      .map(({ id, name }) => ({ id, name }));
+  },
+});
 
 /** The board message a link points at; `none:` ids and non-linked rows mean there is none. */
 export function liveMessageId(link: Doc<"eventSyncLinks"> | null): string | null {

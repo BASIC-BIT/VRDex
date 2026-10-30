@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, it, type TestContext } from "node:test";
 import { convexTest } from "convex-test";
-import { internal } from "../../convex/_generated/api";
+import { api, internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
 
@@ -230,4 +230,42 @@ it("the daily cron enqueues one refresh per active export board", async () => {
   const off = convexTest({ schema, modules });
   await seed(off, []);
   assert.equal(await off.mutation(internal.eventSyncKinds.discordBoard.enqueueBoardRefreshes, {}), 0);
+});
+
+// The seeded staff authority, signed in, optionally with a Discord proof for GUILD.
+async function staffer(t: ReturnType<typeof convexTest>, proved: boolean) {
+  const s = await seed(t, []);
+  if (proved) await t.run((ctx) => ctx.db.insert("externalControlProofs", { userId: s.userId, assetType: "discord_guild", assetExternalId: GUILD, controlLevel: "manager", state: "active", evidenceSource: "discord_oauth", verifiedAt: s.now, revalidateAfter: s.now + DAY, createdAt: s.now, updatedAt: s.now }));
+  return { s, as: t.withIdentity({ ...staff, email: "staff@example.test", emailVerified: true }) };
+}
+
+it("lists only text and announcement channels of a proved guild", async (test) => {
+  const calls = fakeDiscord(test, (call) => call.path === `/guilds/${GUILD}/channels` ? Response.json([
+    { id: "200000000000000001", name: "general", type: 0, position: 2 },
+    { id: "200000000000000002", name: "Voice", type: 2, position: 0 },
+    { id: "200000000000000003", name: "Events", type: 4, position: 1 },
+    { id: "200000000000000004", name: "announcements", type: 5, position: 1 },
+  ]) : undefined);
+  const t = convexTest({ schema, modules });
+  const { s, as } = await staffer(t, true);
+  assert.deepEqual(await as.action(api.eventSyncKinds.discordBoard.listBoardChannels, { communityProfileId: s.communityProfileId, guildId: GUILD }), [
+    { id: "200000000000000004", name: "announcements" },
+    { id: "200000000000000001", name: "general" },
+  ]);
+  assert.deepEqual(said(calls), [`GET /guilds/${GUILD}/channels`]);
+});
+
+it("refuses to list channels of a guild the staffer has not proved", async (test) => {
+  const calls = fakeDiscord(test);
+  const t = convexTest({ schema, modules });
+  const { s, as } = await staffer(t, false);
+  await assert.rejects(as.action(api.eventSyncKinds.discordBoard.listBoardChannels, { communityProfileId: s.communityProfileId, guildId: GUILD }), /CONTROL_NOT_VERIFIED/);
+  assert.deepEqual(calls, []);
+});
+
+it("reports whether the board is enabled", async () => {
+  const t = convexTest({ schema, modules });
+  assert.equal(await t.query(api.eventSyncKinds.discordBoard.isEnabled, {}), true);
+  delete process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED;
+  assert.equal(await t.query(api.eventSyncKinds.discordBoard.isEnabled, {}), false);
 });
