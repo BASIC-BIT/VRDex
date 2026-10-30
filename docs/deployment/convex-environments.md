@@ -22,7 +22,8 @@ origin. It accepts explicit image bytes, never a path or remote source URL, and
 refuses redirects or an origin mismatch.
 
 `OPENAI_API_KEY`, `VRDEX_EVENT_INTAKE_AI_ENABLED`, and `VRDEX_EVENT_INTAKE_MODEL`
-settings belong to the web server; spam settings belong to Convex. Both model
+settings belong to the web server, and to Convex for Discord intake runs; spam
+settings belong to Convex. Both model
 paths remain off by default. The private cleanup worker needs its existing
 `VRDEX_MEDIA_CLEANUP_TOKEN` on both ends. Exact defaults, ownership, retention,
 and secret recreation are documented in
@@ -156,6 +157,24 @@ Manager entry. With the flag on and no secret set, every route answers 401.
 Rotation: set the new value on Convex and on the gateway in one window. Relays
 fail with 401 between the two writes, and the gateway does not retry those
 posts.
+
+`VRDEX_DISCORD_POSTER_TOKEN` is the bearer token intake runs present to the web
+app's internal poster bridge, `POST /api/internal/discord-intake/poster`, which
+copies Discord attachments into private poster storage (secret). Only the web
+server holds the bucket role. Scope: the Convex deployment environment and the
+web app (Vercel Terraform variable `discord_poster_token` in
+`infra/terraform/vercel`). Owner: BASIC. Value: at least 32 random bytes,
+generated with `openssl rand -base64 32`. Unset on either side, runs store no
+posters and continue with the post text. Rotation: write the new value to the
+web app first, then to Convex; runs in between store no posters and continue
+text-only.
+
+Runs reuse `SITE_URL` as the poster bridge origin. They also read
+`OPENAI_API_KEY`, `VRDEX_EVENT_INTAKE_AI_ENABLED`, and
+`VRDEX_EVENT_INTAKE_MODEL` from the Convex deployment, so set those on Convex as
+well as the web app before turning Discord intake on, plus the Langfuse
+variables above when runs should be traced. With extraction off, every run
+fails with `extraction_unavailable`.
 
 ## Locked Decision
 

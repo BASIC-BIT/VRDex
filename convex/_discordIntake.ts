@@ -5,8 +5,9 @@ import { DISCORD_ID } from "./_eventConnectors";
 import { getLinkedProviderAccount } from "./accounts";
 import { EVENT_POSTER_MAX_BYTES, EventPosterDeclarationSchema } from "../packages/api-contracts/src/event-intake";
 
+export { isDiscordCdnUrl } from "../packages/api-contracts/src/event-intake";
+
 export const DISCORD_SNOWFLAKE = DISCORD_ID;
-export const DISCORD_CDN_HOSTS = ["cdn.discordapp.com", "media.discordapp.net"];
 
 export const discordAttachmentValidator = v.object({ url: v.string(), contentType: v.string(), byteLength: v.number() });
 
@@ -25,15 +26,6 @@ export const discordMessagePayloadValidator = v.object({
 /** Default 120 s, clamped to 30..600 s. */
 export function quietWindowMs(connector: Doc<"eventConnectors">): number {
   return Math.min(600, Math.max(30, connector.quietWindowSeconds ?? 120)) * 1000;
-}
-
-export function isDiscordCdnUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" && DISCORD_CDN_HOSTS.includes(parsed.hostname);
-  } catch {
-    return false;
-  }
 }
 
 /** The VRDex user behind a Discord ID, only when exactly one user completed verification of it and it is still their current Discord identity. */

@@ -1149,7 +1149,8 @@ export default defineSchema({
     uploadedAt: v.number(), expiresAt: v.number(), uploadExpiresAt: v.number(), lastActivityAt: v.number(),
     holdReportId: v.optional(v.id("eventReports")), cleanupToken: v.optional(v.string()),
     cleanupLeaseUntil: v.optional(v.number()), expiredAt: v.optional(v.number()), eventId: v.optional(v.id("events")),
-  }).index("by_actor_state", ["actorUserId", "state"])
+    connectorId: v.optional(v.id("eventConnectors")),
+  }).index("by_actor_connector_state", ["actorUserId", "connectorId", "state"])
     .index("by_draft", ["draftId"]).index("by_draft_state", ["draftId", "state"]).index("by_state_expiresAt", ["state", "expiresAt"]),
   eventPosterArtwork: defineTable({
     actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"), sourceId: v.id("eventPosterSources"),

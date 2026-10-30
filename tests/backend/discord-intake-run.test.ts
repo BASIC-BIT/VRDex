@@ -356,3 +356,71 @@ it("alerts ops once after three failed runs, counting one that failed before its
   assert.ok((await t.run(ctx => ctx.db.get(draftId)))!.expiresAt <= Date.now());
   assert.ok((await sends()).some(send => send.subject.startsWith("[VRDex ops] Resolved: discord-intake:")));
 });
+
+const AI_ENV = ["VRDEX_EVENT_INTAKE_AI_ENABLED", "OPENAI_API_KEY", "SITE_URL", "VRDEX_DISCORD_POSTER_TOKEN", "LANGFUSE_PUBLIC_KEY"] as const;
+/** Turns the model on with a scripted fetch; restores fetch and env afterwards. */
+async function withModel(fetchImplementation: typeof fetch, body: () => Promise<void>) {
+  const saved = Object.fromEntries(AI_ENV.map(key => [key, process.env[key]]));
+  const realFetch = globalThis.fetch;
+  Object.assign(process.env, { VRDEX_EVENT_INTAKE_AI_ENABLED: "true", OPENAI_API_KEY: "sk-test", SITE_URL: "https://vrdex.test", VRDEX_DISCORD_POSTER_TOKEN: "p".repeat(40) });
+  delete process.env.LANGFUSE_PUBLIC_KEY;
+  globalThis.fetch = fetchImplementation;
+  try { await body(); }
+  finally {
+    globalThis.fetch = realFetch;
+    for (const key of AI_ENV) if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key];
+  }
+}
+
+it("closes the run even when extraction fails", async () => {
+  const { t } = await seedDiscordIntake();
+  await withModel(async () => { throw new Error("network down"); }, async () => {
+    await record(t, "create", message(M1, { attachments: [{ url: "https://cdn.discordapp.com/attachments/1/2/f.png", contentType: "image/png", byteLength: 10 }] }));
+    const runId = (await pendingRun(t))._id;
+    await t.action(internal.discordIntakeRun.runPending, { runId });
+    const run = await getRun(t, runId);
+    assert.equal(run.state, "failed");
+    assert.ok(run.finishedAt);
+  });
+});
+
+it("runs the agent through list_events and get_event and applies with the updatedAt get_event saw", async () => {
+  const { t, connectorId, communityProfileId } = await seedDiscordIntake({ mode: "autopublish" });
+  const eventId = await seedEvent(t, communityProfileId, { slug: "night-at-ari", venueLabel: "Main Hall" });
+  await linkEvent(t, connectorId, eventId, M1);
+  await record(t, "update", message(M1, { createdAt: Date.now() - 10_000, content: "now 22:00", editedAt: Date.now() }));
+  const runId = (await pendingRun(t))._id;
+  const call = (name: string, args: unknown) => ({ type: "function_call", name, arguments: JSON.stringify(args), call_id: name });
+  const answer = { ...candidate({ kind: "update", slug: "night-at-ari" }), event: { ...candidate({}).event, communitySlug: null } };
+  const turns = [
+    () => [call("list_events", { limit: 10 })],
+    () => [call("get_event", { slug: "night-at-ari" })],
+    async () => {
+      // Staff edit the event after the agent read it.
+      await t.run(ctx => ctx.db.patch(eventId, { venueLabel: "Staff Room", updatedAt: Date.now() + 1 }));
+      return [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(answer) }] }];
+    },
+  ];
+  await withModel(async url => {
+    assert.equal(String(url), "https://api.openai.com/v1/responses");
+    return Response.json({ status: "completed", output: await turns.shift()!(), usage: { input_tokens: 1, output_tokens: 1 } });
+  }, () => t.action(internal.discordIntakeRun.runPending, { runId }));
+  const run = await getRun(t, runId);
+  assert.equal(run.state, "done");
+  assert.equal(run.reason, "conflict");
+  assert.equal((await t.run(ctx => ctx.db.get(eventId)))!.venueLabel, "Staff Room");
+  const runEvents = (await t.run(ctx => ctx.db.query("productAnalyticsOutbox").collect())).filter(row => row.event === "event_intake_run");
+  assert.deepEqual(runEvents.map(row => [row.properties.trigger, row.properties.reason]), [["discord", "success"]]);
+});
+
+it("keeps connector posters out of the authority's own poster quota", async () => {
+  const { t, authorityUserId, connectorId } = await seedDiscordIntake();
+  const draft = (extra: object) => t.run(ctx => ctx.db.insert("eventIntakeDrafts", { actorUserId: authorityUserId, version: 1, fields: {}, provenance: [], createdAt: Date.now(), updatedAt: Date.now(), expiresAt: Date.now() + 86_400_000, ...extra }));
+  const own = await draft({});
+  const connectorDraft = await draft({ connectorId });
+  const begin = (draftId: Id<"eventIntakeDrafts">) => t.mutation(internal.eventIntakeSources.beginPosterUpload, { actorUserId: authorityUserId, draftId, contentType: "image/png", byteLength: 128, sha256: "a".repeat(64) });
+  for (let index = 0; index < 20; index++) await begin(connectorDraft);
+  for (let index = 0; index < 20; index++) await begin(own);
+  await assert.rejects(begin(own), /POSTER_QUOTA/);
+  await begin(connectorDraft);
+});

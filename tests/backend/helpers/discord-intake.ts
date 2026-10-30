@@ -21,6 +21,7 @@ export const modules = {
   "../../convex/discordIntake.ts": () => import("../../../convex/discordIntake"),
   "../../convex/discordIntakeRun.ts": () => import("../../../convex/discordIntakeRun"),
   "../../convex/http.ts": () => import("../../../convex/http"),
+  "../../convex/productAnalytics.ts": () => import("../../../convex/productAnalytics"),
 };
 
 /** A published public community with no staff grants. */

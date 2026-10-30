@@ -113,6 +113,14 @@ variable "langfuse_base_url" {
   nullable    = true
 }
 
+variable "discord_poster_token" {
+  description = "Optional server-only bearer token Convex Discord intake runs present to the web poster bridge. Must equal VRDEX_DISCORD_POSTER_TOKEN on the Convex deployment."
+  type        = string
+  sensitive   = true
+  default     = null
+  nullable    = true
+}
+
 # Clerk instances are per-environment, so unlike the Twitch credentials these
 # cannot be one pair applied to every target: production must carry a `pk_live_`
 # key, which `apps/web/scripts/check-vercel-env.mjs` enforces at build time, and

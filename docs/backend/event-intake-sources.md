@@ -18,8 +18,17 @@ with the existing profile image validator. Its 8192-pixel source dimension and
 key. Digest-checked bytes are copied to a distinct immutable key before completion.
 The signer constrains exact bytes, MIME, and private cache controls. The source
 record reserves both copies before signing, with 20 active sources and 120 MiB
-of reserved private bytes per actor. Failed signing/completion leaves a cleanup
-obligation. Expired transfer capabilities cannot complete.
+of reserved private bytes per actor. Sources on a connector's draft neither count
+toward nor are capped by that quota; the connector's daily run cap bounds them.
+Failed signing/completion leaves a cleanup obligation. Expired transfer
+capabilities cannot complete.
+
+Discord intake runs reach the bucket through the token-gated web route
+`/api/internal/discord-intake/poster`. Its store step downloads a Discord CDN
+attachment and follows the same upload, freeze, and validate path. Its read step
+writes the prepared poster to a new key under `profile-assets/quarantine/`, which
+the bucket lifecycle expires after two days, and returns a 60-second signed GET
+link, because a prepared poster can exceed the web host's 4.5 MB response cap.
 
 Keys live under `profile-assets/event-posters/`, within the existing Terraform
 S3 role prefix. S3 block-public-access remains required. Private reads require the
