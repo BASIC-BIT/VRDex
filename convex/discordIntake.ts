@@ -149,8 +149,14 @@ export const claimRun = internalMutation({
     if (!connectorsEnabled() || !connector || connector.state !== "active" || connector.direction === "off" || !community?.slug) return skip("connector_inactive");
 
     // One run per author at a time: two concurrent runs over the same post would each insert its link.
-    const running = await ctx.db.query("discordIntakeRuns").withIndex("by_connectorId_authorId_state", q => q.eq("connectorId", connector._id).eq("authorId", run.authorId).eq("state", "running")).first();
-    if (running && (running.startedAt ?? 0) > now - RUNNING_LEASE_MS) {
+    // A running row past its lease belongs to an action that died without failRun; close it so it reaches the alarm.
+    const running = await ctx.db.query("discordIntakeRuns").withIndex("by_connectorId_authorId_state", q => q.eq("connectorId", connector._id).eq("authorId", run.authorId).eq("state", "running")).collect();
+    let live = false;
+    for (const row of running) {
+      if ((row.startedAt ?? 0) > now - RUNNING_LEASE_MS) live = true;
+      else await closeFailedRun(ctx, row, "stalled", now);
+    }
+    if (live) {
       await cancelPendingSchedule(ctx.db, ctx.scheduler, run.scheduledFunctionId);
       const scheduledFunctionId = await ctx.scheduler.runAfter(quietWindowMs(connector), internal.discordIntakeRun.runPending, { runId });
       await ctx.db.patch(runId, { scheduledFunctionId });
@@ -262,23 +268,26 @@ export const failRun = internalMutation({
   args: { runId: v.id("discordIntakeRuns"), reason: v.string() },
   returns: v.null(),
   handler: async (ctx, { runId, reason }) => {
-    const now = Date.now();
     const run = await ctx.db.get(runId);
     if (!run || run.state === "done" || run.state === "failed") return null;
-    // A run that failed before its claim still ranks in the alarm's window of recently started runs.
-    await ctx.db.patch(runId, { state: "failed", reason, startedAt: run.startedAt ?? now, finishedAt: now });
-    if (run.draftId && await ctx.db.get(run.draftId)) await ctx.db.patch(run.draftId, { expiresAt: now });
-    const latest = await ctx.db.query("discordIntakeRuns").withIndex("by_connectorId_startedAt", q => q.eq("connectorId", run.connectorId)).order("desc").take(3);
-    if (latest.length === 3 && latest.every(row => row.state === "failed")) {
-      const connector = await ctx.db.get(run.connectorId);
-      await notifyOps(ctx, {
-        key: opsKey(run.connectorId), subject: "Discord intake runs failing",
-        body: `Discord intake connector ${run.connectorId} (community ${connector?.communityProfileId}) failed its last 3 runs: ${latest.map(row => row.reason).join(", ")}.`,
-      });
-    }
+    await closeFailedRun(ctx, run, reason, Date.now());
     return null;
   },
 });
+
+async function closeFailedRun(ctx: MutationCtx, run: Doc<"discordIntakeRuns">, reason: string, now: number) {
+  // A run that failed before its claim still ranks in the alarm's window of recently started runs.
+  await ctx.db.patch(run._id, { state: "failed", reason, startedAt: run.startedAt ?? now, finishedAt: now });
+  if (run.draftId && await ctx.db.get(run.draftId)) await ctx.db.patch(run.draftId, { expiresAt: now });
+  const latest = await ctx.db.query("discordIntakeRuns").withIndex("by_connectorId_startedAt", q => q.eq("connectorId", run.connectorId)).order("desc").take(3);
+  if (latest.length === 3 && latest.every(row => row.state === "failed")) {
+    const connector = await ctx.db.get(run.connectorId);
+    await notifyOps(ctx, {
+      key: opsKey(run.connectorId), subject: "Discord intake runs failing",
+      body: `Discord intake connector ${run.connectorId} (community ${connector?.communityProfileId}) failed its last 3 runs: ${latest.map(row => row.reason).join(", ")}.`,
+    });
+  }
+}
 
 /** Reopens a connector the daily run cap paused; any other pause stays. */
 export const resumeConnector = internalMutation({

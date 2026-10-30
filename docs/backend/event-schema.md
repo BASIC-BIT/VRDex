@@ -306,7 +306,7 @@ Each post restarts its author's quiet window: the connector's `quietWindowSecond
 `claimRun` starts a run, or closes it `done` with a skip reason:
 
 - `connector_inactive`: `VRDEX_EVENT_CONNECTORS_ENABLED` is off, or the connector is not `active`, is `off`, or lost its community. A run that is no longer `pending` is left as it is.
-- `deferred`: another run of the same author on the connector is still `running` (started within the last 15 minutes). The run stays `pending` and is rescheduled one quiet window later; new posts from the author keep joining it.
+- `deferred`: another run of the same author on the connector is still `running` (started within the last 15 minutes). The run stays `pending` and is rescheduled one quiet window later; new posts from the author keep joining it. A `running` run of that author older than 15 minutes is closed `failed` with reason `stalled`, as `failRun` would, so it reaches the ops alarm.
 - `authority_lost`: the authority user lost `manage_integrations`; the connector pauses with that `lastError`.
 - `binding_cap`: the connector already started 20 runs this UTC day; it pauses with that `lastError` and `resumeConnector` reopens it at the next UTC midnight if it is still paused for that reason.
 - `source_deleted`: every trigger post was deleted. For each event those posts fed, when every `discordIntakeSources` row of that event points at a deleted post, the connector's link for the event becomes `external_deleted`. The event itself is never touched.

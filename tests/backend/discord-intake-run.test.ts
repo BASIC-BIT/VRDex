@@ -303,6 +303,27 @@ it("defers an author's next run while their previous run is still running", asyn
   assert.equal((await t.mutation(internal.discordIntake.claimRun, { runId: second._id })).kind, "run");
 });
 
+it("closes a stalled running run and still defers behind a live one", async () => {
+  const { t, connectorId } = await seedDiscordIntake();
+  await record(t, "create", message(M1));
+  const stale = (await pendingRun(t))._id;
+  await t.mutation(internal.discordIntake.claimRun, { runId: stale });
+  const draftId = await t.mutation(internal.discordIntake.saveRunDraft, { runId: stale, sourceText: "Ari: Friday", sourceUrl: "https://discord.com/channels/x" });
+  // The stale row is the older one, so it is what an index scan for running rows meets first.
+  const live = await t.run(async ctx => {
+    await ctx.db.patch(stale, { startedAt: Date.now() - 20 * 60_000 });
+    return ctx.db.insert("discordIntakeRuns", { connectorId, authorId: "200000000000000001", triggerMessageIds: [], state: "running", startedAt: Date.now(), createdAt: Date.now() });
+  });
+  await record(t, "create", message(M2));
+  const next = (await pendingRun(t))._id;
+  assert.deepEqual(await t.mutation(internal.discordIntake.claimRun, { runId: next }), { kind: "skip", reason: "deferred" });
+  const closed = await getRun(t, stale);
+  assert.equal(closed.state, "failed"); assert.equal(closed.reason, "stalled"); assert.ok(closed.finishedAt);
+  assert.ok((await t.run(ctx => ctx.db.get(draftId)))!.expiresAt <= Date.now());
+  assert.equal((await getRun(t, live)).state, "running");
+  assert.equal((await getRun(t, next)).state, "pending");
+});
+
 it("alerts ops once after three failed runs, counting one that failed before its claim, and resolves on the next finished run", async () => {
   const { t, connectorId } = await seedDiscordIntake();
   // An older finished run: the failure without a claim must still rank among the three most recent.
