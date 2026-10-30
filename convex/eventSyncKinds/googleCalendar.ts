@@ -5,7 +5,7 @@ import {
   deleteEvent, GoogleApiError, googleTarget, insertEvent, listEvents, patchEvent, requireGoogleCalendarEnabled, withGoogleToken,
   type GoogleCalendarEvent, type GoogleEventBody, type GoogleEventDateTime,
 } from "../_googleCalendar";
-import { resolveEventLocalTime, type EventIntakeFields, type EventIntakeLocalTime } from "../../packages/api-contracts/src/event-intake";
+import { EventIntakeLocalTimeSchema, resolveEventLocalTime, type EventIntakeFields, type EventIntakeLocalTime } from "../../packages/api-contracts/src/event-intake";
 import type { SyncKindHandler } from "./types";
 
 const DAY_MS = 86_400_000;
@@ -85,11 +85,62 @@ export function fieldsFromGoogleEvent(item: GoogleCalendarEvent, calendarTimeZon
   return { ...fields, eventDate, timeTba: false, timezone, start: localTime(startAt, eventDate, timezone), end };
 }
 
+// Past items, recurring instances more than 60 days out, and spans past the intake's day range never import; "today" is in the item's zone.
+export function outsideImportWindow(item: GoogleCalendarEvent, fields: EventIntakeFields, calendarTimeZone: string): boolean {
+  if (!fields.eventDate) return true;
+  const today = eventDateForInstant(Date.now(), fields.timezone ?? calendarTimeZone);
+  if (fields.eventDate < today || (item.recurringEventId && fields.eventDate > addDays(today, 60))) return true;
+  return [fields.start, fields.end].some(time => time && !EventIntakeLocalTimeSchema.safeParse(time).success);
+}
+
+// Every page of one list; the last page carries the sync token.
+async function listAll(token: string, calendarId: string, params: { syncToken?: string; timeMin?: string; timeMax?: string }) {
+  const items: GoogleCalendarEvent[] = [];
+  let pageToken: string | undefined;
+  let page: Awaited<ReturnType<typeof listEvents>>;
+  do {
+    page = await listEvents(token, calendarId, { ...params, pageToken });
+    items.push(...page.items);
+    pageToken = page.nextPageToken;
+  } while (pageToken);
+  return { items, nextSyncToken: page.nextSyncToken, timeZone: page.timeZone };
+}
+
 export const googleCalendarHandler: SyncKindHandler = {
+  async importItem(ctx, connector, payload) {
+    requireGoogleCalendarEnabled();
+    const { item, calendarTimeZone } = payload as { item: GoogleCalendarEvent; calendarTimeZone: string };
+    await ctx.runMutation(internal.googleCalendarConnector.applyImport, { connectorId: connector._id, item, calendarTimeZone });
+  },
+
   async importPoll(ctx, connector) {
     requireGoogleCalendarEnabled();
     const { credentialId, calendarId } = googleTarget(connector);
-    await withGoogleToken(ctx, credentialId, token => listEvents(token, calendarId, {}));
+    const { syncToken } = connector.target;
+    const list = await withGoogleToken(ctx, credentialId, async token => {
+      try {
+        return await listAll(token, calendarId, { syncToken });
+      } catch (error) {
+        if (!(syncToken && error instanceof GoogleApiError && error.status === 410)) throw error;
+      }
+      // Google forbids timeMin and timeMax alongside a sync token, so the list that seeds the next one has no bounds either.
+      // ponytail: full resync pages the whole calendar in one action; split by page into jobs if a calendar outgrows the action time limit.
+      return await listAll(token, calendarId, {});
+    });
+    for (const item of list.items) {
+      // A full list holds the calendar's whole past; skip it here instead of one mutation per old item.
+      if (item.status !== "cancelled" && outsideImportWindow(item, fieldsFromGoogleEvent(item, list.timeZone, ""), list.timeZone)) continue;
+      await ctx.runMutation(internal.googleCalendarConnector.applyImport, { connectorId: connector._id, item, calendarTimeZone: list.timeZone });
+    }
+    await ctx.runMutation(internal.googleCalendarConnector.patchGoogleTarget, { connectorId: connector._id, target: { syncToken: list.nextSyncToken }, syncedAt: Date.now() });
+  },
+
+  async reconcile(ctx, connector) {
+    requireGoogleCalendarEnabled();
+    const { credentialId, calendarId } = googleTarget(connector);
+    const today = new Date(Date.now()).toISOString().slice(0, 10);
+    const list = await withGoogleToken(ctx, credentialId, token => listAll(token, calendarId, { timeMin: `${today}T00:00:00Z`, timeMax: `${addDays(today, 90)}T00:00:00Z` }));
+    await ctx.runMutation(internal.googleCalendarConnector.reconcileItems, { connectorId: connector._id, items: list.items, calendarTimeZone: list.timeZone });
   },
 
   async exportUpsert(ctx, connector, event, link) {

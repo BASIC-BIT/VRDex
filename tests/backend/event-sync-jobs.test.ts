@@ -142,7 +142,7 @@ it("reconcile enqueues exports for unlinked upcoming events even without a kind 
   const linked = await f.createEvent({ title: "Linked", startAt: Date.now() + 5 * 86_400_000 });
   const past = await f.createEvent({ title: "Past", startAt: Date.now() - 3 * 86_400_000 });
   const far = await f.createEvent({ title: "Far", startAt: Date.now() + 120 * 86_400_000 });
-  const connectorId = await f.insertConnector({ direction: "export" });
+  const connectorId = await f.insertConnector({ direction: "export", kind: "notion" });
   await f.t.run(ctx => ctx.db.insert("eventSyncLinks", { connectorId, eventId: linked.eventId, externalId: "g-1", state: "linked", createdAt: Date.now(), updatedAt: Date.now() }));
   const jobId = await f.t.run(ctx => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId, kind: "reconcile" }));
   await f.t.action(run, { jobId });
