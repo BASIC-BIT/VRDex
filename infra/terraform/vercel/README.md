@@ -37,6 +37,8 @@ Store the result in the ignored `terraform.tfvars`. Rotate it by updating that
 value and applying this stack. Rotation invalidates outstanding idempotency
 comparisons but does not expose prior input.
 
+CI reads this key from the `TERRAFORM_TEMPORAL_INPUT_HASH_KEY` repository secret. Without that secret the Terraform workflow skips Plan and Apply for this stack and the job still reports success, so after changing this stack confirm that the Plan and Apply steps ran on main. The first apply ran on 2026-10-30; anything set by hand on Vercel before that stays outside this stack unless it is imported.
+
 The Twitch values are server-only credentials for an app owned by the VRDex operator. Rotate the secret in the Twitch developer console, update the ignored `terraform.tfvars`, and apply this stack. Omitting either Terraform input leaves both Twitch environment variables unmanaged and the UI simply omits provider-confirmed live state.
 
 The Google connector values are the Google Calendar connector's OAuth client, owned by the VRDex operator and also set on Convex. Bootstrap, redirect URIs, and rotation are in `docs/deployment/convex-environments.md`. The Terraform workflow supplies both from the `TERRAFORM_GOOGLE_CONNECTOR_CLIENT_ID` and `TERRAFORM_GOOGLE_CONNECTOR_CLIENT_SECRET` GitHub secrets, so a local apply must pass the same values or a run that omits them removes both from Vercel. Omitting either input leaves both unmanaged, and connecting a Google calendar fails.
