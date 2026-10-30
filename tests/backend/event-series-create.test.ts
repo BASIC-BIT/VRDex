@@ -72,12 +72,18 @@ it("reads a fifth weekday as the last weekday for Monthly", async (test) => {
 
 it("does not backfill before today when the source event is past", async (test) => {
   const { t, owner } = await setup(test);
-  test.mock.timers.setTime(Date.parse("2026-10-20T12:00:00Z")); // create the source while it is upcoming
-  const event = await createEvent(t, owner, { startAt: Date.parse("2026-10-24T00:00:00Z") }); // Friday 2026-10-23 20:00 EDT
+  test.mock.timers.setTime(Date.parse("2026-10-01T12:00:00Z")); // create the source while it is upcoming
+  const event = await createEvent(t, owner, { startAt: Date.parse("2026-10-10T00:00:00Z") }); // Friday 2026-10-09 20:00 EDT
+  // A past date-only night has no start time to stop adoption, so only starting from today keeps it standalone.
+  const pastDateOnly = await createEvent(t, owner, { startAt: Date.parse("2026-10-17T00:00:00Z") });
+  await t.run(ctx => ctx.db.patch(pastDateOnly.eventId, { startAt: undefined, scheduleKind: "date_only", eventDate: "2026-10-16" }));
   test.mock.timers.setTime(NOW);
   const { seriesId } = await t.withIdentity(owner.identity).mutation(api.eventSeries.create, { eventSlug: event.slug, repeat: { frequency: "weekly" } });
+  // EDT source, EST later nights: the rule keeps the wall-clock time.
+  assert.equal((await t.run(ctx => ctx.db.get(seriesId)))!.rule.startTime, "20:00");
   const dates = (await occurrences(t, seriesId)).map(e => e.occurrenceDate).sort();
-  assert.deepEqual(dates.slice(0, 2), ["2026-10-23", "2026-10-30"]);
+  assert.deepEqual(dates.slice(0, 2), ["2026-10-09", "2026-10-30"]);
+  assert.equal((await t.run(ctx => ctx.db.get(pastDateOnly.eventId)))!.seriesId, undefined);
 });
 
 it("rejects a weekday or ordinal that does not select the event's start day", async (test) => {
@@ -89,6 +95,13 @@ it("rejects a weekday or ordinal that does not select the event's start day", as
   await assert.rejects(create({ frequency: "monthly_weekday", ordinal: 2 }), /Repeat weekday must match the event's start day\./);
   const { seriesId } = await create({ frequency: "monthly_weekday", weekday: 5, ordinal: 1 });
   assert.deepEqual((await t.run(ctx => ctx.db.get(seriesId)))!.rule, { frequency: "monthly_weekday", weekday: 5, ordinal: 1, startTime: "20:00" });
+});
+
+it("accepts the last-weekday ordinal for a fourth weekday that is also the last", async (test) => {
+  const { t, owner } = await setup(test);
+  const event = await createEvent(t, owner, { startAt: Date.parse("2026-11-28T01:00:00Z") }); // Friday 2026-11-27 20:00 EST
+  const { seriesId } = await t.withIdentity(owner.identity).mutation(api.eventSeries.create, { eventSlug: event.slug, repeat: { frequency: "monthly_weekday", ordinal: -1 } });
+  assert.equal((await t.run(ctx => ctx.db.get(seriesId)))!.rule.ordinal, -1);
 });
 
 it("rejects a non-manager and a draft event", async (test) => {
