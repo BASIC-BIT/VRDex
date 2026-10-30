@@ -96,6 +96,15 @@ describe("browser auth-session authorization boundary", () => {
         ],
       ],
       [
+        // Board channel picker: the guarded internalQuery checks the session,
+        // connector authority, and guild control proof before the Discord GET.
+        "convex/eventSyncKinds/discordBoard.ts",
+        [
+          "internal.eventSyncKinds.discordBoard.authorizeBoardTarget",
+          "requireActiveBrowserSessionSubject(ctx)",
+        ],
+      ],
+      [
         "convex/eventIntake.ts",
         ["internal.eventIntake.currentIntakeActor", "requireUser(ctx)"],
       ],
