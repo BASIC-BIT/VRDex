@@ -1,0 +1,25 @@
+.actionStatus {
+  position: fixed;
+  z-index: 60;
+  top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100vw - 2rem);
+  padding: 0.625rem 1rem;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-control);
+  background: var(--surface-strong);
+  color: var(--warning-strong);
+  font-size: 0.875rem;
+  line-height: 1.4;
+  text-align: center;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .actionStatus {
+    top: calc(env(safe-area-inset-top, 0px) + 8rem);
+  }
+}

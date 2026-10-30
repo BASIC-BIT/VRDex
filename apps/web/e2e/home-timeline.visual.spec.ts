@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { test, TIMELINE_NOW } from "./home-timeline-fixture";
+import { initializeDiscovery, usableDiscovery } from "./home-discovery-fixture";
 import { prepareVisualPage, waitForVisualReady } from "./public-routes";
 
 async function capture(page: Page, name: string) {
@@ -15,6 +16,25 @@ async function capture(page: Page, name: string) {
     );
   });
   const panel = name === "details" || name === "dense";
+  if (!panel) {
+    const discover = await usableDiscovery(page);
+    await expect(
+      discover.getByRole("link", { name: "Open ORBIT Discovery", exact: true }),
+    ).toBeVisible();
+    await expect(
+      discover.getByRole("link", { name: "Open Tidal Discovery", exact: true }),
+    ).toBeVisible();
+    await discover.locator("img").evaluateAll(async (images) => {
+      await Promise.all(
+        images.map(async (image) => {
+          if (image instanceof HTMLImageElement) {
+            image.loading = "eager";
+            await image.decode();
+          }
+        }),
+      );
+    });
+  }
   await page.evaluate((panel) => {
     const schedule = document.querySelector<HTMLElement>(
       "[data-home-schedule]",
@@ -42,10 +62,17 @@ async function capture(page: Page, name: string) {
 }
 
 test.describe("Home schedule images @visual @snapshot @fixture", () => {
-  test.beforeEach(async ({ page }) => {
+  test.use({ timelineScenario: "timeline-visual" });
+  test.beforeEach(async ({ page, timelineFixture, timelineScenario }) => {
     await prepareVisualPage(page, { freezeClock: false });
     await page.clock.setFixedTime(TIMELINE_NOW);
-    await page.addInitScript(() => localStorage.setItem("vrdex-theme", "dark"));
+    await initializeDiscovery(
+      page,
+      timelineFixture,
+      timelineScenario === "timeline-visual"
+        ? timelineFixture.profileIds.slice(2, 4)
+        : [],
+    );
   });
   test("ordinary browsing contains transparent wide logos, long names and missing-logo identity", async ({
     page,

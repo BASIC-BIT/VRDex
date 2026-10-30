@@ -3,11 +3,14 @@ import { it } from "node:test";
 import sharp from "sharp";
 import { createHash } from "node:crypto";
 import { validatePosterBytes } from "../../apps/web/src/lib/server/event-poster-storage";
-import { extractEventIntake } from "../../apps/web/src/lib/server/event-intake-agent";
+import { EVENT_INTAKE_MODEL_PRICES, extractEventIntake } from "../../packages/event-intake-agent/src/index";
 import { classifyEventIntakeForPublication } from "../../apps/web/src/lib/server/event-intake-spam";
-const blank = () => ({ event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [] });
+const blank = () => ({ event: { title: null, communitySlug: null, eventDate: null, start: null, end: null, startDate: null, endDate: null, timezone: null, venueLabel: null, summary: null, sourceUrl: null }, lineup: [], evidence: [], questions: [], decision: { kind: "new" as const } });
 const response = (value: unknown) => new Response(JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(value) }] }] }));
 const base = { authorize: async () => ({ actorUserId: "actor", version: 1 }), search_people: async () => [], search_communities: async () => [], apiKey: "test", enabled: true, model: "fixture", fetchImplementation: async () => response(blank()) };
+const toolCall = (name: string, args: unknown, id = name) => new Response(JSON.stringify({ status: "completed", output: [{ type: "function_call", name, call_id: id, arguments: JSON.stringify(args) }] }));
+const rows = [{ slug: "friday-night", title: "Friday Night", eventDate: "2026-11-06", start: "21:00", lineupSummary: "DJ A, DJ B" }];
+const discord = { trigger: "discord" as const, communitySlug: "club", connectorId: "connector" };
 it("validates decoded PNG/JPEG/WebP, size, MIME, digest and decoding", async () => {
  for (const format of ["png", "jpeg", "webp"] as const) {
   const body = await sharp({create:{width:8,height:8,channels:3,background:"blue"}}).toFormat(format).toBuffer();
@@ -35,10 +38,10 @@ it("rejects invented IDs, preserves DST ambiguity and treats source instructions
  assert.equal(request.store,false);assert.equal(request.parallel_tool_calls,false);assert.match(String(request.instructions),/untrusted/i);
  assert.equal((request.tools as {name:string}[]).some(t=>/publish|create|mutate/.test(t.name)),false);
 });
-it("caps the loop at three tools and four model turns", async () => {
+it("caps the loop at five tools and six model turns", async () => {
  let turns=0,calls=0;
  const result=await extractEventIntake({draftId:"draft",sourceText:"Night"},{...base,search_people:async()=>{calls++;return[];},fetchImplementation:async()=>{turns++;return new Response(JSON.stringify({status:"completed",output:[{type:"function_call",name:"search_people",call_id:String(turns),arguments:JSON.stringify({query:"DJ",limit:5})}]}));}});
- assert.equal(calls,3);assert.equal(turns,4);assert.ok(result.questions.length);
+ assert.equal(calls,5);assert.equal(turns,6);assert.ok(result.questions.length);
 });
 it("defaults spam off and flags outages with draft/version binding", async () => {
  const draft={_id:"draft",version:2,fields:{title:"Night"}};
@@ -116,7 +119,7 @@ it("requires evaluated threshold before blocking and shadow never blocks",async(
 
 it("compares fixture-fed Time plan execution with the deterministic all-instants resolver offline",async()=>{
  const { readFile }=await import("node:fs/promises");
- const {resolveIntakeLocalTime}=await import("../../apps/web/src/lib/server/event-intake-agent");
+ const {resolveIntakeLocalTime}=await import("../../packages/event-intake-agent/src/index");
  const {executeTemporalPlanPlannerOutput,parseTemporalPlanPlannerOutput,parseCalendarContext,createDeterministicTemporalToolImplementations}=await import("../../packages/temporal-runtime/src/index");
  const manifest=JSON.parse(await readFile(new URL("../fixtures/event-intake/manifest.json",import.meta.url),"utf8"));
  const rows=[];
@@ -232,4 +235,115 @@ it("renews stale artwork selection and recovers a key written after cleanup", as
  await handlers.selectPosterArtwork({...args,expectedVersion:2});
  const latest=await t.run(ctx=>ctx.db.get(draftId));
  assert.notEqual(latest?.artworkAssetId,reserved.artworkAssetId,"an expired prior selection must permit a fresh independent key");
+});
+it("defaults decision to new without run context, even when the model answers update", async () => {
+  const result = await extractEventIntake({ draftId: "draft", sourceText: "Night" }, { ...base, fetchImplementation: async () => response({ ...blank(), decision: { kind: "update", slug: "friday-night" } }) });
+  assert.deepEqual(result.decision, { kind: "new" });
+  const unavailable = await extractEventIntake({ draftId: "draft", sourceText: "Night" }, { ...base, apiKey: "" });
+  assert.deepEqual(unavailable.decision, { kind: "new" });
+});
+it("offers list_events and get_event and the decision rules only with run context", async () => {
+  const seen: { tools: string[]; instructions: string }[] = [];
+  const deps = { ...base, list_events: async () => rows, get_event: async () => null, fetchImplementation: async (_url: unknown, init: RequestInit) => {
+    const body = JSON.parse(String(init.body)); seen.push({ tools: body.tools.map((t: { name: string }) => t.name), instructions: body.instructions }); return response(blank());
+  } };
+  await extractEventIntake({ draftId: "draft", sourceText: "Night" }, deps);
+  await extractEventIntake({ draftId: "draft", sourceText: "Night", context: discord }, deps);
+  assert.deepEqual(seen[0]!.tools, ["search_people", "search_communities", "resolve_local_time"]);
+  assert.deepEqual(seen[1]!.tools, ["search_people", "search_communities", "resolve_local_time", "list_events", "get_event"]);
+  assert.doesNotMatch(seen[0]!.instructions, /list_events/);
+  assert.match(seen[1]!.instructions, /may only come from list_events/);
+});
+it("accepts an update slug only when list_events returned it in this run", async () => {
+  const update = { ...blank(), decision: { kind: "update", slug: "friday-night" } };
+  const invented = await extractEventIntake({ draftId: "draft", sourceText: "Friday moves to 22:00", context: discord }, { ...base, list_events: async () => rows, fetchImplementation: async () => response(update) });
+  assert.deepEqual(invented.decision, { kind: "new" });
+  assert.ok(invented.questions.some(q => q.fieldPath === "decision.slug" && q.reason === "unresolved_event"));
+  let limit = 0, turn = 0;
+  const listed = await extractEventIntake({ draftId: "draft", sourceText: "Friday moves to 22:00", context: discord }, { ...base, list_events: async (n: number) => { limit = n; return rows; }, fetchImplementation: async () => ++turn === 1 ? toolCall("list_events", { limit: 40 }) : response(update) });
+  assert.equal(limit, 40);
+  assert.deepEqual(listed.decision, { kind: "update", slug: "friday-night" });
+});
+it("keeps not_event with run context", async () => {
+  const result = await extractEventIntake({ draftId: "draft", sourceText: "anyone around tonight?", context: discord }, { ...base, fetchImplementation: async () => response({ ...blank(), decision: { kind: "not_event", reason: "chatter" } }) });
+  assert.deepEqual(result.decision, { kind: "not_event", reason: "chatter" });
+});
+it("rejects list_events limits outside 1 to 40 before the callback", async () => {
+  let lookups = 0;
+  for (const limit of [0, 41, 2.5]) {
+    const result = await extractEventIntake({ draftId: "draft", sourceText: "x", context: discord }, { ...base, list_events: async () => { lookups++; return rows; }, fetchImplementation: async () => toolCall("list_events", { limit }) });
+    assert.equal(result.questions[0]?.reason, "invalid_tool");
+  }
+  assert.equal(lookups, 0);
+});
+it("serves get_event only for slugs list_events returned", async () => {
+  const asked: string[] = []; const outputs: string[] = []; let turn = 0;
+  const script = [toolCall("get_event", { slug: "unlisted" }, "a"), toolCall("list_events", { limit: 5 }, "b"), toolCall("get_event", { slug: "friday-night" }, "c")];
+  await extractEventIntake({ draftId: "draft", sourceText: "Friday", context: discord }, { ...base, list_events: async () => rows,
+    get_event: async (slug: string) => { asked.push(slug); return { title: "Friday Night", eventDate: "2026-11-06" }; },
+    fetchImplementation: async (_url: unknown, init: RequestInit) => {
+      const input = JSON.parse(String(init.body)).input; const last = input[input.length - 1];
+      if (last?.type === "function_call_output") outputs.push(last.output);
+      return script[turn++] ?? response(blank());
+    } });
+  assert.deepEqual(asked, ["friday-night"]);
+  assert.match(outputs[0]!, /unlisted_event/);
+  assert.match(outputs[2]!, /Friday Night/);
+});
+it("tells the agent which events these messages already produced", async () => {
+  let content: { type: string; text?: string }[] = [];
+  await extractEventIntake({ draftId: "draft", sourceText: "Night", context: { ...discord, priorEvents: [{ sourceMessageId: "123456789012345678", eventSlug: "friday-night" }] } }, { ...base, fetchImplementation: async (_url: unknown, init: RequestInit) => { content = JSON.parse(String(init.body)).input[0].content; return response(blank()); } });
+  assert.equal(content[0]!.text, "Night");
+  assert.match(content[1]!.text!, /123456789012345678/);
+  assert.match(content[1]!.text!, /friday-night/);
+});
+const usage = (body: unknown) => { const value = JSON.parse(JSON.stringify(body)); value.usage = { input_tokens: 1000, output_tokens: 200 }; return new Response(JSON.stringify(value)); };
+const capture = () => { const log = { metas: [] as unknown[], generations: [] as any[], ends: [] as any[] };
+  return { log, sink: { start(meta: unknown) { log.metas.push(meta); return { generation(g: unknown) { log.generations.push(g); }, async end(r: unknown) { log.ends.push(r); } }; } } }; };
+it("reports one generation per model turn and ends once with cost", async () => {
+  const { log, sink } = capture(); let turn = 0;
+  const final = { status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(blank()) }] }] };
+  const call = { status: "completed", output: [{ type: "function_call", name: "search_people", call_id: "a", arguments: JSON.stringify({ query: "DJ", limit: 1 }) }] };
+  await extractEventIntake({ draftId: "draft", sourceText: "Night", posterAssetId: "poster" }, { ...base, model: "gpt-5.6-luna", sink, readPoster: async () => "data:image/png;base64,AAAA", fetchImplementation: async () => usage(++turn === 1 ? call : final) });
+  assert.deepEqual(log.metas, [{ trigger: "web", actorUserId: "actor", draftId: "draft" }]);
+  assert.deepEqual(log.generations.map(g => [g.turn, g.model, g.inputTokens, g.outputTokens]), [[1, "gpt-5.6-luna", 1000, 200], [2, "gpt-5.6-luna", 1000, 200]]);
+  assert.ok(log.generations.every(g => typeof g.latencyMs === "number"));
+  assert.ok(!JSON.stringify(log.generations).includes("base64,"));
+  assert.equal(log.ends.length, 1);
+  const price = EVENT_INTAKE_MODEL_PRICES["gpt-5.6-luna"]!;
+  assert.deepEqual({ ...log.ends[0], durationMs: 0 }, { reason: "success", decision: { kind: "new" }, turns: 2, toolCalls: 1, durationMs: 0, inputTokens: 2000, outputTokens: 400, costUsd: (2000 * price.inputPerMillion + 400 * price.outputPerMillion) / 1_000_000 });
+});
+it("reports null cost for an unpriced model, omits decision on failure, and survives a broken sink", async () => {
+  const { log, sink } = capture();
+  await extractEventIntake({ draftId: "draft", sourceText: "Night", context: { trigger: "discord", connectorId: "connector", communitySlug: "club", mode: "hold" } }, { ...base, sink, fetchImplementation: async () => usage({ status: "failed", output: [] }) });
+  assert.deepEqual(log.metas[0], { trigger: "discord", actorUserId: "actor", draftId: "draft", connectorId: "connector", communitySlug: "club", mode: "hold" });
+  assert.equal(log.ends[0].costUsd, null); assert.equal(log.ends[0].reason, "incomplete_response"); assert.equal("decision" in log.ends[0], false);
+  const broken = { start: () => ({ generation() { throw new Error("down"); }, async end() { throw new Error("down"); } }) };
+  const result = await extractEventIntake({ draftId: "draft", sourceText: "Night" }, { ...base, sink: broken, fetchImplementation: async () => response({ ...blank(), event: { ...blank().event, title: "Night" } }) });
+  assert.equal(result.event.title, "Night");
+});
+it("web host enqueues event_intake_run with its trigger and skips Langfuse without keys", async () => {
+  const { getFunctionName } = await import("convex/server");
+  const { createEventIntakeExtractor } = await import("../../apps/web/src/lib/server/event-intake-agent");
+  const keys = ["OPENAI_API_KEY", "VRDEX_EVENT_INTAKE_AI_ENABLED", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"] as const;
+  const saved = keys.map(key => process.env[key]); const originalFetch = globalThis.fetch; const urls: string[] = []; const calls: [string, any][] = [];
+  Object.assign(process.env, { OPENAI_API_KEY: "test", VRDEX_EVENT_INTAKE_AI_ENABLED: "true" });
+  delete process.env.LANGFUSE_PUBLIC_KEY; delete process.env.LANGFUSE_SECRET_KEY;
+  globalThis.fetch = (async (url: string) => { urls.push(String(url)); return response(blank()); }) as typeof fetch;
+  try {
+    const admin = { query: async () => [], mutation: async (ref: any, args: any) => { calls.push([getFunctionName(ref), args]); return getFunctionName(ref) === "eventIntakeSources:authorizeExtraction" ? { actorUserId: "actor", version: 1 } : null; } };
+    const extract = createEventIntakeExtractor({ authority: async () => ({ actorUserId: "actor" as never }), admin: admin as never, readPoster: async () => "", trigger: "mcp" });
+    await extract({ draftId: "draft", sourceText: "Night" });
+    const enqueued = calls.find(([name]) => name === "productAnalytics:enqueue")?.[1];
+    assert.equal(enqueued.event, "event_intake_run"); assert.equal(enqueued.distinctId, "event_intake:draft"); assert.equal(enqueued.properties.trigger, "mcp");
+    assert.deepEqual(urls, ["https://api.openai.com/v1/responses"]);
+  } finally {
+    keys.forEach((key, i) => { if (saved[i] === undefined) delete process.env[key]; else process.env[key] = saved[i]; });
+    globalThis.fetch = originalFetch;
+  }
+});
+it("returns the candidate when a sink end never settles", async () => {
+  const stalled = { start: () => ({ generation() {}, end: () => new Promise<void>(() => {}) }) };
+  const result = await extractEventIntake({ draftId: "draft", sourceText: "Night" }, { ...base, sink: stalled, fetchImplementation: async () => response({ ...blank(), event: { ...blank().event, title: "Night" } }) });
+  assert.equal(result.event.title, "Night");
 });

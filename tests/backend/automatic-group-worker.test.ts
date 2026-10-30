@@ -20,6 +20,16 @@ const ref = (name: string) => makeFunctionReference<"mutation">(name);
 const key = "automatic-worker-test-key-long-enough";
 const workerKeyHash = createHash("sha256").update(key).digest("hex");
 const capability = "automatic_group_aggregates_v2";
+async function drainMonitoring(t: ReturnType<typeof convexTest>) {
+  for (let i = 0; i < 100; i++) {
+    await new Promise(resolve => setTimeout(resolve, 5));
+    await t.finishAllScheduledFunctions(() => {});
+    const jobs = await t.run(ctx => ctx.db.system.query("_scheduled_functions").take(100));
+    assert.deepEqual(jobs.filter(job => job.state.kind === "failed").map(job => job.state), []);
+    if (!jobs.some(job => job.state.kind === "pending" || job.state.kind === "inProgress")) return;
+  }
+  assert.fail("monitoring did not finish");
+}
 async function setup() {
   const t = convexTest({schema, modules}); const now = Date.now();
   const ids = await t.run(async ctx => {
@@ -80,6 +90,42 @@ it("heartbeat reports only sustained actionable automatic backlog in the authori
     await h.t.run(ctx => ctx.db.patch(ids.policyId, { decision: original.decision, admissionRequired: undefined, eligibleProfileId: original.eligibleProfileId, queuedAdmission: original.queuedAdmission, ...patch }));
     assert.equal((await h.heartbeat()).automaticEnrollmentBacklog, false);
   }
+});
+it("heartbeat detects an actionable all-eligible candidate beyond fifty unrelated queue entries", async () => {
+  const { h, ids } = await backlogFixture();
+  await h.t.run(ctx => ctx.db.patch(ids.fleetId, { automaticEnrollmentScope: { kind: "all_eligible" } }));
+  assert.equal((await h.heartbeat()).automaticEnrollmentBacklog, true);
+  await h.t.mutation(ref("groupObservations:refreshAdmissionMonitoring"), {});
+  await drainMonitoring(h.t);
+  const fleet = await h.t.run(ctx => ctx.db.get(ids.fleetId));
+  assert.equal(fleet?.admissionMonitoring?.automaticBacklog, true, "completed scan reaches the candidate beyond the first page");
+  assert.equal((await h.heartbeat("worker", Date.now())).automaticEnrollmentBacklog, true);
+  await h.t.run(ctx => ctx.db.patch(ids.policyId, { admissionRequired: true }));
+  await h.t.mutation(ref("groupObservations:refreshAdmissionMonitoring"), {});
+  await drainMonitoring(h.t);
+  assert.equal((await h.heartbeat("worker", Date.now())).automaticEnrollmentBacklog, false, "a complete scan can establish absence");
+  assert.equal((await h.heartbeat("worker", Date.now() + 360_001)).automaticEnrollmentBacklog, true, "expired monitoring cannot report healthy");
+});
+
+it("paged monitoring includes explicit processing failures beyond fifty automatic assignments", async () => {
+  const { h, ids } = await backlogFixture();
+  await h.t.run(async ctx => {
+    await ctx.db.patch(ids.fleetId, { automaticEnrollmentEnabled: false });
+    const { _id, _creationTime, ...base } = (await ctx.db.get(h.integrationId))!;
+    for (let i = 0; i < 51; i++) await ctx.db.insert("communityVrchatIntegrations", { ...base, vrchatGroupId: `many-${i}` });
+    await ctx.db.insert("communityVrchatIntegrations", { ...base, vrchatGroupId: "late-grant", statisticsAdmission: {
+      authorizedAt: h.now - 960_000, actor: { issuer: "test", subject: "admin", tokenIdentifier: "test:admin" }, reason: "test",
+      collectorAccountId: h.collectorAccountId, joinPolicy: "request", epochStartedAt: h.now,
+      phase: "pending", membershipOrigin: "unknown",
+    } });
+  });
+  assert.equal((await h.heartbeat()).automaticEnrollmentBacklog, true);
+  await h.t.mutation(ref("groupObservations:refreshAdmissionMonitoring"), {});
+  await drainMonitoring(h.t);
+  const heartbeat = await h.heartbeat("worker", Date.now());
+  assert.equal(heartbeat.statisticsAdmissionDiagnostics.pending, 1);
+  assert.equal(heartbeat.statisticsAdmissionDiagnostics.processingBacklog, 1);
+  assert.equal(heartbeat.automaticEnrollmentBacklog, true);
 });
 it("heartbeat observes expired contributor quota after grace without consuming quota or advancing admission", async () => {
   const { h, ids } = await backlogFixture();

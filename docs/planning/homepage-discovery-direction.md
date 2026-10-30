@@ -9,7 +9,9 @@ supersedes the former root-lookup decision. The approved
 adds the continuous Schedule, Agenda, event details, browser-local My night and
 private DJ/club favorites. This slice is implemented locally; publication and CI
 are tracked in its [execution plan](../superpowers/plans/2026-10-26-home-timeline.md).
-The later discovery composition remains reference direction.
+The approved [October 28 Home discovery design](../superpowers/specs/2026-10-28-home-discovery-design.md)
+adds poster-led recommendations below Schedule, with two events and two similarly
+sized clubs when eligible candidates are available.
 
 This document captures homepage, discovery, event-calendar, privacy,
 personalization, and design-system implications that should not live only in
@@ -43,9 +45,12 @@ Current recommendation:
 - The homepage should feel like a live scene utility, not a marketing page.
 - Direct search should stay top-level and obvious, similar to a search engine:
   people use it when they already know what they want.
-- Discovery should answer what is happening now or soon, what communities and
-  worlds are active around those events, and which people are connected to
-  those moments.
+- Schedule supports planning tonight with viewer-local time and set geometry.
+- Home discovery supports finding interesting upcoming events through posters,
+  recognizable performers and attributed public lineup genres. Familiar and
+  unfamiliar recommendations can reach months ahead; chronological proximity
+  does not determine their rank. Clubs show their own public musical identity
+  and need no upcoming event.
 - Profiles, communities, events, worlds, links, slots, interest, follows, and
   provenance are the primitives. The homepage is one composition of those
   primitives, not the whole product.
@@ -109,15 +114,16 @@ Locked decision:
 
 Current recommendation:
 
-- The long-term discovery surface should include a timeline-style view of
-  events happening today.
+- Schedule provides the time-oriented view for planning tonight. Home discovery
+  provides a visually led familiar/new recommendation mix across future dates.
 - The homepage should lead with utility, not explanatory product copy.
-- Keep compact public search above the continuous schedule. Later discovery
-  composition remains separate work.
+- Keep compact public search above Schedule, with Discover below it. Events
+  and Clubs sit alongside each other on desktop and stack on mobile.
 - The approved Schedule uses one continuous axis, with Now and date navigation;
   it does not split events into today/tonight/soon tabs.
-- The value is the time-oriented view of what is happening when, not simply a
-  list of event cards.
+- Discovery dates have no seven-day cutoff. Poster availability, timestamp
+  proximity and event counts are not recommendation scores. Clubs use their
+  own public genres and can appear without a next event.
 - Timeline and accessible Agenda share current public records and authored set
   times. Missing endpoints never become invented intervals.
 - The schedule can link to a full-screen or full-page focused view.
@@ -159,7 +165,7 @@ Current recommendation:
 - Use `/discovery` for the browseable "what is happening" layer during this
   stage.
 - Let search query results be dense and direct.
-- Let the later promoted discovery surface show timelines, cards, and
+- Keep Home discovery recommendations distinct from Schedule; use cards and
   follow/favorite context.
 
 ## Navigation Shape

@@ -58,6 +58,7 @@
     "@modelcontextprotocol/server": "2.0.0",
     "@vercel/oidc-aws-credentials-provider": "^3.1.4",
     "@vrdex/api-contracts": "workspace:*",
+    "@vrdex/event-intake-agent": "workspace:*",
     "@vrdex/media-relay": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

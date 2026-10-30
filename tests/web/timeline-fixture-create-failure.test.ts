@@ -107,3 +107,54 @@ it("an ambiguous create keeps the lease blocked when cleanup precedes its late c
     ]);
   }
 });
+
+for (const committed of [false, true]) {
+  it(`cleanup reset retries without releasing uncertain cleanup (committed=${committed})`, async () => {
+    let records = 8;
+    let deletes = 0;
+    const server = createServer(async (request, response) => {
+      for await (const _chunk of request) void _chunk;
+      if (request.method === "POST") {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ eventIds: [], profileIds: [], slotIds: [] }));
+      } else {
+        assert.equal(request.method, "DELETE");
+        if (++deletes === 1) {
+          if (committed) records = 0;
+          response.destroy();
+          return;
+        }
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ events: records, profiles: records ? 2 : 0, slots: records }));
+        records = 0;
+      }
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const backend = `http://127.0.0.1:${address.port}`;
+    const leasePath = join(tmpdir(), `vrdex-home-timeline-${createHash("sha256").update(backend).digest("hex")}.lock`);
+    const directory = await mkdtemp(join(tmpdir(), "timeline-cleanup-reset-"));
+    try {
+      await writeFile(join(directory, "playwright.config.mjs"), `export default ${JSON.stringify({ testDir: directory, timeout: 5000, workers: 1, retries: 0, reporter: "list", outputDir: join(directory, "results"), use: { baseURL: backend } })};`);
+      await writeFile(join(directory, "cleanup.spec.ts"), `
+        import { test } from ${JSON.stringify(resolve("apps/web/e2e/home-timeline-fixture.ts"))};
+        test('cleanup reset', async ({ timelineFixture }) => { void timelineFixture; });
+      `);
+      const child = spawn(process.execPath, [resolve("apps/web/node_modules/@playwright/test/cli.js"), "test", "--config", join(directory, "playwright.config.mjs")], {
+        env: { ...process.env, PLAYWRIGHT_CONVEX_URL: backend }, stdio: ["ignore", "pipe", "pipe"],
+      });
+      let output = "";
+      child.stdout.on("data", chunk => { output += String(chunk); });
+      child.stderr.on("data", chunk => { output += String(chunk); });
+      assert.deepEqual(await once(child, "exit"), [committed ? 1 : 0, null], output);
+      assert.equal(deletes, 2);
+      if (committed) await assert.rejects(withTimelineFixtureLease(backend, async () => assert.fail("uncertain cleanup released its lease"), { timeoutMs: 100 }), /Timeline fixture cleanup failed/);
+      else assert.equal(await withTimelineFixtureLease(backend, async () => true, { timeoutMs: 100 }), true);
+    } finally {
+      server.close();
+      await Promise.all([rm(directory, { recursive: true, force: true }), rm(leasePath, { force: true })]);
+    }
+  });
+}

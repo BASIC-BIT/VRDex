@@ -38,7 +38,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/v0/profiles/*/assets/*/file": ["../../docs/brand/wordmark/vrdex-wordmark.png"],
   },
-  transpilePackages: ["@vrdex/api-contracts", "@vrdex/media-relay"],
+  transpilePackages: ["@vrdex/api-contracts", "@vrdex/event-intake-agent", "@vrdex/media-relay"],
   skipTrailingSlashRedirect: true,
   turbopack: {
     root: workspaceRoot,

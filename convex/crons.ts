@@ -4,6 +4,7 @@ import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
 
 const crons = cronJobs();
+crons.interval("refresh admission monitoring", { minutes: 1 }, makeFunctionReference<"mutation">("groupObservations:refreshAdmissionMonitoring"), {});
 
 crons.interval(
   "delete expired staff invitation rate limits",
@@ -46,6 +47,13 @@ crons.interval(
   "deliver claim analytics outbox",
   { minutes: 5 },
   internal.claimAnalyticsDelivery.deliverPending,
+  {},
+);
+
+crons.interval(
+  "deliver product analytics outbox",
+  { minutes: 5 },
+  internal.productAnalyticsDelivery.deliverPending,
   {},
 );
 

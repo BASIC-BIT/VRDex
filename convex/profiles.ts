@@ -7,6 +7,7 @@ import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { primaryGroupSelection } from "./_groupObservationPolicy";
 import {
   findMcpWriteReceipt,
   type McpProfileWriteResult,
@@ -761,9 +762,13 @@ export async function createCommunityProfileRecord(
       };
     }
 
+    const selection = primaryGroupSelection({ ...sharedFields, profileType: "community", primaryGroupSelectionDisabled: args.primaryGroupUrl === null });
     const profileId = await ctx.db.insert("profiles", {
       ...sharedFields,
       profileType: "community",
+      primaryGroupReference: selection ? { ...selection, contributorUserId } : undefined,
+      inferredGroupContributorUserId: contributorUserId,
+      primaryGroupSelectionDisabled: args.primaryGroupUrl === null,
       community: input.community,
     });
     const shortLink = await ensureShortLinkForTarget(
@@ -910,6 +915,7 @@ export const editableProfile = query({
       // becomes the provider's default name, a VRCDN handle has to be re-derived,
       // and a copy-styled link turns into a button.
       primaryGroupUrl: whenEditable("outboundLinks", profile.primaryGroupReference?.url ?? null),
+      primaryGroupSelectionDisabled: whenEditable("outboundLinks", profile.primaryGroupSelectionDisabled === true),
       outboundLinks: whenEditable(
         "outboundLinks",
         await projectProfileLinkDestinations(ctx.db, (profile.outboundLinks ?? []).map((link) => ({
@@ -1477,6 +1483,7 @@ export async function applyContributionLinks(
     profile,
     additions,
     Date.now(),
+    actor,
   );
   if (applied.changedFields.length)
     await ctx.db.insert("profileAuditEvents", {

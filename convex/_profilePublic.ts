@@ -11,8 +11,8 @@ function visibleHttpsProfileImage(
   return safeHttpsUrl(visibleProfileField(profile, key, profile[key], "profile_page"));
 }
 
-function publicProfileGenres(profile: Doc<"profiles">) {
-  return visibleProfileList(profile, "genres", profile.genres ?? [], "profile_page").map((genre) => ({
+export function publicProfileGenres(profile: Doc<"profiles">, surface: ProfileVisibilitySurface = "profile_page") {
+  return visibleProfileList(profile, "genres", profile.genres ?? [], surface).map((genre) => ({
     slug: genre.slug,
     displayName: genre.displayName,
     ...optionalField("displayLabel", genre.displayLabel),

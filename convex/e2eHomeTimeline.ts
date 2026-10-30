@@ -32,7 +32,16 @@ export const create = mutation({
     secret: v.string(),
     runId: v.string(),
     startAt: v.number(),
-    scenario: v.optional(v.union(v.literal("prefetch"), v.literal("detail"))),
+    scenario: v.optional(
+      v.union(
+        v.literal("prefetch"),
+        v.literal("detail"),
+        v.literal("discovery"),
+        v.literal("discovery-dense"),
+        v.literal("discovery-sparse"),
+        v.literal("timeline-visual"),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
     guard(args.secret, args.runId);
@@ -50,6 +59,222 @@ export const create = mutation({
           .first()
       )
         throw Error("Fixture run already exists");
+    if (args.scenario?.startsWith("discovery")) {
+      const profileIds: Id<"profiles">[] = [];
+      const kinds = ["community", "person", "community2", "person2"];
+      for (const [index, kind] of kinds.entries()) {
+        const community = kind.startsWith("community");
+        profileIds.push(
+          await ctx.db.insert("profiles", {
+            slug: `${args.runId}-${kind}`,
+            displayName: [
+              "Prism Collective",
+              "Aurora",
+              "Tidal Society",
+              "Nori",
+            ][index],
+            sortName: kind,
+            ...(community
+              ? {
+                  profileType: "community" as const,
+                  community: { categoryTags: [] },
+                }
+              : {
+                  profileType: "person" as const,
+                  person: { roleTags: ["DJ"] },
+                }),
+            ...(community
+              ? {
+                  avatarImageUrl: `https://timeline-artwork.invalid/${args.runId}/prism.svg`,
+                }
+              : {}),
+            genres: [
+              {
+                slug: "fixture-liquid",
+                displayName: "Liquid DnB",
+                source: "owner_selected",
+                confidence: "high",
+                explicit: true,
+              },
+            ],
+            aliases: [],
+            tags: [],
+            claimState: "unclaimed",
+            creationSource: "community",
+            publicationState: "published",
+            publicSurfacingState: "public",
+            updatedAt: Date.now(),
+            sourceAttribution: {
+              submittedAt: Date.now(),
+              submitter: {
+                tokenIdentifier: `e2e:${args.runId}`,
+                issuer: "vrdex:e2e",
+                subject: args.runId,
+              },
+            },
+          }),
+        );
+      }
+      const eventIds: Id<"events">[] = [],
+        slotIds: Id<"eventSlots">[] = [];
+      for (let i = 0; i < (args.scenario === "discovery-sparse" ? 1 : 2); i++) {
+        const startAt = args.startAt + (i === 0 ? 24 * 7 : 24 * 40) * h;
+        const eventId = await ctx.db.insert("events", {
+          slug: `${args.runId}-${i}`,
+          title: i === 0 ? "ORBIT" : "Low Tide",
+          sortTitle: i === 0 ? "orbit" : "low tide",
+          posterImageUrl:
+            i === 0
+              ? "/api/e2e/fixture-assets/fixture-orbit-timeline-poster"
+              : "/api/e2e/fixture-assets/fixture-low-tide-discovery-poster",
+          communityProfileId: profileIds[i * 2],
+          startAt,
+          endAt: startAt + 4 * h,
+          scheduleKind: "timed",
+          eventStatus: "scheduled",
+          publicationState: "published",
+          sourceType: "community",
+          sourceLabel: args.runId,
+          updatedAt: Date.now(),
+        });
+        eventIds.push(eventId);
+        slotIds.push(
+          await ctx.db.insert("eventSlots", {
+            eventId,
+            position: 0,
+            personProfileId: profileIds[i * 2 + 1],
+            startAt,
+            endAt: startAt + h,
+            displayLabel: i === 0 ? "Aurora" : "Nori",
+            roleLabel: "DJ",
+            sourceType: "community",
+            sourceLabel: args.runId,
+            confidence: 1,
+            reviewState: "confirmed",
+            updatedAt: Date.now(),
+          }),
+        );
+      }
+      if (args.scenario === "discovery-dense") {
+        const original = await ctx.db.get(profileIds[1]);
+        if (!original || original.profileType !== "person")
+          throw Error("Missing fixture performer");
+        for (const [kind, name, type] of [
+          [
+            "community3",
+            "The Society for Exceptionally Long Musical Journeys",
+            "community",
+          ],
+          ["hidden", "SECRET PERFORMER", "person"],
+          ["hidden-community", "SECRET CLUB", "community"],
+          ["person3", "An Exceptionally Long Public Performer Name", "person"],
+        ] as const) {
+          const { _id, _creationTime, person, profileType, ...fields } =
+            original;
+          void _id;
+          void _creationTime;
+          void person;
+          void profileType;
+          profileIds.push(
+            await ctx.db.insert("profiles", {
+              ...fields,
+              slug: `${args.runId}-${kind}`,
+              displayName: name,
+              sortName: kind,
+              ...(type === "community"
+                ? {
+                    profileType: "community" as const,
+                    community: { categoryTags: [] },
+                  }
+                : {
+                    profileType: "person" as const,
+                    person: { roleTags: ["DJ"] },
+                  }),
+              publicSurfacingState: kind.startsWith("hidden")
+                ? "suppressed"
+                : "public",
+              genres: [
+                ...(original.genres ?? []),
+                {
+                  slug: "fixture-deep",
+                  displayName: "Deep House",
+                  displayLabel: "Deep journeys",
+                  source: "owner_selected",
+                  confidence: "high",
+                  explicit: true,
+                },
+              ],
+            }),
+          );
+        }
+        await ctx.db.patch(profileIds[1], {
+          genres: [
+            ...(original.genres ?? []),
+            {
+              slug: "fixture-deep",
+              displayName: "Deep House",
+              displayLabel: "Deep journeys",
+              source: "owner_selected",
+              confidence: "high",
+              explicit: true,
+            },
+          ],
+        });
+        for (let i = 2; i < 246; i++) {
+          const distant = i === 242;
+          const startAt =
+            args.startAt +
+            (distant ? 120 * 24 * h : 5 * 24 * h + (i - 1) * 60_000);
+          const id = await ctx.db.insert("events", {
+            slug: `${args.runId}-${i}`,
+            title: distant
+              ? "Distant Horizons"
+              : i === 245
+                ? "Prism Return"
+                : `Near-term ${i}`,
+            sortTitle: `fixture ${i}`,
+            communityProfileId:
+              i === 244
+                ? profileIds[6]
+                : i === 242
+                  ? profileIds[2]
+                  : profileIds[0],
+            startAt,
+            endAt: startAt + h,
+            scheduleKind: "timed",
+            eventStatus: "scheduled",
+            publicationState: i === 243 ? "draft_private" : "published",
+            sourceType: "community",
+            sourceLabel: args.runId,
+            updatedAt: Date.now(),
+          });
+          eventIds.push(id);
+          if (i === 2 || distant || i === 245)
+            slotIds.push(
+              await ctx.db.insert("eventSlots", {
+                eventId: id,
+                position: 0,
+                personProfileId:
+                  i === 2
+                    ? profileIds[5]
+                    : distant
+                      ? profileIds[7]
+                      : profileIds[1],
+                startAt,
+                endAt: startAt + h,
+                displayLabel: "Fixture performer",
+                roleLabel: "DJ",
+                sourceType: "community",
+                sourceLabel: args.runId,
+                confidence: 1,
+                reviewState: "confirmed",
+                updatedAt: Date.now(),
+              }),
+            );
+        }
+      }
+      return { runId: args.runId, eventIds, slotIds, profileIds };
+    }
     const profiles: Id<"profiles">[] = [];
     for (const kind of args.scenario === "detail"
       ? (["community", "person", "hidden"] as const)
@@ -190,6 +415,98 @@ export const create = mutation({
           updatedAt: Date.now(),
         });
       }
+    if (args.scenario === "timeline-visual") {
+      const genres = [
+        {
+          slug: "fixture-visual-liquid",
+          displayName: "Liquid DnB",
+          source: "owner_selected" as const,
+          confidence: "high" as const,
+          explicit: true,
+        },
+        {
+          slug: "fixture-visual-deep",
+          displayName: "Deep House",
+          source: "owner_selected" as const,
+          confidence: "high" as const,
+          explicit: true,
+        },
+      ];
+      // Only the new DJ/club IDs become favorites. The eight original Schedule
+      // rows retain their existing geometry and unfavorited emphasis.
+      await ctx.db.patch(profiles[0], { genres });
+      const source = await ctx.db.get(profiles[1]);
+      if (!source || source.profileType !== "person")
+        throw Error("Missing fixture performer");
+      const { _id, _creationTime, person, profileType, ...fields } = source;
+      void _id;
+      void _creationTime;
+      void person;
+      void profileType;
+      for (const [kind, displayName] of [
+        ["community2", "Tidal Society"],
+        ["person2", "Nori"],
+        ["person3", "Iona"],
+      ] as const) {
+        profiles.push(
+          await ctx.db.insert("profiles", {
+            ...fields,
+            slug: `${args.runId}-${kind}`,
+            displayName,
+            sortName: kind,
+            genres,
+            ...(kind === "community2"
+              ? {
+                  profileType: "community" as const,
+                  community: { categoryTags: [] },
+                  avatarImageUrl: `https://timeline-artwork.invalid/${args.runId}/prism.svg`,
+                }
+              : {
+                  profileType: "person" as const,
+                  person: { roleTags: ["DJ"] },
+                }),
+          }),
+        );
+      }
+      for (const i of [8, 9]) {
+        const startAt = args.startAt + (i === 8 ? 7 : 40) * 24 * h;
+        const id = await ctx.db.insert("events", {
+          slug: `${args.runId}-${i}`,
+          title: i === 8 ? "ORBIT Discovery" : "Tidal Discovery",
+          sortTitle: `discovery ${i}`,
+          posterImageUrl:
+            i === 8
+              ? "/api/e2e/fixture-assets/fixture-orbit-timeline-poster"
+              : "/api/e2e/fixture-assets/fixture-low-tide-discovery-poster",
+          communityProfileId: i === 8 ? profiles[2] : profiles[0],
+          startAt,
+          endAt: startAt + 4 * h,
+          scheduleKind: "timed",
+          eventStatus: "scheduled",
+          publicationState: "published",
+          sourceType: "community",
+          sourceLabel: args.runId,
+          updatedAt: Date.now(),
+        });
+        eventIds.push(id);
+        slotIds.push(
+          await ctx.db.insert("eventSlots", {
+            eventId: id,
+            position: 0,
+            personProfileId: i === 8 ? profiles[3] : profiles[4],
+            startAt,
+            endAt: startAt + h,
+            displayLabel: i === 8 ? "Nori" : "Iona",
+            roleLabel: "DJ",
+            sourceType: "community",
+            sourceLabel: args.runId,
+            confidence: 1,
+            reviewState: "confirmed",
+            updatedAt: Date.now(),
+          }),
+        );
+      }
+    }
     return { runId: args.runId, eventIds, slotIds, profileIds: profiles };
   },
 });
@@ -199,7 +516,7 @@ export const cleanup = mutation({
     guard(args.secret, args.runId);
     const count = { events: 0, profiles: 0, slots: 0 };
     let lineupEntries = 0;
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 246; i++) {
       const e = await ctx.db
         .query("events")
         .withIndex("by_slug", (q) => q.eq("slug", `${args.runId}-${i}`))
@@ -230,7 +547,16 @@ export const cleanup = mutation({
       await ctx.db.delete(e._id);
       count.events++;
     }
-    for (const kind of ["community", "person", "hidden"]) {
+    for (const kind of [
+      "community",
+      "person",
+      "hidden",
+      "community2",
+      "person2",
+      "community3",
+      "hidden-community",
+      "person3",
+    ]) {
       const p = await ctx.db
         .query("profiles")
         .withIndex("by_slug", (q) => q.eq("slug", `${args.runId}-${kind}`))
@@ -256,6 +582,7 @@ export const changeState = mutation({
       v.literal("cancelled"),
       v.literal("hidden"),
       v.literal("recreate-slot"),
+      v.literal("suppress-host"),
     ),
   },
   handler: async (ctx, args) => {
@@ -274,6 +601,22 @@ export const changeState = mutation({
       .unique();
     if (!event || event.sourceLabel !== args.runId)
       throw Error("Fixture ownership mismatch");
+    if (args.state === "suppress-host") {
+      const host = event.communityProfileId
+        ? await ctx.db.get(event.communityProfileId)
+        : null;
+      if (
+        !host ||
+        host.sourceAttribution?.submitter.tokenIdentifier !==
+          `e2e:${args.runId}`
+      )
+        throw Error("Fixture host ownership mismatch");
+      await ctx.db.patch(host._id, {
+        publicSurfacingState: "suppressed",
+        updatedAt: Date.now(),
+      });
+      return;
+    }
     if (args.state === "recreate-slot") {
       const slot = await ctx.db
         .query("eventSlots")
