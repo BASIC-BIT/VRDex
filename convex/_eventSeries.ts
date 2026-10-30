@@ -3,13 +3,13 @@ import type { AuthSubject } from "./_communityAuthority";
 import { sanitizeEventDraftInput, type EventOwnerDraftInput } from "./_eventInputs";
 import { eventOutputIsAuthorized } from "./_eventOutputSetup";
 import { eventDateForInstant } from "./_eventSchedule";
-import type { SeriesRule } from "./_eventSeriesModel";
+import { SERIES_OWNED_EVENT_FIELDS, type SeriesOwnedEventField, type SeriesRule } from "./_eventSeriesModel";
 import { enqueueEventSync } from "./_eventSync";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter, MutationCtx } from "./_generated/server";
 import { canReadProfile } from "./_profilePermissions";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
-import { insertCommunityEventRecord } from "./events";
+import { insertCommunityEventRecord, linkedPublishedEventWorld } from "./events";
 
 const DAY_MS = 86_400_000;
 const MAX_COUNT = 520;
@@ -132,12 +132,68 @@ export function seriesAuthSubject(series: Doc<"eventSeries">): AuthSubject {
   return { tokenIdentifier: "series:" + series._id, issuer: "vrdex-series", subject: series.authorityUserId, displayName: "VRDex" };
 }
 
-/** Task 3 replaces this stub with title-and-date adoption. */
+type SeriesFieldValues = Partial<Record<SeriesOwnedEventField, unknown>>;
+
+const FIELD_DEFAULTS: SeriesFieldValues = { mediaLinks: [], watchMode: "event_stream", watchSurfaceEnabled: false };
+const NUMBER_FIELDS = new Set<SeriesOwnedEventField>(["startAt", "doorsOpenAt", "endAt"]);
+
+function comparable(field: SeriesOwnedEventField, value: unknown): unknown {
+  const filled = value ?? FIELD_DEFAULTS[field] ?? (NUMBER_FIELDS.has(field) ? undefined : "");
+  // Key-order-insensitive so stored links and series links compare by content.
+  return field === "mediaLinks"
+    ? JSON.stringify((filled as object[]).map((link) => Object.entries(link).sort(([a], [b]) => (a < b ? -1 : 1))))
+    : filled;
+}
+
+/** Whether two values of a series-owned field are the same once missing values take their defaults. */
+export function sameSeriesFieldValue(field: SeriesOwnedEventField, a: unknown, b: unknown): boolean {
+  return comparable(field, a) === comparable(field, b);
+}
+
+/** Sorted series-owned fields where `event` differs from what the series would give it on `date`. */
+export async function seriesOverridesFor(
+  db: DatabaseReader,
+  series: Doc<"eventSeries">,
+  event: Doc<"events">,
+  date: string,
+): Promise<SeriesOwnedEventField[]> {
+  // A start that does not exist on `date` leaves the series times undefined, so any event time is an override.
+  const fromSeries: SeriesFieldValues = { ...series, ...occurrenceTimes(series, date) };
+  const fromEvent: SeriesFieldValues = { ...event, worldSlug: (await linkedPublishedEventWorld(db, event._id))?.slug };
+  return SERIES_OWNED_EVENT_FIELDS.filter((field) => !sameSeriesFieldValue(field, fromEvent[field], fromSeries[field])).sort();
+}
+
+/**
+ * Links the first upcoming, published, scheduled, unowned event of the series' community on
+ * `date` whose title matches, recording the fields it differs on as overrides. Started nights are never changed.
+ */
 async function adoptStandaloneEvent(
-  _db: DatabaseWriter,
-  _series: Doc<"eventSeries">,
-  _date: string,
+  db: DatabaseWriter,
+  series: Doc<"eventSeries">,
+  date: string,
 ): Promise<Id<"events"> | null> {
+  const title = series.title.trim().toLowerCase();
+  const now = Date.now();
+  const candidates = db
+    .query("events")
+    .withIndex("by_communityProfileId_eventDate", (q) => q.eq("communityProfileId", series.communityProfileId).eq("eventDate", date));
+  for await (const event of candidates) {
+    if (
+      event.seriesId !== undefined ||
+      event.moderationRemovedAt !== undefined ||
+      event.publicationState !== "published" ||
+      event.eventStatus !== "scheduled" ||
+      (event.startAt ?? 0) <= now ||
+      event.title.trim().toLowerCase() !== title
+    ) continue;
+    await db.patch(event._id, {
+      seriesId: series._id,
+      occurrenceDate: date,
+      overrides: await seriesOverridesFor(db, series, event, date),
+      updatedAt: now,
+    });
+    return event._id;
+  }
   return null;
 }
 
