@@ -1,8 +1,9 @@
 import type { Scheduler } from "convex/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
+import type { DatabaseReader, DatabaseWriter, MutationCtx } from "./_generated/server";
 import { connectorsEnabled, type SyncJobKind } from "./_eventConnectors";
+import { resolveOps } from "./_opsAlerts";
 
 export async function cancelPendingSchedule(db: DatabaseReader, scheduler: Scheduler, id: Id<"_scheduled_functions"> | undefined) {
   if (id && (await db.system.get(id))?.state.kind === "pending") await scheduler.cancel(id);
@@ -26,6 +27,17 @@ export async function enqueueSyncJob(db: DatabaseWriter, scheduler: Scheduler, j
 
 /** The ops alert key for a connector's failure streak. */
 export const failureAlertKey = (connectorId: Id<"eventConnectors">) => "connector-failures:" + connectorId;
+
+/** The ops alert key for a Discord intake connector's failed runs. */
+export const discordIntakeAlertKey = (connectorId: Id<"eventConnectors">) => "discord-intake:" + connectorId;
+
+/** Every removal path. Links stay so a reconnect can match them; pending jobs close as connector_inactive when claimed. */
+export async function removeConnector(ctx: MutationCtx, connector: Doc<"eventConnectors">): Promise<void> {
+  if (connector.state !== "removed") await ctx.db.patch(connector._id, { state: "removed", updatedAt: Date.now() });
+  // A removed connector cannot recover, so close any open failure alert for it.
+  await resolveOps(ctx, failureAlertKey(connector._id));
+  await resolveOps(ctx, discordIntakeAlertKey(connector._id));
+}
 
 export const eventIsPublic = (event: Doc<"events"> | null) => event?.publicationState === "published" && event.moderationRemovedAt === undefined;
 

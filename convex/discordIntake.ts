@@ -14,7 +14,7 @@ import {
 import { saveIntakeDraft } from "./_eventIntake";
 import { getEventBySlug } from "./_eventSlugs";
 import { getProfileBySlug } from "./_globalSlugs";
-import { cancelPendingSchedule } from "./_eventSync";
+import { cancelPendingSchedule, discordIntakeAlertKey, removeConnector } from "./_eventSync";
 import { notifyOps, resolveOps } from "./_opsAlerts";
 import { correctionFields } from "./eventCorrections";
 import { EventIntakeCandidateSchema, type EventIntakeFields } from "../packages/api-contracts/src/event-intake";
@@ -118,7 +118,6 @@ const AGENT_EVENT_LIMIT = 40;
 const RUNNING_LEASE_MS = 15 * 60_000;
 type SkipReason = "connector_inactive" | "authority_lost" | "binding_cap" | "source_deleted";
 const skipReason = v.union(v.literal("connector_inactive"), v.literal("authority_lost"), v.literal("binding_cap"), v.literal("source_deleted"), v.literal("deferred"));
-const opsKey = (connectorId: Id<"eventConnectors">) => "discord-intake:" + connectorId;
 const messageUrl = (message: Doc<"discordIntakeMessages">) => `https://discord.com/channels/${message.guildId}/${message.channelId}/${message.messageId}`;
 const messageRow = (db: DatabaseReader, connectorId: Id<"eventConnectors">, messageId: string) =>
   db.query("discordIntakeMessages").withIndex("by_connectorId_messageId", q => q.eq("connectorId", connectorId).eq("messageId", messageId)).unique();
@@ -261,7 +260,7 @@ export const finishRun = internalMutation({
       state: "done", decision, reason: decision.kind === "not_event" ? decision.reason || "not_event" : result.outcome,
       draftId: result.draftId ?? args.draftId, eventId: result.eventId, finishedAt: now,
     });
-    await resolveOps(ctx, opsKey(connector._id));
+    await resolveOps(ctx, discordIntakeAlertKey(connector._id));
     return result;
   },
 });
@@ -286,7 +285,7 @@ async function closeFailedRun(ctx: MutationCtx, run: Doc<"discordIntakeRuns">, r
   if (latest.length === 3 && latest.every(row => row.state === "failed")) {
     const connector = await ctx.db.get(run.connectorId);
     await notifyOps(ctx, {
-      key: opsKey(run.connectorId), subject: "Discord intake runs failing",
+      key: discordIntakeAlertKey(run.connectorId), subject: "Discord intake runs failing",
       body: `Discord intake connector ${run.connectorId} (community ${connector?.communityProfileId}) failed its last 3 runs: ${latest.map(row => row.reason).join(", ")}.`,
     });
   }
@@ -423,9 +422,7 @@ export const applyCommand = internalMutation({
         return { reply: connected(channel, community.displayName, connector.mode) + (connector.state === "paused" ? pausedSuffix : "") };
       }
       await requireConnectorAuthority(ctx, connector.communityProfileId, userId);
-      await ctx.db.patch(connector._id, { state: "removed", updatedAt: Date.now() });
-      // A removed connector cannot recover, so close any open failure alert for it.
-      await resolveOps(ctx, opsKey(connector._id));
+      await removeConnector(ctx, connector);
       return { reply: disconnected(channel) };
     } catch (error) {
       const code = error instanceof ConvexError ? (error.data as { code?: unknown } | null)?.code : undefined;

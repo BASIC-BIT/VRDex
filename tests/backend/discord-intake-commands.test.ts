@@ -22,6 +22,7 @@ const body = (over: Record<string, unknown> = {}) => ({ command: "connect", guil
 const command = (t: T, over: Record<string, unknown> = {}) => t.action(internal.discordIntake.handleCommand, body(over) as never);
 const linkDiscord = (t: T, userId: Id<"users">, discordUserId = AUTHOR_A) => t.run(ctx => ctx.db.insert("discordVerificationWatermarks", { userId, discordUserId, issuedGeneration: 1, appliedGeneration: 1, appliedAt: Date.now(), issuedAt: Date.now(), updatedAt: Date.now() }));
 const connectors = (t: T) => t.run(ctx => ctx.db.query("eventConnectors").collect());
+const guildLinks = (t: T) => t.run(ctx => ctx.db.query("profileExternalLinks").collect());
 const clearConnectors = (t: T) => t.run(async ctx => { for (const row of await ctx.db.query("eventConnectors").collect()) await ctx.db.delete(row._id); });
 const seedCommunityRow = (ctx: Parameters<Parameters<T["run"]>[0]>[0], slug: string) => ctx.db.insert("profiles", {
   slug, displayName: slug, sortName: slug, profileType: "community", community: { categoryTags: [] }, aliases: [], tags: [],
@@ -42,8 +43,21 @@ it("refuses connect without Manage Server or without manage_integrations", async
   await linkDiscord(t, authorityUserId);
   assert.deepEqual(await command(t, { invokerHasManageGuild: false }), denied);
   await seedCommunity(t, { slug: "other-club", displayName: "Other Club" }); // no grant
-  assert.deepEqual(await command(t, { options: { community: "other-club", mode: "hold", channelName: "announcements" } }), denied);
-  assert.deepEqual(await command(t, { options: { community: "no-such-club", mode: "hold", channelName: "announcements" } }), denied);
+  // A free channel, so only the missing grant can refuse this.
+  assert.deepEqual(await command(t, { channelId: OTHER_CHANNEL, options: { community: "other-club", mode: "hold", channelName: "news", guildName: "Night Server" } }), denied);
+  assert.deepEqual(await command(t, { channelId: OTHER_CHANNEL, options: { community: "no-such-club", mode: "hold", channelName: "news", guildName: "Night Server" } }), denied);
+  assert.equal((await connectors(t)).length, 1);
+  assert.equal((await guildLinks(t)).length, 0);
+});
+
+it("refuses a reconnect on the invoker's own community once the grant is revoked", async () => {
+  const { t, authorityUserId, communityProfileId } = await seedDiscordIntake();
+  await linkDiscord(t, authorityUserId);
+  await revokeManageIntegrations(t, communityProfileId, authorityUserId);
+  const before = await connectors(t);
+  assert.deepEqual(await command(t, { options: { community: "night-club", mode: "autopublish", channelName: "renamed", guildName: "New Name" } }), denied);
+  assert.deepEqual(await connectors(t), before);
+  assert.equal((await guildLinks(t)).length, 0);
 });
 
 it("refuses to connect a person profile the invoker owns", async () => {
@@ -166,12 +180,12 @@ it("refuses status and disconnect without Manage Server, and disconnect without 
   assert.equal((await connectors(t))[0].state, "active");
 });
 
-it("resolves the connector's open failure alert on disconnect", async () => {
+it("resolves both of the connector's failure alerts on disconnect", async () => {
   const { t, authorityUserId, connectorId } = await seedDiscordIntake();
   await linkDiscord(t, authorityUserId);
-  await t.run(ctx => ctx.db.insert("opsAlerts", { key: "discord-intake:" + connectorId, lastSentAt: 1 }));
+  await t.run(async ctx => { for (const key of [`discord-intake:${connectorId}`, `connector-failures:${connectorId}`]) await ctx.db.insert("opsAlerts", { key, lastSentAt: 1 }); });
   await command(t, { command: "disconnect", options: { channelName: "announcements" } });
-  assert.ok((await t.run(ctx => ctx.db.query("opsAlerts").first()))?.resolvedAt);
+  assert.ok((await t.run(ctx => ctx.db.query("opsAlerts").collect())).every(row => row.resolvedAt));
 });
 
 it("autocompletes only communities the invoker may manage", async () => {

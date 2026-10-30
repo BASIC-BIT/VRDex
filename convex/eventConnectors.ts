@@ -6,8 +6,7 @@ import {
   allowedDirections, connectorDirection, connectorKind, connectorMode, connectorState, connectorTarget, connectorsEnabled,
   DISCORD_ID, requireConnectorAuthority, type ConnectorDirection, type ConnectorKind,
 } from "./_eventConnectors";
-import { enqueueSyncJob, failureAlertKey } from "./_eventSync";
-import { resolveOps } from "./_opsAlerts";
+import { enqueueSyncJob, removeConnector } from "./_eventSync";
 
 type ConnectorTarget = Infer<typeof connectorTarget>;
 const TARGET_IDS = ["guildId", "channelId", "calendarId", "groupId"] as const;
@@ -130,9 +129,6 @@ export const update = mutation({
 
 export const remove = mutation({ args: { connectorId: v.id("eventConnectors") }, returns: v.null(), handler: async (ctx, args) => {
   const { connector } = await authorizedConnector(ctx, args.connectorId);
-  // Links stay so a reconnect can match them; pending jobs close as connector_inactive when claimed.
-  if (connector.state !== "removed") await ctx.db.patch(connector._id, { state: "removed", updatedAt: Date.now() });
-  // A removed connector cannot recover, so close any open failure alert for it.
-  await resolveOps(ctx, failureAlertKey(connector._id));
+  await removeConnector(ctx, connector);
   return null;
 } });

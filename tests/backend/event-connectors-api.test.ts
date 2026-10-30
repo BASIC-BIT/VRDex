@@ -126,6 +126,14 @@ it("the flag hides the list and blocks creation", async () => {
   await assert.rejects(f.as("integrator").mutation(api.eventConnectors.create, { communityProfileId: f.communityProfileId, ...google }), /CONNECTORS_DISABLED/);
 });
 
+it("remove resolves both of the connector's failure alerts", async () => {
+  const f = await connectorFixture();
+  const connectorId = await f.insertConnector({ kind: "discord_announcements", direction: "import", mode: "hold", target: { guildId: "123456789012345678", channelId: "323456789012345678" } });
+  await f.t.run(async ctx => { for (const key of [`discord-intake:${connectorId}`, `connector-failures:${connectorId}`]) await ctx.db.insert("opsAlerts", { key, lastSentAt: 1 }); });
+  await f.as("integrator").mutation(api.eventConnectors.remove, { connectorId });
+  assert.ok((await f.t.run(ctx => ctx.db.query("opsAlerts").collect())).every(row => row.resolvedAt));
+});
+
 it("caps display names and refuses changes to a removed connector", async () => {
   const f = await connectorFixture();
   const as = f.as("integrator");
