@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { convexTest } from "convex-test";
 import schemaModule from "../../convex/schema";
+import type { Doc } from "../../convex/_generated/dataModel";
 import { carriedFieldsHash } from "../../convex/_eventConnectors";
 import { correctionFields } from "../../convex/eventCorrections";
 import { exportPayloadFromEvent, fieldsFromVrchatEvent, truncateTitle } from "../../convex/eventSyncKinds/vrchatCalendar";
@@ -41,6 +42,45 @@ describe("vrchat calendar mapping", () => {
     assert.equal(back.end, null);
     const vrdex = await t.run((ctx) => correctionFields(ctx.db, event));
     assert.equal(carriedFieldsHash("vrchat_calendar", back), carriedFieldsHash("vrchat_calendar", vrdex));
+  });
+
+  async function roundTrip(overrides: Partial<Doc<"events">>, zone: string) {
+    const t = convexTest({ schema, modules });
+    const { communityProfileId } = await seedVrchatConnector(t, { connector: false });
+    const eventId = await seedEvent(t, communityProfileId, overrides);
+    const event = (await t.run((ctx) => ctx.db.get(eventId)))!;
+    const back = fieldsFromVrchatEvent(vrchatItem({ ...exportPayloadFromEvent(event, { eventUrl: EVENT_URL, worldNames: ["Harbor Club"] }) }), zone, SITE, event);
+    const vrdex = await t.run((ctx) => correctionFields(ctx.db, event));
+    assert.equal(carriedFieldsHash("vrchat_calendar", back), carriedFieldsHash("vrchat_calendar", vrdex));
+    return back;
+  }
+
+  it("reads a timezone-less linked event in UTC, as correctionFields does, under a non-UTC connector", async () => {
+    const back = await roundTrip({ timezone: undefined, eventDate: "2026-11-08" }, "America/New_York");
+    assert.equal(back.timezone, "UTC");
+  });
+
+  it("round-trips a New York event on the fall-back date that ends after local midnight", async () => {
+    // Starts in the repeated 01:30 hour (EST, the later one) and ends 00:30 the next local day.
+    const startAt = Date.parse("2026-11-01T06:30:00.000Z");
+    const back = await roundTrip({ eventDate: "2026-11-01", startAt, sortAt: startAt, endAt: Date.parse("2026-11-02T05:30:00.000Z") }, "America/New_York");
+    assert.deepEqual([back.eventDate, back.start, back.end], ["2026-11-01", { time: "01:30", occurrence: "later" }, { time: "00:30", dayOffset: 1 }]);
+  });
+
+  it("reads an end that is not after the start, or beyond the schema's day offset, as no end", () => {
+    const read = (endsAt: string) => fieldsFromVrchatEvent(vrchatItem({ endsAt }), "UTC", SITE, null).end;
+    assert.equal(read("2026-11-08T01:00:00.000Z"), null);
+    assert.equal(read("2026-11-07T23:00:00.000Z"), null);
+    assert.equal(read("2026-11-16T01:00:00.000Z"), null);
+    assert.equal(read("not a date"), null);
+    assert.deepEqual(read("2026-11-15T01:00:00.000Z"), { time: "01:00", dayOffset: 7 });
+  });
+
+  it("keeps surrogate pairs whole in the summary and accepts a site URL with a trailing slash", () => {
+    const summary = (description: string, siteUrl = SITE) => fieldsFromVrchatEvent(vrchatItem({ description }), "UTC", siteUrl, null).summary;
+    assert.equal(summary("y".repeat(239) + "🎶"), "y".repeat(239));
+    assert.equal(summary("y".repeat(237) + "  🎶"), "y".repeat(237));
+    assert.equal(summary("Weekly bass night.\n\n" + EVENT_URL, SITE + "/"), "Weekly bass night.");
   });
 
   it("reads an unlinked item in the connector zone and strips only the appended paragraph", () => {

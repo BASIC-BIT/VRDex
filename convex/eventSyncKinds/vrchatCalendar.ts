@@ -6,14 +6,18 @@ import type { EventIntakeFields } from "../../packages/api-contracts/src/event-i
 export const VRCHAT_TITLE_MAX = 64;
 export const DEFAULT_DURATION_MS = 4 * 3_600_000;
 const SUMMARY_MAX = 240;
+const MAX_END_DAY_OFFSET = 7; // EventIntakeLocalTimeSchema's dayOffset ceiling
 
 export type CalendarWrite = { title: string; description: string; startsAt: string; endsAt: string; imageUrl?: string; accessType: "group" };
 
 // Counts UTF-16 units as VRChat and validatePayload do; never splits a surrogate pair.
+function cutUnits(text: string, max: number): string {
+  const cut = text.slice(0, max);
+  return cut.length < text.length && /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+}
+
 export function truncateTitle(title: string): string {
-  if (title.length <= VRCHAT_TITLE_MAX) return title;
-  const cut = title.slice(0, VRCHAT_TITLE_MAX - 1);
-  return (/[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut) + "…";
+  return title.length <= VRCHAT_TITLE_MAX ? title : cutUnits(title, VRCHAT_TITLE_MAX - 1) + "…";
 }
 
 export function exportPayloadFromEvent(event: Doc<"events">, extras: { eventUrl: string; worldNames: string[]; artworkUrl?: string }): CalendarWrite {
@@ -31,7 +35,8 @@ export function exportPayloadFromEvent(event: Doc<"events">, extras: { eventUrl:
 
 // The same fields correctionFields(db, event) yields, so the runner's carried hash matches on a round trip.
 export function fieldsFromVrchatEvent(item: VrchatCalendarItem, zone: string, siteUrl: string, linked: Doc<"events"> | null): EventIntakeFields {
-  const timezone = linked?.timezone ?? zone;
+  // correctionFields reads a timezone-less event in UTC; matching it keeps the echo hash stable.
+  const timezone = linked ? (linked.timezone ?? "UTC") : zone;
   const startAt = Date.parse(item.startsAt);
   const endAt = Date.parse(item.endsAt);
   const eventDate = eventDateForInstant(startAt, timezone);
@@ -41,13 +46,16 @@ export function fieldsFromVrchatEvent(item: VrchatCalendarItem, zone: string, si
   };
   const paragraphs = item.description.split("\n\n");
   const lastLine = paragraphs[paragraphs.length - 1].split("\n");
-  if (lastLine[lastLine.length - 1].startsWith(siteUrl + "/")) paragraphs.pop();
+  if (lastLine[lastLine.length - 1].startsWith(siteUrl.replace(/\/$/, "") + "/")) paragraphs.pop();
   const noEnd = linked !== null && linked.endAt === undefined && endAt - startAt === DEFAULT_DURATION_MS;
+  // External input must not fail the job: an end not after the start, or past the schema's 7-day offset, reads as no end.
+  const endDays = (Date.parse(eventDateForInstant(endAt > startAt ? endAt : startAt, timezone)) - Date.parse(eventDate)) / 86_400_000;
+  const validEnd = endAt > startAt && endDays <= MAX_END_DAY_OFFSET;
   return {
     title: linked && item.title === truncateTitle(linked.title) ? linked.title : item.title,
     eventDate, timeTba: false, timezone,
     start: local(startAt),
-    end: noEnd ? null : local(endAt),
-    summary: paragraphs.join("\n\n").trim().slice(0, SUMMARY_MAX) || null,
+    end: noEnd || !validEnd ? null : local(endAt),
+    summary: cutUnits(paragraphs.join("\n\n").trim(), SUMMARY_MAX).trimEnd() || null,
   };
 }
