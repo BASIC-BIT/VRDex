@@ -681,6 +681,17 @@ export const ApiEventCreateRequestSchema = z
       )
       .max(80)
       .optional(),
+    repeat: z
+      .object({
+        frequency: z.enum(["weekly", "biweekly", "monthly_weekday"]),
+        weekday: z.number().int().min(0).max(6),
+        ordinal: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(-1)]).optional(),
+        endsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        count: z.number().int().min(1).max(520).optional(),
+      })
+      .strict()
+      .optional()
+      .describe("Repeat this event as a series. Requires timezone; weekday must be the local weekday of startAt."),
   })
   .meta({
     description:
@@ -688,7 +699,7 @@ export const ApiEventCreateRequestSchema = z
     id: "ApiEventCreateRequest",
   });
 
-export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.partial()
+export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.omit({ repeat: true }).partial()
   .extend({
     scheduleKind: z.enum(["timed", "date_only"]).optional(),
     eventDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -739,6 +750,7 @@ export const ApiEventWriteResponseSchema = z
     eventPath: z.string().min(1),
     shortLinkCode: z.string().min(1).optional(),
     shortLinkPath: z.string().min(1).optional(),
+    seriesId: z.string().min(1).optional(),
   })
   .meta({
     description: "Created or updated event write result.",

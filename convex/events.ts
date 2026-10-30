@@ -96,8 +96,9 @@ import { ensureShortLinkForTarget } from "./_shortLinks";
 import { enqueueEventSync } from "./_eventSync";
 import { EventIntakeUpdatePatchSchema, canonicalIntakeValue, eventIntakeUpdatePatchValidator, userHasCommunityPermission } from "./_eventConnectors";
 import { correctionFields } from "./eventCorrections";
+import { seriesRepeatValidator, type SeriesRepeat } from "./_eventSeriesModel";
 // Cycle with _eventSeries (it imports this module): used only inside function bodies.
-import { recordOccurrenceOverrides } from "./_eventSeries";
+import { createSeriesFromEvent, recordOccurrenceOverrides, requireRepeatableDraft } from "./_eventSeries";
 import { getVrcdnOutputAccount, listPublicVrcdnOutputAccounts } from "./_vrcdnOutputAccounts";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
 
@@ -999,6 +1000,7 @@ async function createCommunityEventForApiOwnerRecord(
   args: EventDraftInput & {
     ownerUserId: Id<"users">;
     actorSurface?: "api" | "mcp";
+    repeat?: SeriesRepeat;
   },
 ) {
   const input = sanitizeEventDraftInput(args);
@@ -1011,8 +1013,11 @@ async function createCommunityEventForApiOwnerRecord(
     submitter: apiOwnerAuthSubject(args.ownerUserId),
     actorSurface: args.actorSurface ?? "api",
   });
+  if (args.repeat === undefined) return { community, result };
 
-  return { community, result };
+  const event = (await ctx.db.get(result.eventId))!;
+  const { seriesId } = await createSeriesFromEvent(ctx, event, args.repeat, args.ownerUserId, Date.now());
+  return { community, result: { ...result, seriesId } };
 }
 
 async function sanitizeOwnerEventInput(db: DatabaseReader, event: Doc<"events">, input: EventOwnerDraftInput) {
@@ -3082,8 +3087,10 @@ export const createCommunityEventForApiOwner = internalMutation({
     actorKind: apiWriteAuditActorKindValidator,
     ownerUserId: v.id("users"),
     ...eventDraftArgs,
+    repeat: v.optional(seriesRepeatValidator),
   },
   handler: async (ctx, args) => {
+    if (args.repeat !== undefined) requireRepeatableDraft(args, args.repeat);
     const { community, result } = await createCommunityEventForApiOwnerRecord(
       ctx,
       args,
@@ -3107,6 +3114,7 @@ export const createCommunityEventForMcpOwner = internalMutation({
   args: {
     ...mcpWriteAttributionArgs,
     ...eventDraftArgs,
+    repeat: v.optional(seriesRepeatValidator),
   },
   handler: async (ctx, args) => {
     const oauthClientId = normalizeOAuthClientId(args.oauthClientId);
@@ -3127,6 +3135,8 @@ export const createCommunityEventForMcpOwner = internalMutation({
       return await withCurrentEventWritePaths(ctx.db, existing.result as McpEventWriteResult);
     }
 
+    // Outside the try below, so a bad repeat reports its own error rather than MCP_WRITE_DENIED.
+    if (args.repeat !== undefined) requireRepeatableDraft(args, args.repeat);
     let community: Doc<"profiles">;
     let result: McpEventWriteResult;
 

@@ -8,6 +8,7 @@ import { eventDateForInstant, normalizeEventSchedule } from "./_eventSchedule";
 import {
   SERIES_HORIZON_DAYS,
   SERIES_OWNED_EVENT_FIELDS,
+  requireRecurringEventsEnabled,
   type SeriesOwnedEventField,
   type SeriesRepeat,
   type SeriesRule,
@@ -364,6 +365,42 @@ function localTime(instant: number, timeZone: string): string {
   return new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(instant);
 }
 
+type RepeatSource = { startAt: number; endAt?: number; doorsOpenAt?: number; timezone: string; eventDate?: string };
+
+/**
+ * The rule and start date `repeat` gives an event. Throws on a bad rule, or on a supplied weekday or
+ * ordinal that would not make the event itself the first occurrence. Pure, so create paths can run it
+ * before the event exists.
+ */
+export function seriesRuleFor(source: RepeatSource, repeat: SeriesRepeat): { rule: SeriesRule; startsOn: string } {
+  const { startAt, timezone } = source;
+  const startsOn = source.eventDate ?? eventDateForInstant(startAt, timezone);
+  const day = Number(startsOn.slice(8, 10));
+  const ordinal = repeat.frequency === "monthly_weekday" ? repeat.ordinal ?? (day >= 29 ? -1 : (Math.ceil(day / 7) as 1 | 2 | 3 | 4)) : repeat.ordinal;
+  const rule: SeriesRule = {
+    frequency: repeat.frequency,
+    weekday: repeat.weekday ?? weekdayOf(toDay(startsOn)),
+    ordinal,
+    startTime: localTime(startAt, timezone),
+    endTime: source.endAt === undefined ? undefined : localTime(source.endAt, timezone),
+    doorsTime: source.doorsOpenAt === undefined ? undefined : localTime(source.doorsOpenAt, timezone),
+  };
+  const bounds = { startsOn, endsOn: repeat.endsOn, count: repeat.count };
+  validateSeriesRule(rule, bounds);
+  if (occurrenceDates({ rule, ...bounds }, startsOn, startsOn)[0] !== startsOn) {
+    throw new Error("Repeat weekday must match the event's start day.");
+  }
+  return { rule, startsOn };
+}
+
+/** Checks a create-time `repeat` before the event is inserted, so callers see the real error. */
+export function requireRepeatableDraft(draft: Omit<RepeatSource, "timezone" | "eventDate"> & { timezone?: string }, repeat: SeriesRepeat): void {
+  requireRecurringEventsEnabled();
+  const timezone = draft.timezone?.trim();
+  if (!timezone) throw new Error("Repeat requires a timezone.");
+  seriesRuleFor({ ...draft, timezone }, repeat);
+}
+
 /**
  * Turns a published timed event into the first occurrence of a new series, then materialises the rest.
  * The event is linked even when it is already past (the one exception to "past nights are never changed");
@@ -388,23 +425,7 @@ export async function createSeriesFromEvent(
     throw new Error("Only a published timed event can repeat.");
   }
 
-  const startsOn = event.eventDate ?? eventDateForInstant(startAt, timezone);
-  const day = Number(startsOn.slice(8, 10));
-  const ordinal = repeat.frequency === "monthly_weekday" ? repeat.ordinal ?? (day >= 29 ? -1 : (Math.ceil(day / 7) as 1 | 2 | 3 | 4)) : repeat.ordinal;
-  const rule: SeriesRule = {
-    frequency: repeat.frequency,
-    weekday: repeat.weekday ?? weekdayOf(toDay(startsOn)),
-    ordinal,
-    startTime: localTime(startAt, timezone),
-    endTime: event.endAt === undefined ? undefined : localTime(event.endAt, timezone),
-    doorsTime: event.doorsOpenAt === undefined ? undefined : localTime(event.doorsOpenAt, timezone),
-  };
-  const bounds = { startsOn, endsOn: repeat.endsOn, count: repeat.count };
-  validateSeriesRule(rule, bounds);
-  // A supplied weekday or ordinal must make the event itself the first occurrence.
-  if (occurrenceDates({ rule, ...bounds }, startsOn, startsOn)[0] !== startsOn) {
-    throw new Error("Repeat weekday must match the event's start day.");
-  }
+  const { rule, startsOn } = seriesRuleFor({ ...event, startAt, timezone }, repeat);
 
   // Copied from the stored (already sanitised) event so adoption and override checks see no spurious differences.
   const world = await linkedPublishedEventWorld(ctx.db, event._id);
