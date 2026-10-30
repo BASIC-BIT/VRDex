@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 
 import { requireClubPermission, resolveClubActor } from "./_clubAccess";
-import { createSeriesFromEvent, materializeSeries } from "./_eventSeries";
+import { createSeriesFromEvent, materializeSeries, retireOccurrences } from "./_eventSeries";
+import { eventDateForInstant } from "./_eventSchedule";
 import { recurringEventsEnabled, requireRecurringEventsEnabled, seriesRepeatValidator } from "./_eventSeriesModel";
 import { getEventBySlug, validateEventSlug } from "./_eventSlugs";
 import { requireUser } from "./_identity";
@@ -78,5 +79,19 @@ export const create = mutation({
     if (event.communityProfileId === undefined) throw new Error("You do not have access to this action.");
     requireClubPermission(await resolveClubActor(ctx, event.communityProfileId), "manage_events");
     return createSeriesFromEvent(ctx, event, repeat, (await requireUser(ctx)).userId, Date.now());
+  },
+});
+
+export const end = mutation({
+  args: { seriesId: v.id("eventSeries"), state: v.optional(v.union(v.literal("ended"), v.literal("removed"))) },
+  handler: async (ctx, { seriesId, state = "ended" }): Promise<{ unpublished: Id<"events">[]; detached: Id<"events">[] }> => {
+    requireRecurringEventsEnabled();
+    const series = await ctx.db.get(seriesId);
+    if (series === null) throw new Error("Series was not found.");
+    requireClubPermission(await resolveClubActor(ctx, series.communityProfileId), "manage_events");
+    const now = Date.now();
+    const ended = { ...series, state, endsOn: eventDateForInstant(now, series.timezone), updatedAt: now };
+    await ctx.db.patch(seriesId, { state, endsOn: ended.endsOn, updatedAt: now });
+    return retireOccurrences(ctx, ended, now);
   },
 });

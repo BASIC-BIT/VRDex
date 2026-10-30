@@ -15,7 +15,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter, MutationCtx } from "./_generated/server";
 import { canReadProfile } from "./_profilePermissions";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
-import { insertCommunityEventRecord, linkedPublishedEventWorld } from "./events";
+import { applyEventPublicationState, insertCommunityEventRecord, linkedPublishedEventWorld } from "./events";
 
 const DAY_MS = 86_400_000;
 const MAX_COUNT = 520;
@@ -424,4 +424,44 @@ export async function createSeriesFromEvent(
   await enqueueEventSync(ctx.db, ctx.scheduler, event._id, "upsert");
   const { created } = await materializeSeries(ctx, seriesId, now);
   return { seriesId, created: created.length };
+}
+
+/**
+ * Retires the series' upcoming published nights it no longer schedules, or all of them once it is not active.
+ * A bare night is unpublished and keeps its seriesId, so materialisation never recreates that date; a night
+ * with overrides, a lineup, or slots is detached and stays published. Started nights are never touched.
+ */
+export async function retireOccurrences(
+  ctx: MutationCtx,
+  series: Doc<"eventSeries">,
+  now: number,
+): Promise<{ unpublished: Id<"events">[]; detached: Id<"events">[] }> {
+  const result = { unpublished: [] as Id<"events">[], detached: [] as Id<"events">[] };
+  const { db } = ctx;
+  const today = eventDateForInstant(now, series.timezone);
+  // A day early, so a night whose own timezone differs from the series' is still seen; startAt decides.
+  const nights = await db
+    .query("events")
+    .withIndex("by_seriesId_occurrenceDate", (q) => q.eq("seriesId", series._id).gte("occurrenceDate", fromDay(toDay(today) - 1)))
+    .collect();
+  for (const night of nights) {
+    const date = night.occurrenceDate!;
+    const upcoming = night.startAt === undefined ? date >= today : night.startAt > now;
+    if (!upcoming || night.publicationState !== "published") continue;
+    if (series.state === "active" && occurrenceDates(series, date, date).length > 0) continue;
+    const customised =
+      (night.overrides ?? []).length > 0 ||
+      (await db.query("eventLineupEntries").withIndex("by_eventId_position", (q) => q.eq("eventId", night._id)).first()) !== null ||
+      (await db.query("eventSlots").withIndex("by_eventId", (q) => q.eq("eventId", night._id)).first()) !== null;
+    if (customised) {
+      await db.patch(night._id, { seriesId: undefined, occurrenceDate: undefined, overrides: undefined, updatedAt: now });
+      await enqueueEventSync(db, ctx.scheduler, night._id, "upsert");
+      result.detached.push(night._id);
+    } else {
+      // The helper enqueues the sync itself, which exports the unpublish as a delete.
+      await applyEventPublicationState(ctx, night, "draft_private", seriesAuthSubject(series), "system", now);
+      result.unpublished.push(night._id);
+    }
+  }
+  return result;
 }

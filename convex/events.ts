@@ -3581,6 +3581,56 @@ export const listEventAudit = query({
   },
 });
 
+/** Writes a changed publication state with its search, audit, and sync side effects (one enqueue). */
+export async function applyEventPublicationState(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  publicationState: Doc<"events">["publicationState"],
+  actor: AuthSubject,
+  actorSurface: Doc<"eventAuditEvents">["actorSurface"],
+  now: number,
+): Promise<void> {
+  const published = publicationState === "published";
+  await ctx.db.patch(event._id, {
+    publicationState,
+    ...(published ? { publishedAt: event.publishedAt ?? now } : {}),
+    updatedAt: now,
+    ...contributorStaffLock(event, now),
+  });
+  const updated = await ctx.db.get(event._id);
+  if (updated !== null) {
+    await syncPreservedEventAssociations(ctx.db, updated, now, {
+      preserveParticipants: true,
+      preserveSlots: false,
+      preserveWorld: true,
+    });
+    const [community, associations] = await Promise.all([
+      updated.communityProfileId === undefined
+        ? undefined
+        : ctx.db.get(updated.communityProfileId),
+      eventSearchAssociations(ctx.db, updated),
+    ]);
+    await reindexEventSearchDocument(
+      ctx.db,
+      updated,
+      {
+        community: community?.profileType === "community" ? community : undefined,
+        ...associations,
+      },
+      now,
+    );
+  }
+  await recordEventAuditEvent(ctx.db, {
+    eventId: event._id,
+    actor,
+    actorSurface,
+    action: published ? "published" : "unpublished",
+    changedFields: ["publicationState"],
+    now,
+  });
+  await enqueueEventSync(ctx.db, ctx.scheduler, event._id, "upsert");
+}
+
 export const setCommunityEventPublished = mutation({
   args: {
     currentSlug: v.string(),
@@ -3618,44 +3668,7 @@ export const setCommunityEventPublished = mutation({
       }
     }
 
-    await ctx.db.patch(event._id, {
-      publicationState,
-      ...(args.published ? { publishedAt: event.publishedAt ?? now } : {}),
-      updatedAt: now,
-      ...contributorStaffLock(event, now),
-    });
-    const updated = await ctx.db.get(event._id);
-    if (updated !== null) {
-      await syncPreservedEventAssociations(ctx.db, updated, now, {
-        preserveParticipants: true,
-        preserveSlots: false,
-        preserveWorld: true,
-      });
-      const [community, associations] = await Promise.all([
-        updated.communityProfileId === undefined
-          ? undefined
-          : ctx.db.get(updated.communityProfileId),
-        eventSearchAssociations(ctx.db, updated),
-      ]);
-      await reindexEventSearchDocument(
-        ctx.db,
-        updated,
-        {
-          community: community?.profileType === "community" ? community : undefined,
-          ...associations,
-        },
-        now,
-      );
-    }
-    await recordEventAuditEvent(ctx.db, {
-      eventId: event._id,
-      actor: subject,
-      actorSurface: "browser",
-      action: args.published ? "published" : "unpublished",
-      changedFields: ["publicationState"],
-      now,
-    });
-    await enqueueEventSync(ctx.db, ctx.scheduler, event._id, "upsert");
+    await applyEventPublicationState(ctx, event, publicationState, subject, "browser", now);
 
     return {
       eventId: event._id,
