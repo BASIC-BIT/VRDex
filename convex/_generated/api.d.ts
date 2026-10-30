@@ -70,6 +70,8 @@ import type * as _eventPlayback from "../_eventPlayback.js";
 import type * as _eventPublic from "../_eventPublic.js";
 import type * as _eventRuntime from "../_eventRuntime.js";
 import type * as _eventSchedule from "../_eventSchedule.js";
+import type * as _eventSeries from "../_eventSeries.js";
+import type * as _eventSeriesModel from "../_eventSeriesModel.js";
 import type * as _eventShareCard from "../_eventShareCard.js";
 import type * as _eventSlots from "../_eventSlots.js";
 import type * as _eventSlugs from "../_eventSlugs.js";
@@ -305,6 +307,8 @@ declare const fullApi: ApiFromModules<{
   _eventPublic: typeof _eventPublic;
   _eventRuntime: typeof _eventRuntime;
   _eventSchedule: typeof _eventSchedule;
+  _eventSeries: typeof _eventSeries;
+  _eventSeriesModel: typeof _eventSeriesModel;
   _eventShareCard: typeof _eventShareCard;
   _eventSlots: typeof _eventSlots;
   _eventSlugs: typeof _eventSlugs;

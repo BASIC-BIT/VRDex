@@ -13,6 +13,7 @@ import { integrationFeature, storedAuthority } from "./_clubConnection";
 import {clubOperationPayload,operationSchedule,operationState} from "./_clubOperations";
 import { contributionTables } from "./_contributionTables";
 import { connectorDirection, connectorKind, connectorMode, connectorState, connectorTarget, credentialProvider, syncJobKind, syncJobState, syncLinkState } from "./_eventConnectors";
+import { eventSeriesRuleValidator } from "./_eventSeriesModel";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
@@ -398,6 +399,15 @@ const eventMediaLinkType = v.union(
 );
 
 const eventMediaLinkPresentation = v.union(v.literal("open"), v.literal("copy"));
+
+const eventMediaLinks = v.array(
+  v.object({
+    type: eventMediaLinkType,
+    label: v.string(),
+    url: v.string(),
+    presentation: eventMediaLinkPresentation,
+  }),
+);
 
 const eventWorldConfirmationState = v.union(
   v.literal("unconfirmed"),
@@ -1232,6 +1242,32 @@ export default defineSchema({
     fingerprint: v.string(), eventId: v.id("events"), createdAt: v.number(), expiresAt: v.number(),
   }).index("by_fingerprint_expiresAt", ["fingerprint", "expiresAt"])
     .index("by_expiresAt", ["expiresAt"]),
+  // Recurring events (plan 10): a series owns the shared fields; events carry the occurrence.
+  eventSeries: defineTable({
+    communityProfileId: v.id("profiles"),
+    title: v.string(),
+    summary: v.optional(v.string()),
+    timezone: v.string(),
+    venueLabel: v.optional(v.string()),
+    worldSlug: v.optional(v.string()),
+    mediaLinks: v.optional(eventMediaLinks),
+    watchMode: v.optional(v.union(v.literal("event_stream"), v.literal("performer_sequence"))),
+    watchSurfaceEnabled: v.optional(v.boolean()),
+    bannerImageUrl: v.optional(v.string()),
+    thumbnailImageUrl: v.optional(v.string()),
+    sourceUrl: v.optional(v.string()),
+    rule: eventSeriesRuleValidator,
+    startsOn: v.string(),
+    endsOn: v.optional(v.string()),
+    count: v.optional(v.number()),
+    horizonDays: v.number(),
+    authorityUserId: v.id("users"),
+    state: v.union(v.literal("active"), v.literal("ended"), v.literal("removed")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_communityProfileId_state", ["communityProfileId", "state"])
+    .index("by_state", ["state"]),
   events: defineTable({
     venueLabel: v.optional(v.string()),
     contributorUserId: v.optional(v.id("users")),
@@ -1259,16 +1295,7 @@ export default defineSchema({
     thumbnailImageUrl: v.optional(v.string()),
     watchMode: v.optional(v.union(v.literal("event_stream"), v.literal("performer_sequence"))),
     watchSurfaceEnabled: v.optional(v.boolean()),
-    mediaLinks: v.optional(
-      v.array(
-        v.object({
-          type: eventMediaLinkType,
-          label: v.string(),
-          url: v.string(),
-          presentation: eventMediaLinkPresentation,
-        }),
-      ),
-    ),
+    mediaLinks: v.optional(eventMediaLinks),
     sourceType: eventSourceType,
     sourceLabel: v.string(),
     sourceUrl: v.optional(v.string()),
@@ -1278,8 +1305,13 @@ export default defineSchema({
     publishedAt: v.optional(v.number()),
     createdAt: v.optional(v.number()),
     updatedAt: v.number(),
+    // Recurring events (plan 10): occurrence of an eventSeries; overrides lists series-owned fields edited on this night.
+    seriesId: v.optional(v.id("eventSeries")),
+    occurrenceDate: v.optional(v.string()),
+    overrides: v.optional(v.array(v.string())),
   })
     .index("by_slug", ["slug"])
+    .index("by_seriesId_occurrenceDate", ["seriesId", "occurrenceDate"])
     .index("by_publicationState_startAt", ["publicationState", "startAt"])
     .index("by_contributionFingerprint", ["contributionFingerprint"])
     .index("by_contributorUserId", ["contributorUserId"])
