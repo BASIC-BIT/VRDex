@@ -57,6 +57,20 @@ it("lists every active connector with its newest message ID when called without 
   assert.deepEqual(await response.json(), { connectors: [{ connectorId, kind: "discord_announcements", direction: "import", mode: "hold", state: "active", guildId: GUILD, channelId: CHANNEL, lastMessageId: M2 }] });
 });
 
+it("lists a guild's paused connectors but only active ones without a query, and never removed ones", async () => {
+  const { t, connectorId, communityProfileId, authorityUserId } = await seedDiscordIntake();
+  enable();
+  const seed = (state: "paused" | "removed", channelId: string) => t.run(ctx => ctx.db.insert("eventConnectors", {
+    communityProfileId, kind: "discord_announcements", direction: "import", mode: "hold", authorityUserId,
+    target: { guildId: GUILD, channelId }, state, createdAt: Date.now(), updatedAt: Date.now(),
+  }));
+  const paused = await seed("paused", "100000000000000003");
+  await seed("removed", "100000000000000004");
+  const ids = async (path: string) => ((await (await call(t, ["GET", path, undefined])).json()) as { connectors: Array<{ connectorId: string }> }).connectors.map(row => row.connectorId).sort();
+  assert.deepEqual(await ids(`/discord-intake/connectors?guildId=${GUILD}`), [connectorId, paused].sort());
+  assert.deepEqual(await ids("/discord-intake/connectors"), [connectorId]);
+});
+
 it("relays a message into recordMessage and rejects malformed IDs", async () => {
   const { t } = await seedDiscordIntake();
   enable();
