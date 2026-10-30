@@ -55,8 +55,12 @@ async function refreshAccessToken(ctx: ActionCtx, credential: Doc<"connectorCred
   const response = await fetch(TOKEN_URL, { method: "POST", body: new URLSearchParams({
     grant_type: "refresh_token", refresh_token: await readSecret(credential.encryptedRefreshToken), client_id: clientId, client_secret: clientSecret,
   }) });
-  if (response.status === 400 || response.status === 401) return await reauthRequired(ctx, credential._id);
-  if (!response.ok) throw new GoogleApiError(response.status);
+  if (!response.ok) {
+    // Only a revoked or expired grant needs the organiser; invalid_client and 5xx are ours, so jobs fail and alert ops.
+    const error = (await readJson(response).catch(() => undefined) as { error?: unknown } | undefined)?.error;
+    if (error === "invalid_grant") return await reauthRequired(ctx, credential._id);
+    throw new GoogleApiError(response.status, `GOOGLE_TOKEN_${response.status}`);
+  }
   const { access_token, expires_in } = (await readJson(response) ?? {}) as { access_token?: unknown; expires_in?: unknown };
   if (typeof access_token !== "string" || typeof expires_in !== "number") throw new Error("GOOGLE_API_RESPONSE");
   // Google omits the refresh token on refresh, so the stored one stays.

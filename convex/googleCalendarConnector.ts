@@ -10,6 +10,7 @@ export const readCredential = internalQuery({
 export const saveAccessToken = internalMutation({
   args: { credentialId: v.id("connectorCredentials"), encryptedAccessToken: v.string(), accessTokenExpiresAt: v.number() },
   handler: async (ctx, { credentialId, encryptedAccessToken, accessTokenExpiresAt }) => {
+    if ((await ctx.db.get(credentialId))?.state !== "active") return;
     await ctx.db.patch(credentialId, { encryptedAccessToken, accessTokenExpiresAt, updatedAt: Date.now() });
   },
 });
@@ -19,6 +20,7 @@ export const markNeedsReauth = internalMutation({
   args: { credentialId: v.id("connectorCredentials"), error: v.string() },
   handler: async (ctx, { credentialId, error }) => {
     const now = Date.now();
+    // ponytail: reads every google_calendar connector; add a by_credentialId index when they pass a few hundred.
     const connectors = await ctx.db.query("eventConnectors").withIndex("by_kind_target_channelId", q => q.eq("kind", "google_calendar")).collect();
     for (const connector of connectors) {
       if (connector.credentialId !== credentialId || connector.state === "removed") continue;
