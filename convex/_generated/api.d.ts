@@ -143,6 +143,7 @@ import type * as _twitchLinks from "../_twitchLinks.js";
 import type * as _vocabulary from "../_vocabulary.js";
 import type * as _vrcdnLinks from "../_vrcdnLinks.js";
 import type * as _vrcdnOutputAccounts from "../_vrcdnOutputAccounts.js";
+import type * as _vrchatCalendarConnector from "../_vrchatCalendarConnector.js";
 import type * as _vrchatIdentity from "../_vrchatIdentity.js";
 import type * as _vrclinkingSecretRef from "../_vrclinkingSecretRef.js";
 import type * as _worldEvents from "../_worldEvents.js";
@@ -378,6 +379,7 @@ declare const fullApi: ApiFromModules<{
   _vocabulary: typeof _vocabulary;
   _vrcdnLinks: typeof _vrcdnLinks;
   _vrcdnOutputAccounts: typeof _vrcdnOutputAccounts;
+  _vrchatCalendarConnector: typeof _vrchatCalendarConnector;
   _vrchatIdentity: typeof _vrchatIdentity;
   _vrclinkingSecretRef: typeof _vrclinkingSecretRef;
   _worldEvents: typeof _worldEvents;

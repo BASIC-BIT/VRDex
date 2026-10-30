@@ -1,17 +1,16 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { convexTest } from "convex-test";
+import { beforeEach, describe, it } from "node:test";
+import { convexTest, type TestConvex } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import schemaModule from "../../convex/schema";
+import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
+import { enqueueConnectorOperation } from "../../convex/clubOperations";
 import { validatePayload, policyOperation, type OperationPayload } from "../../convex/_clubOperations";
 import { assessClubOperation, clubOperationRequirement } from "../../convex/_clubOperationPolicy";
+import { CAL_1, EVENT_URL, NOW, asOwner, calId, modules, operations, seedVrchatConnector, setupEnv, vrchatItem, workerSettle } from "./_vrchatCalendarFixture";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
-const modules = {
-  "../../convex/clubOperations.ts": () => import("../../convex/clubOperations"),
-  "../../convex/clubConnection.ts": () => import("../../convex/clubConnection"),
-  "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
-};
 
 const GROUP = "grp_11111111-1111-1111-1111-111111111111";
 const CAL = "cal_33333333-3333-3333-3333-333333333333";
@@ -104,4 +103,67 @@ it("staff mutations refuse calendar payloads and the calendar feature can be ena
   }));
   const page = await owner.query(makeFunctionReference<"query">("clubOperations:list"), { communityProfileId, paginationOpts: { numItems: 10, cursor: null } });
   assert.deepEqual(page.page, []);
+});
+
+describe("connector operations", () => {
+  beforeEach(setupEnv);
+  const create = { kind: "create_calendar_event" as const, title: "Bass Temple", description: EVENT_URL, startsAt: "2026-11-08T01:00:00.000Z", endsAt: "2026-11-08T04:00:00.000Z", accessType: "group" as const };
+  const job = (t: TestConvex<typeof schema>, connectorId: Id<"eventConnectors">) =>
+    t.run((ctx) => ctx.db.insert("eventSyncJobs", { connectorId, kind: "export_upsert", payload: {}, dueAt: NOW, attempts: 0, state: "running", leaseExpiresAt: NOW + 1_800_000, createdAt: NOW, updatedAt: NOW }));
+
+  it("enqueues an immediate operation as the connector authority with no event", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedVrchatConnector(t);
+    const jobId = await job(t, connectorId!);
+    const out = await t.run(async (ctx) => enqueueConnectorOperation(ctx, { connector: (await ctx.db.get(connectorId!))!, payload: create, syncJobId: jobId }));
+    const [op] = await operations(t);
+    assert.deepEqual(out, { operationId: op._id });
+    assert.equal(op.actor.tokenIdentifier, "https://test.clerk.accounts.dev|owner");
+    assert.deepEqual(op.schedule, { kind: "immediate" });
+    assert.equal(op.eventId, undefined);
+    assert.deepEqual(op.connectorSync, { connectorId, jobId });
+    assert.equal(op.state, "pending");
+    assert.equal(op.dueAt, NOW);
+  });
+
+  it("refuses without the feature, without manage_events, or without a collector", async () => {
+    for (const [options, refused] of [
+      [{ features: ["posts"] }, "feature_disabled"],
+      [{ authority: "integrations_only" as const }, "staff_permission"],
+      [{ assigned: false }, "integration_unavailable"],
+    ] as const) {
+      const t = convexTest({ schema, modules });
+      const { connectorId } = await seedVrchatConnector(t, options);
+      const jobId = await job(t, connectorId!);
+      const out = await t.run(async (ctx) => enqueueConnectorOperation(ctx, { connector: (await ctx.db.get(connectorId!))!, payload: create, syncJobId: jobId }));
+      assert.deepEqual(out, { refused });
+      assert.equal((await operations(t)).length, 0);
+    }
+  });
+
+  it("a terminal connector operation resumes its job, files no notice, and stays out of the staff list", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const jobId = await job(t, connectorId!);
+    const out = await t.run(async (ctx) => enqueueConnectorOperation(ctx, { connector: (await ctx.db.get(connectorId!))!, payload: create, syncJobId: jobId }));
+    await t.run((ctx) => ctx.db.patch(jobId, { payload: { operationId: (out as { operationId: Id<"clubOperations"> }).operationId, step: "write" } }));
+    const listed = await asOwner(t).query(api.clubOperations.list, { communityProfileId, paginationOpts: { numItems: 10, cursor: null } });
+    assert.equal(listed.page.length, 0);
+    await workerSettle(t, { status: "rejected", code: "provider_permissions" });
+    assert.ok((await t.run((ctx) => ctx.db.get(jobId)))!.leaseExpiresAt! <= NOW);
+    const scheduled = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    assert.deepEqual(scheduled.filter((f) => f.name === "eventSync:runJob").map((f) => (f.args[0] as { jobId: string }).jobId), [jobId]);
+    assert.deepEqual(await t.run((ctx) => ctx.db.query("clubOperationNotifications").collect()), []);
+  });
+
+  it("complete stores calendar results and refuses oversized lists", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedVrchatConnector(t);
+    const jobId = await job(t, connectorId!);
+    await t.run(async (ctx) => enqueueConnectorOperation(ctx, { connector: (await ctx.db.get(connectorId!))!, payload: create, syncJobId: jobId }));
+    assert.equal((await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1 } })).result?.calendarEventId, CAL_1);
+    await t.run(async (ctx) => enqueueConnectorOperation(ctx, { connector: (await ctx.db.get(connectorId!))!, payload: { kind: "list_calendar_events", from: "2026-11-02T00:00:00.000Z", to: "2027-01-31T00:00:00.000Z" }, syncJobId: jobId }));
+    const items = Array.from({ length: 201 }, (_, n) => vrchatItem({ id: calId(n + 1) }));
+    await assert.rejects(workerSettle(t, { status: "succeeded", result: { calendarEvents: items } }), /Invalid operation result/);
+  });
 });

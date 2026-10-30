@@ -20,6 +20,8 @@ export const connectorState = v.union(v.literal("active"), v.literal("paused"), 
 export const connectorTarget = v.object({
   guildId: v.optional(v.string()), channelId: v.optional(v.string()), calendarId: v.optional(v.string()), groupId: v.optional(v.string()),
   guildName: v.optional(v.string()), channelName: v.optional(v.string()), calendarName: v.optional(v.string()), groupName: v.optional(v.string()),
+  // vrchat_calendar: the zone imports read local dates in.
+  timezone: v.optional(v.string()),
 });
 export const credentialProvider = v.union(v.literal("google"), v.literal("notion"));
 export const syncLinkState = v.union(v.literal("linked"), v.literal("external_deleted"), v.literal("vrdex_retracted"));

@@ -1,6 +1,6 @@
 import { readCollectionSubject, readManagedIntegration } from "./_groupObservationPolicy";
 import { assertAutomaticOperationAllowed } from "./_communityTelemetry";
-import { v, convexToJson } from "convex/values";
+import { v, convexToJson, type Infer } from "convex/values";
 import { internal } from "./_generated/api";
 import { recordClubOperationFailure } from "./_clubNotifications";
 import { syncClubEventOperationPage } from "./_clubOperationEvents";
@@ -38,6 +38,9 @@ import {
   CLAIM_MS,
   type OperationPayload,
 } from "./_clubOperations";
+import { operationResult } from "./_clubOperations";
+import { userAuthSubject } from "./_eventConnectors";
+import { vrchatCalendarReadiness } from "./_vrchatCalendarConnector";
 
 // A unique nonce prevents Convex from replaying a cached clock result when a
 // composer checks a schedule immediately before submission.
@@ -54,6 +57,46 @@ async function patchOperation(
 ) {
   await ctx.db.patch(id, patch);
   await recordClubOperationFailure(ctx, id);
+}
+
+export type ConnectorOperationRefusal = "integration_unavailable" | "feature_disabled" | "staff_permission";
+// A connector's operation runs as its authority user, now, with no event: event fanout must never cancel it.
+export async function enqueueConnectorOperation(ctx: MutationCtx, args: {
+  connector: Doc<"eventConnectors">; payload: OperationPayload; syncJobId: Id<"eventSyncJobs">;
+}): Promise<{ operationId: Id<"clubOperations"> } | { refused: ConnectorOperationRefusal }> {
+  const { connector, payload, syncJobId } = args;
+  const subject = await userAuthSubject(ctx.db, connector.authorityUserId);
+  const actor = subject ? await resolveClubSubject(ctx.db, connector.communityProfileId, subject) : null;
+  if (!subject || !actor || (actor.kind !== "owner" && !actor.permissions.includes("manage_events")))
+    return { refused: "staff_permission" };
+  const readiness = await vrchatCalendarReadiness(ctx.db, connector.communityProfileId);
+  if (!readiness.ready)
+    return { refused: readiness.code === "feature_disabled" ? "feature_disabled" : "integration_unavailable" };
+  const { integration } = readiness;
+  validatePayload(payload, integration.vrchatGroupId);
+  const now = Date.now();
+  const requestId = `sync_${syncJobId}_${now}`;
+  const operationId = await ctx.db.insert("clubOperations", {
+    communityProfileId: connector.communityProfileId,
+    integrationId: integration._id,
+    epochStartedAt: integration.telemetryEpochStartedAt ?? integration.createdAt,
+    requestId,
+    batchId: requestId,
+    payload,
+    schedule: { kind: "immediate" },
+    dueAt: now,
+    readyAt: now,
+    actor: subject,
+    createdBy: subject,
+    revision: 1,
+    state: "pending",
+    connectorSync: { connectorId: connector._id, jobId: syncJobId },
+    createdAt: now,
+    updatedAt: now,
+  });
+  readCollectionSubject(integration);
+  await ctx.db.patch(integration._id, { nextPollAt: Math.min(integration.nextPollAt ?? now, now) });
+  return { operationId };
 }
 export async function rejectConnectionOperations(
   ctx: MutationCtx,
@@ -1163,13 +1206,7 @@ export const complete = internalMutation({
       v.literal("indeterminate"),
     ),
     code: v.optional(v.string()),
-    result: v.optional(
-      v.object({
-        worldId: v.optional(v.string()),
-        instanceId: v.optional(v.string()),
-        postId: v.optional(v.string()),
-      }),
-    ),
+    result: v.optional(operationResult),
   },
   returns: v.object({ recorded: v.boolean() }),
   handler: async (ctx, args) => {
@@ -1197,9 +1234,10 @@ export const complete = internalMutation({
       throw new Error("Invalid outcome code.");
     if (
       args.result &&
-      Object.values(args.result).some(
+      (Object.values(args.result).some(
         (x) => typeof x === "string" && x.length > 600,
-      )
+      ) ||
+        !calendarResultValid(job.payload.kind, args.result))
     )
       throw new Error("Invalid operation result.");
     await patchOperation(ctx, job._id, {
@@ -1212,6 +1250,16 @@ export const complete = internalMutation({
     return { recorded: true };
   },
 });
+
+const CALENDAR_EVENT_ID = /^cal_[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$/;
+function calendarResultValid(kind: OperationPayload["kind"], result: Infer<typeof operationResult>) {
+  if (result.calendarEventId !== undefined &&
+      ((kind !== "create_calendar_event" && kind !== "update_calendar_event") || !CALENDAR_EVENT_ID.test(result.calendarEventId)))
+    return false;
+  if ((result.calendarEvents !== undefined || result.calendarEventsTruncated !== undefined) && kind !== "list_calendar_events")
+    return false;
+  return (result.calendarEvents?.length ?? 0) <= 200 && JSON.stringify(result).length <= 500_000;
+}
 
 // Independent of collector authorization and leases. Paginate in immutable
 // creation order so future work cannot starve older overdue rows.
