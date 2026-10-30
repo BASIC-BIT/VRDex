@@ -171,7 +171,7 @@ describe("vrchat calendar export", () => {
     const ops = await operations(t);
     const update = ops[0].payload as { kind: string; calendarEventId: string; imageUrl?: string };
     assert.deepEqual([ops.length, update.kind, update.calendarEventId, update.imageUrl], [1, "update_calendar_event", CAL_1, SITE + "/posters/bass.png"]);
-    await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1 } });
+    await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1, calendarArtworkUploaded: true } });
     assert.equal((await rerunJob(t, job._id)).state, "done");
     const row = await linkOf(t, eventId);
     assert.deepEqual([row.externalId, row.externalArtworkUrl], [CAL_1, SITE + "/posters/bass.png"]);
@@ -433,6 +433,87 @@ describe("vrchat calendar export", () => {
     await expireLease(t, job._id);
     assert.equal((await rerunJob(t, job._id)).state, "done");
     assert.equal(await creates(t), 1);
+  });
+
+  // R1: the runner reads the event at the final re-claim, but the write carried what the event held when it was enqueued.
+  it("records the hash of what an in-flight update sent, so its echo is ignored and the edit still goes out", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "bidirectional" });
+    const eventId = await seedEvent(t, communityProfileId);
+    const sent = await t.run(async (ctx) => carriedFieldsHash("vrchat_calendar", await correctionFields(ctx.db, (await ctx.db.get(eventId))!)));
+    await link(t, connectorId!, eventId);
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(eventId, { title: "Bass Temple Finale" });
+      await enqueueEventSync(ctx.db, ctx.scheduler, eventId, "upsert");
+    });
+    await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1 } });
+    assert.equal((await rerunJob(t, job._id)).state, "done");
+    assert.equal((await linkOf(t, eventId)).lastExportedHash, sent);
+    assert.equal(await t.mutation(internal.vrchatCalendarConnector.applyImport, { connectorId: connectorId!, item: vrchatItem() }), "skipped_echo");
+    assert.equal((await t.run((ctx) => ctx.db.get(eventId)))!.title, "Bass Temple Finale");
+    await rerunJob(t, (await pendingJob(t, "export_upsert"))._id);
+    const edit = (await operations(t)).at(-1)!.payload as { kind: string; title?: string };
+    assert.deepEqual([edit.kind, edit.title], ["update_calendar_event", "Bass Temple Finale"]);
+  });
+
+  it("a re-sent missed update still records the hash of what it sends", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId);
+    const sent = await t.run(async (ctx) => carriedFieldsHash("vrchat_calendar", await correctionFields(ctx.db, (await ctx.db.get(eventId))!)));
+    await link(t, connectorId!, eventId);
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    const [missed] = await operations(t);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(missed._id, { state: "missed", code: "late_window_elapsed", completedAt: NOW });
+      await ctx.db.patch(eventId, { title: "Bass Temple Finale" });
+    });
+    await expireLease(t, job._id);
+    await rerunJob(t, job._id);
+    await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1 } });
+    assert.equal((await rerunJob(t, job._id)).state, "done");
+    assert.equal((await linkOf(t, eventId)).lastExportedHash, sent);
+  });
+
+  it("a failed write forgets the hash of what it tried to send", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId);
+    await link(t, connectorId!, eventId);
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    assert.equal(typeof (job.payload as VrchatJobPayload).exportedHash, "string");
+    await workerSettle(t, { status: "rejected", code: "provider_error" });
+    assert.equal(((await rerunJob(t, job._id)).payload as VrchatJobPayload).exportedHash, undefined);
+  });
+
+  // R3: a soft-dropped image was never sent, so the link must not say it was.
+  it("keeps the recorded artwork unless the worker reports the upload, and offers it again", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId, { posterImageUrl: "https://media.vrdex.test/new.png" });
+    await link(t, connectorId!, eventId, { externalArtworkUrl: "https://media.vrdex.test/old.png" });
+    const dropped = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1 } });
+    assert.equal((await rerunJob(t, dropped._id)).state, "done");
+    assert.equal((await linkOf(t, eventId)).externalArtworkUrl, "https://media.vrdex.test/old.png");
+    const retried = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    assert.equal(((await operations(t)).at(-1)!.payload as { imageUrl?: string }).imageUrl, "https://media.vrdex.test/new.png");
+    await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1, calendarArtworkUploaded: true } });
+    assert.equal((await rerunJob(t, retried._id)).state, "done");
+    assert.equal((await linkOf(t, eventId)).externalArtworkUrl, "https://media.vrdex.test/new.png");
+  });
+
+  it("a create whose artwork was dropped records no artwork", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t);
+    const eventId = await seedEvent(t, communityProfileId, { posterImageUrl: "https://media.vrdex.test/new.png" });
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "export_upsert", eventId });
+    await workerSettle(t, { status: "succeeded", result: { calendarEvents: [] } });
+    await rerunJob(t, job._id);
+    await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1 } });
+    assert.equal((await rerunJob(t, job._id)).state, "done");
+    assert.equal((await linkOf(t, eventId)).externalArtworkUrl, undefined);
   });
 
   it("never submits a queued write after Disconnect, pause, or Off", async () => {
@@ -800,6 +881,34 @@ describe("vrchat calendar import", () => {
     const links = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
     assert.deepEqual(links.map((l) => l.externalId), [calId(5)]);
     assert.deepEqual(await importIds(t), [CAL_1]);
+  });
+
+  it("a poll restores a flagged link when its entry is listed again, and imports the change", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "bidirectional" });
+    const eventId = await seedEvent(t, communityProfileId);
+    const linkId = await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: connectorId!, eventId, externalId: CAL_1, state: "external_deleted", externalUpdatedAt: NOW - 86_400_000, createdAt: NOW - 86_400_000, updatedAt: NOW }));
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "import_poll" });
+    // Newer than the event: on a bidirectional connector an older entry correctly loses.
+    await workerSettle(t, { status: "succeeded", result: { calendarEvents: [vrchatItem({ title: "Bass Temple Moved", updatedAt: "2026-11-02T11:59:59.000Z" })] } });
+    await rerunJob(t, job._id);
+    assert.equal((await t.run((ctx) => ctx.db.get(linkId)))!.state, "linked");
+    assert.deepEqual(await importIds(t), [CAL_1]);
+    const queued = (await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).find((row) => row.kind === "import_item")!;
+    assert.equal((await rerunJob(t, queued._id)).state, "done");
+    assert.equal((await t.run((ctx) => ctx.db.get(eventId)))!.title, "Bass Temple Moved");
+  });
+
+  it("a reconcile restores a flagged link without importing", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "bidirectional" });
+    const eventId = await seedEvent(t, communityProfileId);
+    const linkId = await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: connectorId!, eventId, externalId: CAL_1, state: "external_deleted", createdAt: NOW, updatedAt: NOW }));
+    const job = await runSyncJob(t, { connectorId: connectorId!, kind: "reconcile" });
+    await workerSettle(t, { status: "succeeded", result: { calendarEvents: [vrchatItem()] } });
+    await rerunJob(t, job._id);
+    assert.equal((await t.run((ctx) => ctx.db.get(linkId)))!.state, "linked");
+    assert.deepEqual(await importIds(t), []);
   });
 
   it("deletes a list once it has been read", async () => {

@@ -83,6 +83,7 @@ export const operationResult = v.object({
   instanceId: v.optional(v.string()),
   postId: v.optional(v.string()),
   calendarEventId: v.optional(v.string()),
+  calendarArtworkUploaded: v.optional(v.boolean()),
   calendarEvents: v.optional(v.array(calendarEventItem)),
   calendarEventsTruncated: v.optional(v.boolean()),
 });

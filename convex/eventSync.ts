@@ -217,7 +217,9 @@ export const runJob = internalAction({
         case "export_upsert":
           if (!handler.exportUpsert) throw missing();
           if (!event || !fields) throw new Error("export_upsert job " + job._id + " has no event.");
-          exportedHash = carriedFieldsHash(connector.kind, fields);
+          // A kind that waits on a club operation records what that write carried: the event may have moved on since.
+          const dispatched = (job.payload as { exportedHash?: unknown } | null)?.exportedHash;
+          exportedHash = typeof dispatched === "string" ? dispatched : carriedFieldsHash(connector.kind, fields);
           result = await handler.exportUpsert(ctx, connector, event, link, job);
           break;
         case "export_delete":

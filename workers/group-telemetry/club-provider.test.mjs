@@ -13,6 +13,7 @@ const instanceId = `123~group(${groupId})~groupAccessType(members)~region(us)`;
 const success = { success: { status_code: 200, message: "okay" } };
 const member = { id: "gmem_00000000-0000-0000-0000-000000000001", groupId, userId: uid(3) };
 const destination = { worldId, instanceId, ownerId: groupId, type: "group", active: true, closedAt: null };
+const publicLookup = async () => [{ address: "93.184.216.34", family: 4 }];
 test("friendship check reads one explicit user and validates boolean evidence", async () => {
   const { adapter, calls } = fixture({ handler: async () => ({ isFriend: false, incomingRequest: true }) });
   assert.equal(await adapter.getFriendship(uid(3)), "not_friend");
@@ -225,6 +226,7 @@ test("create posts a group-only event with no creation notification and uploads 
   adapter.fetchImage = async (url) => { fetched.push(url); return { bytes: new Uint8Array([137, 80, 78, 71]), contentType: "image/png" }; };
   const out = await adapter.execute({ kind: "create_calendar_event", ...event, imageUrl: "https://vrdex.test/poster.png" });
   assert.equal(out.status, "succeeded");
+  assert.equal(out.artworkUploaded, true);
   assert.deepEqual(fetched, ["https://vrdex.test/poster.png"]);
   const writes = calls.filter((c) => c.method && c.method !== "GET");
   assert.deepEqual(writes.map((c) => [c.method, c.path]), [["POST", "/file/image"], ["POST", `/calendar/${groupId}/event`]]);
@@ -285,16 +287,55 @@ test("list stops by UTF-8 bytes, not characters", async () => {
 test("artwork fetch keeps only bounded https PNG responses", async () => {
   const png = new Uint8Array([137, 80, 78, 71]);
   const respond = (url, body = png, type = "image/png") => async () => Object.defineProperty(new Response(body, { headers: { "content-type": type } }), "url", { value: url });
+  const lookup = publicLookup;
   const seen = [];
-  assert.deepEqual(await fetchArtwork("https://vrdex.test/a.png", { fetcher: async (url, options) => { seen.push(options.redirect); return respond(url)(); } }), { bytes: png, contentType: "image/png" });
+  assert.deepEqual(await fetchArtwork("https://vrdex.test/a.png", { lookup, fetcher: async (url, options) => { seen.push(options.redirect); return respond(url)(); } }), { bytes: png, contentType: "image/png" });
   assert.deepEqual(seen, ["error"]);
-  await assert.rejects(fetchArtwork("http://vrdex.test/a.png", { fetcher: respond("http://vrdex.test/a.png") }));
-  await assert.rejects(fetchArtwork("https://vrdex.test/a.png", { fetcher: respond("https://vrdex.test/a.png", png, "image/jpeg") }));
-  await assert.rejects(fetchArtwork("https://vrdex.test/a.png", { fetcher: respond("https://vrdex.test/a.png", new Uint8Array(5)), maxBytes: 4 }));
+  await assert.rejects(fetchArtwork("http://vrdex.test/a.png", { lookup, fetcher: respond("http://vrdex.test/a.png") }));
+  await assert.rejects(fetchArtwork("https://vrdex.test/a.png", { lookup, fetcher: respond("https://vrdex.test/a.png", png, "image/jpeg") }));
+  await assert.rejects(fetchArtwork("https://vrdex.test/a.png", { lookup, fetcher: respond("https://vrdex.test/a.png", new Uint8Array(5)), maxBytes: 4 }));
+});
+test("artwork fetch refuses any host that reaches a non-public address, before any request", async () => {
+  const png = new Uint8Array([137, 80, 78, 71]);
+  const fetched = [];
+  const fetcher = async (url) => { fetched.push(url); return new Response(png, { headers: { "content-type": "image/png" } }); };
+  // Each listed range, by an address inside it.
+  const blocked = ["0.1.2.3", "10.0.0.5", "100.64.0.1", "100.127.255.254", "127.0.0.1", "169.254.169.254", "172.16.0.1", "172.31.255.254", "192.168.1.1", "198.18.0.1", "198.19.255.254", "224.0.0.1", "240.0.0.1", "255.255.255.255", "::1", "::", "fc00::1", "fd12:3456::1", "fe80::1", "::ffff:127.0.0.1", "::ffff:7f00:1", "::ffff:169.254.169.254"];
+  for (const address of blocked) {
+    await assert.rejects(fetchArtwork("https://poster.vrdex.test/a.png", { fetcher, lookup: async () => [{ address, family: address.includes(":") ? 6 : 4 }] }), { category: "artwork" }, address);
+  }
+  // A public record beside a private one is still refused.
+  await assert.rejects(fetchArtwork("https://poster.vrdex.test/a.png", { fetcher, lookup: async () => [{ address: "93.184.216.34", family: 4 }, { address: "10.0.0.5", family: 4 }] }), { category: "artwork" });
+  // A literal IP is checked as written, whatever a resolver would say; URL normalises the numeric spellings.
+  for (const url of ["https://127.0.0.1/a.png", "https://169.254.169.254/latest/meta-data", "https://[::1]/a.png", "https://[::ffff:127.0.0.1]/a.png", "https://[::ffff:a9fe:a9fe]/a.png", "https://2130706433/a.png", "https://0x7f.1/a.png"]) {
+    await assert.rejects(fetchArtwork(url, { fetcher, lookup: publicLookup }), { category: "artwork" }, url);
+  }
+  // No answer is not a public answer.
+  await assert.rejects(fetchArtwork("https://poster.vrdex.test/a.png", { fetcher, lookup: async () => [] }), { category: "artwork" });
+  await assert.rejects(fetchArtwork("https://poster.vrdex.test/a.png", { fetcher, lookup: async () => { throw new Error("ENOTFOUND"); } }), /ENOTFOUND/);
+  assert.deepEqual(fetched, []);
+});
+test("artwork fetch lets public addresses through, including the neighbours of the blocked ranges", async () => {
+  const png = new Uint8Array([137, 80, 78, 71]);
+  const fetcher = async () => new Response(png, { headers: { "content-type": "image/png" } });
+  for (const address of ["93.184.216.34", "1.0.0.1", "9.255.255.255", "11.0.0.1", "100.63.255.255", "100.128.0.1", "126.255.255.255", "128.0.0.1", "169.253.0.1", "172.15.255.255", "172.32.0.1", "192.167.0.1", "192.169.0.1", "198.17.255.255", "198.20.0.1", "223.255.255.255", "2606:4700:4700::1111", "fbff::1", "fec0::1"]) {
+    const seen = [];
+    const out = await fetchArtwork("https://poster.vrdex.test/a.png", { fetcher, lookup: async (host, options) => { seen.push([host, options]); return [{ address, family: address.includes(":") ? 6 : 4 }]; } });
+    assert.deepEqual(out, { bytes: png, contentType: "image/png" }, address);
+    assert.deepEqual(seen, [["poster.vrdex.test", { all: true }]]);
+  }
+});
+test("a poster on a private address is a soft drop: the event still writes, without the image", async () => {
+  const { adapter, calls } = fixture({ handler: async (path) => path.startsWith("/calendar/") ? { id: cal, ownerId: groupId } : undefined });
+  adapter.fetchImage = (url) => fetchArtwork(url, { lookup: async () => [{ address: "169.254.169.254", family: 4 }], fetcher: async () => assert.fail("must not fetch") });
+  const out = await adapter.execute({ kind: "create_calendar_event", ...event, imageUrl: "https://poster.vrdex.test/a.png" });
+  assert.equal(out.status, "succeeded");
+  assert.equal(out.artworkUploaded, undefined);
+  assert.deepEqual(calls.filter((c) => c.method && c.method !== "GET").map((c) => c.path), [`/calendar/${groupId}/event`]);
 });
 test("a redirected artwork URL is a soft drop", async () => {
   const { adapter } = fixture({ handler: async () => undefined });
-  adapter.fetchImage = (url) => fetchArtwork(url, { fetcher: async () => { throw new TypeError("fetch failed"); } });
+  adapter.fetchImage = (url) => fetchArtwork(url, { lookup: publicLookup, fetcher: async () => { throw new TypeError("fetch failed"); } });
   assert.equal(await adapter.artwork("https://vrdex.test/a.png"), undefined);
 });
 test("a refused, denied or malformed artwork upload rejects the operation without the event write", async () => {

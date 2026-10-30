@@ -78,6 +78,7 @@ export async function executeClubOperation({ assignment, provider, control, expe
     if (job.payload.kind === "publish_post" || job.payload.kind === "edit_post") result.postId = outcome.result.id;
     if (kind === "create_calendar_event") result.calendarEventId = outcome.result.id;
     if (kind === "update_calendar_event") result.calendarEventId = job.payload.calendarEventId;
+    if (outcome.artworkUploaded) result.calendarArtworkUploaded = true;
     if (kind === "list_calendar_events") Object.assign(result, outcome.result);
   }
   await control.send("club_operation_complete", { ...claim, status: outcome.status,

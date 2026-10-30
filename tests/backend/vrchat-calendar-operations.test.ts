@@ -185,6 +185,16 @@ describe("connector operations", () => {
     await assert.rejects(workerSettle(t, { status: "succeeded", result: { calendarEvents: [vrchatItem({ id: "cal_nope" })] } }), /Invalid operation result/);
   });
 
+  it("takes the artwork flag on a create or update only", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedVrchatConnector(t);
+    const jobId = await job(t, connectorId!);
+    await t.run(async (ctx) => enqueueConnectorOperation(ctx, { connector: (await ctx.db.get(connectorId!))!, payload: create, syncJobId: jobId }));
+    assert.equal((await workerSettle(t, { status: "succeeded", result: { calendarEventId: CAL_1, calendarArtworkUploaded: true } })).result?.calendarArtworkUploaded, true);
+    await t.run(async (ctx) => enqueueConnectorOperation(ctx, { connector: (await ctx.db.get(connectorId!))!, payload: { kind: "delete_calendar_event", calendarEventId: CAL_1 }, syncJobId: jobId }));
+    await assert.rejects(workerSettle(t, { status: "succeeded", result: { calendarArtworkUploaded: true } }), /Invalid operation result/);
+  });
+
   it("complete stores calendar results and refuses oversized lists", async () => {
     const t = convexTest({ schema, modules });
     const { connectorId } = await seedVrchatConnector(t);

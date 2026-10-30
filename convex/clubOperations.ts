@@ -1265,6 +1265,8 @@ function calendarResultValid(kind: OperationPayload["kind"], result: Infer<typeo
   if (result.calendarEventId !== undefined &&
       ((kind !== "create_calendar_event" && kind !== "update_calendar_event") || !CALENDAR_EVENT_ID.test(result.calendarEventId)))
     return false;
+  if (result.calendarArtworkUploaded !== undefined && kind !== "create_calendar_event" && kind !== "update_calendar_event")
+    return false;
   if ((result.calendarEvents !== undefined || result.calendarEventsTruncated !== undefined) && kind !== "list_calendar_events")
     return false;
   const items = result.calendarEvents ?? [];

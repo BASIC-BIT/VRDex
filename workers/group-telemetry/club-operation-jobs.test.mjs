@@ -348,7 +348,15 @@ test("calendar create authorizes once, before the artwork upload, and reports th
   assert.equal(order.filter((x) => x === "provider-write").length, 2);
   assert.equal(order[order.indexOf("provider-write") - 1], "club_operation_authorize");
   assert.deepEqual(sends.filter((s) => s.op === "budget").map((s) => s.body.requestCount), [1, 3]);
-  assert.deepEqual(sends.at(-1).body.result, { calendarEventId: cal });
+  assert.deepEqual(sends.at(-1).body.result, { calendarEventId: cal, calendarArtworkUploaded: true });
+});
+test("a dropped image is not reported as uploaded", async () => {
+  for (const kind of ["create_calendar_event", "update_calendar_event"]) {
+    const { args, sends } = setup({ payload: { kind, ...(kind === "update_calendar_event" ? { calendarEventId: cal } : {}), ...event, imageUrl: "https://vrdex.test/poster.png" } });
+    args.fetchImage = async () => { throw new TypeError("fetch failed"); };
+    assert.equal((await executeClubOperation(args)).status, "succeeded");
+    assert.deepEqual(sends.at(-1).body.result, { calendarEventId: cal });
+  }
 });
 test("calendar update and delete reserve two requests; update reports the payload's event id", async () => {
   for (const payload of [{ kind: "update_calendar_event", calendarEventId: cal, ...event }, { kind: "delete_calendar_event", calendarEventId: cal }]) {

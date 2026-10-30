@@ -1,3 +1,5 @@
+import { lookup as dnsLookup } from "node:dns/promises";
+import { BlockList, isIP } from "node:net";
 import { VrchatProviderError } from "./vrchat-client.mjs";
 
 // Source contract refreshed 2026-09-14: https://vrchat.community/reference/
@@ -17,7 +19,7 @@ const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-
 const enc = encodeURIComponent;
 const ARTWORK_MAX_BYTES = 10 * 1024 * 1024;
 const CALENDAR_ITEMS = 200;
-// Convex refuses a result over 500,000 JSON characters; escaping can inflate
+// Convex refuses a result over 500,000 JSON bytes; escaping can inflate
 // a 2000-character description, so count the serialized size too.
 const CALENDAR_RESULT_BYTES = 490_000;
 function fail(code = "invalid_input") { throw new VrchatProviderError(code, { category: code }); }
@@ -58,9 +60,24 @@ function calendarWindow(value) {
   return { from, to };
 }
 
-/** Fetch poster artwork for upload. Throws on anything but a bounded https PNG. */
-export async function fetchArtwork(url, { fetcher = fetch, timeoutMs = 15_000, maxBytes = ARTWORK_MAX_BYTES } = {}) {
-  if (new URL(url).protocol !== "https:") fail("artwork");
+const NON_PUBLIC = new BlockList();
+for (const range of ["0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4", "::1/128", "::/128", "fc00::/7", "fe80::/10"]) {
+  const [network, prefix] = range.split("/");
+  NON_PUBLIC.addSubnet(network, Number(prefix), isIP(network) === 6 ? "ipv6" : "ipv4");
+}
+// The poster URL is organiser input fetched from a credentialed backend. BlockList also matches IPv4-mapped IPv6.
+// ponytail: this check and fetch's connect resolve separately, so DNS rebinding remains; pin the address if global fetch gains a lookup hook.
+async function requirePublicHost(hostname, lookup) {
+  const host = hostname.replace(/^\[|\]$/g, "");
+  const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true });
+  if (!addresses.length || addresses.some(({ address }) => NON_PUBLIC.check(address, isIP(address) === 6 ? "ipv6" : "ipv4"))) fail("artwork");
+}
+
+/** Fetch poster artwork for upload. Throws on anything but a bounded https PNG from a public address. */
+export async function fetchArtwork(url, { fetcher = fetch, timeoutMs = 15_000, maxBytes = ARTWORK_MAX_BYTES, lookup = dnsLookup } = {}) {
+  const { protocol, hostname } = new URL(url);
+  if (protocol !== "https:") fail("artwork");
+  await requirePublicHost(hostname, lookup);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -319,7 +336,7 @@ export class ClubProvider {
       submitted = true;
       const result = await this.request(plan.path, { method: plan.method, allowEmptyResponse: plan.allowEmptyResponse, ...(plan.body === undefined ? {} : { body: plan.body }) });
       plan.validate(result);
-      return { status: "succeeded", result };
+      return { status: "succeeded", result, ...(artwork ? { artworkUploaded: true } : {}) };
     } catch (error) { return outcome(error, submitted); }
   }
 

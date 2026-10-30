@@ -4,7 +4,7 @@ import { internalMutation, query, type MutationCtx } from "./_generated/server";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { calendarEventItem, type OperationPayload, type VrchatCalendarItem } from "./_clubOperations";
 import { applyEventCandidate, candidateFromConnectorFields } from "./_eventCandidateApply";
-import { connectorsEnabled, requireConnectorAuthority } from "./_eventConnectors";
+import { carriedFieldsHash, connectorsEnabled, requireConnectorAuthority } from "./_eventConnectors";
 import { enqueueSyncJob, eventIsPublic, eventIsSyncable, failureAlertKey } from "./_eventSync";
 import { eventPathForRecord } from "./_eventPaths";
 import { getPublicEventBySlug } from "./_eventPublic";
@@ -13,13 +13,14 @@ import { eventDateForInstant } from "./_eventSchedule";
 import { toPublicEventShareCard } from "./_eventShareCard";
 import { canManageCalendarEvents, vrchatCalendarReadiness } from "./_vrchatCalendarConnector";
 import { enqueueConnectorOperation } from "./clubOperations";
+import { correctionFields } from "./eventCorrections";
 import { exportPayloadFromEvent, fieldsFromVrchatEvent, truncateTitle, vrchatCalendarEnabled } from "./eventSyncKinds/vrchatCalendar";
 
 // The VRChat calendar kind's state machine. Each advance runs one step: it enqueues a club operation and
 // returns `await`, or settles the job. The operation's terminal callback re-runs the job to take the next step.
 export type VrchatJobPayload = {
   operationId?: Id<"clubOperations">; step?: "match" | "write"; externalId?: string; imageUrl?: string; item?: VrchatCalendarItem;
-  waitingSince?: number;
+  waitingSince?: number; exportedHash?: string;
 };
 
 const advanceResult = v.union(
@@ -49,7 +50,7 @@ const setPayload = (ctx: MutationCtx, job: Job, payload: VrchatJobPayload) =>
   ctx.db.patch(job._id, { payload: JSON.parse(JSON.stringify(payload)), updatedAt: Date.now() });
 
 async function enqueue(ctx: MutationCtx, job: Job, connector: Connector, operation: OperationPayload,
-  next: { step: "match" | "write"; externalId?: string }, waitingSince = Date.now()): Promise<Advance> {
+  next: { step: "match" | "write"; externalId?: string; exportedHash?: string }, waitingSince = Date.now()): Promise<Advance> {
   // An export sends nothing after a switch to import or once its event is private; `done("")` leaves the link as it is.
   if (job.kind === "export_upsert" && (connector.direction === "import" || !eventIsPublic(job.eventId ? await ctx.db.get(job.eventId) : null))) return done("");
   const out = await enqueueConnectorOperation(ctx, { connector, payload: operation, syncJobId: job._id });
@@ -81,12 +82,12 @@ async function inFlight(ctx: MutationCtx, job: Job, connector: Connector, payloa
   }
   if (waiting) return { kind: "await", operationId: operation._id };
   // Missed means never submitted: send the same operation again.
-  return await enqueue(ctx, job, connector, operation.payload, { step: payload.step ?? "write", externalId: payload.externalId }, payload.waitingSince);
+  return await enqueue(ctx, job, connector, operation.payload, { step: payload.step ?? "write", externalId: payload.externalId, exportedHash: payload.exportedHash }, payload.waitingSince);
 }
 
 // Rule 4: forget the operation so the runner's backoff starts over from a read.
 async function retry(ctx: MutationCtx, job: Job, payload: VrchatJobPayload, code: string): Promise<Advance> {
-  const { operationId: _operationId, step: _step, waitingSince: _waitingSince, ...rest } = payload;
+  const { operationId: _operationId, step: _step, waitingSince: _waitingSince, exportedHash: _exportedHash, ...rest } = payload;
   await setPayload(ctx, job, rest);
   return failed(code);
 }
@@ -110,7 +111,9 @@ async function exportWrite(ctx: MutationCtx, event: Doc<"events">, link: Link | 
     worldNames: (await getPublicEventBySlug(ctx.db, event))?.worlds.map(world => world.displayName) ?? [],
     ...(artwork ? { artworkUrl: new URL(artwork, siteUrl + "/").toString() } : {}),
   });
-  return { write, artworkSent: write.imageUrl !== undefined && write.imageUrl !== link?.externalArtworkUrl };
+  // Hashed from the same read as the write, so the echo guard knows what this write carried if the event changes while it is in flight.
+  const exportedHash = carriedFieldsHash("vrchat_calendar", await correctionFields(ctx.db, event));
+  return { write, exportedHash, artworkSent: write.imageUrl !== undefined && write.imageUrl !== link?.externalArtworkUrl };
 }
 
 // The kind owns the link's state and artwork; completeJob then writes the export fields on this same row.
@@ -158,16 +161,17 @@ export const advanceExport = internalMutation({
         await setPayload(ctx, job, {});
         // VRChat refuses a past start, so a create the read outlasted is dropped. An event made date-only during the read has no entry to write.
         if (event.startAt === undefined || (!match && event.startAt <= Date.now())) return done(none(event._id));
-        const { write, artworkSent } = await exportWrite(ctx, event, link);
-        if (!match) return await enqueue(ctx, job, connector, { kind: "create_calendar_event", ...write }, { step: "write" });
+        const { write, exportedHash, artworkSent } = await exportWrite(ctx, event, link);
+        if (!match) return await enqueue(ctx, job, connector, { kind: "create_calendar_event", ...write }, { step: "write", exportedHash });
         if (!artworkSent) delete write.imageUrl;
-        return await enqueue(ctx, job, connector, { kind: "update_calendar_event", calendarEventId: match.id, ...write }, { step: "write", externalId: match.id });
+        return await enqueue(ctx, job, connector, { kind: "update_calendar_event", calendarEventId: match.id, ...write }, { step: "write", externalId: match.id, exportedHash });
       }
       if (payload.step === "write" && op.kind === "delete_calendar_event" && gone(operation)) return done(none(event._id));
       if (payload.step === "write" && (op.kind === "create_calendar_event" || op.kind === "update_calendar_event")) {
         const externalId = op.kind === "create_calendar_event" ? operation.result?.calendarEventId : payload.externalId ?? link?.externalId;
         if (operation.state === "succeeded" && externalId) {
-          await upsertLink(ctx, job, event._id, link, { externalId, state: "linked", externalArtworkUrl: payload.imageUrl ?? link?.externalArtworkUrl });
+          // A soft-dropped image was never sent: only the worker's report moves the link on, so the next update offers it again.
+          await upsertLink(ctx, job, event._id, link, { externalId, state: "linked", externalArtworkUrl: operation.result?.calendarArtworkUploaded ? payload.imageUrl : link?.externalArtworkUrl });
           return done(externalId);
         }
         // VRChat answers 404 for an entry the organiser deleted: flag it and never recreate it.
@@ -188,9 +192,9 @@ export const advanceExport = internalMutation({
       return await enqueue(ctx, job, connector, { kind: "delete_calendar_event", calendarEventId: existing }, { step: "write" });
     }
     if (existing) {
-      const { write, artworkSent } = await exportWrite(ctx, event, link);
+      const { write, exportedHash, artworkSent } = await exportWrite(ctx, event, link);
       if (!artworkSent) delete write.imageUrl;
-      return await enqueue(ctx, job, connector, { kind: "update_calendar_event", calendarEventId: existing, ...write }, { step: "write", externalId: existing });
+      return await enqueue(ctx, job, connector, { kind: "update_calendar_event", calendarEventId: existing, ...write }, { step: "write", externalId: existing, exportedHash });
     }
     // VRChat refuses a past start, so an event that has started never gets a new entry.
     if (event.startAt <= Date.now()) return done(none(event._id));
@@ -277,7 +281,12 @@ export const advanceList = internalMutation({
     const items = entries.filter(readable);
     const importItem = (item: VrchatCalendarItem) => enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: connector._id, kind: "import_item", payload: { item } });
     for (const item of items) {
-      const link = await linkByExternalId(ctx, connector._id, item.id);
+      let link = await linkByExternalId(ctx, connector._id, item.id);
+      // Missing from a date-filtered list is weak evidence of a delete; being listed is proof it exists.
+      if (link?.state === "external_deleted") {
+        await ctx.db.patch(link._id, { state: "linked", updatedAt: Date.now() });
+        link = { ...link, state: "linked" };
+      }
       if (purpose === "reconcile") {
         if (link) continue;
         const match = await matchEvent(ctx, connector, item);
