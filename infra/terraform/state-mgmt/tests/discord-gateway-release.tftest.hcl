@@ -71,4 +71,9 @@ run "enabled_release_role" {
     condition     = length([for s in jsondecode(aws_iam_role_policy.discord_gateway_release[0].policy).Statement : s if contains(flatten([s.Action]), "ecs:UpdateService")]) == 1
     error_message = "No other statement may grant UpdateService."
   }
+
+  assert {
+    condition     = one([for s in jsondecode(aws_iam_role_policy.discord_gateway_release[0].policy).Statement : s if s.Sid == "NotifyGatewayReleaseFailure"]).Resource == "arn:aws:sns:us-east-1:079358094174:vrdex-group-telemetry-alerts"
+    error_message = "Release failure notices may publish only to the alerts topic."
+  }
 }

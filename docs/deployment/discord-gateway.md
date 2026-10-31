@@ -83,7 +83,7 @@ A release does not replace this step: with no image change it leaves the running
 **Rotate the bot token** by resetting it in the Discord developer portal, which revokes the old value at once, then writing the new value to all three holders and forcing a new deployment:
 
 - Secrets Manager `vrdex/discord-gateway/DISCORD_BOT_TOKEN`.
-- GitHub secret `DISCORD_BOT_TOKEN`, used by command registration.
+- `DISCORD_BOT_TOKEN` in GitHub environment `discord-gateway-commands`, used by command registration.
 - Convex `DISCORD_BOT_TOKEN`, used by the Integrations page. It must be the same application's token.
 
 **Rotate `DISCORD_INTAKE_SECRET`** by writing the new value to Secrets Manager and Convex, then forcing a new deployment. The value must equal the Convex env value. Heartbeats and relays return 401 in between, and an outage longer than five minutes raises the heartbeat alert.
@@ -97,8 +97,8 @@ Future media enqueue integration should add a scoped service credential. Do not 
 | `vrdex/discord-gateway/DISCORD_BOT_TOKEN` | Secrets Manager | The production Convex `DISCORD_BOT_TOKEN`. Resetting it in the portal revokes every copy | Yes |
 | `vrdex/discord-gateway/DISCORD_APPLICATION_ID` | Secrets Manager | Portal, General Information page | Yes |
 | `vrdex/discord-gateway/DISCORD_INTAKE_SECRET` | Secrets Manager | `openssl rand -base64 32` | Yes |
-| `DISCORD_BOT_TOKEN` | GitHub secret | Same value as Secrets Manager | Yes, for command registration |
-| `DISCORD_APPLICATION_ID` | GitHub secret | Same value as Secrets Manager | Yes, for command registration |
+| `DISCORD_BOT_TOKEN` | GitHub environment `discord-gateway-commands` secret | Same value as Secrets Manager | Yes, for command registration |
+| `DISCORD_APPLICATION_ID` | GitHub environment `discord-gateway-commands` secret | Same value as Secrets Manager | Yes, for command registration |
 | `AWS_DISCORD_GATEWAY_RELEASE_ROLE_ARN` | GitHub variable | `terraform output -raw discord_gateway_release_role_arn` in `infra/terraform/state-mgmt` | Yes |
 | `DISCORD_GATEWAY_RELEASE_ENABLED` | GitHub variable | `true`. Anything else skips every release | Yes |
 | `GROUP_TELEMETRY_CONVEX_SITE_URL` | GitHub variable | Production Convex HTTP actions origin, `https://db.vrdex.net`. Shared with the collector release | Yes |
@@ -120,7 +120,7 @@ BASIC owns every value here. Rotation for the release settings:
 
 - `AWS_DISCORD_GATEWAY_RELEASE_ROLE_ARN`: not a secret. It changes only if the role is recreated; rerun the `gh variable set` in step 2.
 - `DISCORD_GATEWAY_RELEASE_ENABLED`: not a secret, nothing to rotate. Any value but `true` stops releases.
-- GitHub secret `DISCORD_APPLICATION_ID`: changes only when the gateway moves to another Discord application. Update it with the Secrets Manager and Convex values.
+- `DISCORD_APPLICATION_ID` in GitHub environment `discord-gateway-commands`: changes only when the gateway moves to another Discord application. Update it with the Secrets Manager and Convex values.
 
 With extraction off or `OPENAI_API_KEY` unset, every run fails with `extraction_unavailable`. After three failed runs in a row the `discord-intake:<connectorId>` ops alert fires. Set the extraction values before binding a channel.
 
@@ -164,7 +164,9 @@ Each run:
 1. Builds and pushes the image tagged `git-` plus the commit SHA, or reuses it if already published.
 2. Saves a Terraform plan and refuses it unless it changes only `aws_ecs_task_definition.gateway` and `aws_ecs_service.gateway[0]`.
 3. Applies that saved plan and waits for the rollout. A circuit-breaker rollback fails the job, even though ECS reports the rollout complete, because the job compares the running task definition with the one it applied.
-4. Registers slash commands after the roll, including while the service is disabled. A failed roll registers nothing.
+4. Registers slash commands in its own job after the roll, from the `discord-gateway-commands` environment, including while the service is disabled. A failed roll registers nothing.
+
+Any failed job emails through `vrdex-group-telemetry-alerts`: a failed roll, a plan guard refusal, a rollback, or a failed registration.
 
 CI validates and tests this stack and never plans or applies it. Any infrastructure change is a manual apply, which must pass the image and origin, or validation rejects the plan once `enable_service = true`. Reuse the running image so the apply does not roll it:
 
@@ -182,7 +184,7 @@ BASIC runs this once, from Git Bash at the root of a `main` checkout. Before sta
 
 - Run `pnpm install` in that checkout.
 - Have `CONVEX_DEPLOYMENT_PROD` and `CONVEX_DEPLOY_KEY_PROD` in the main checkout's `.env.local`, which `scripts/cx.ts` reads for the `prod` target.
-- Sign in to `gh`, with access to the repository's secrets and variables. `gh auth status` shows the account.
+- Sign in to `gh`, with admin access to the repository: this creates an environment and sets secrets and variables. `gh auth status` shows the account.
 - Have Terraform 1.10 or later, and AWS credentials for the production account.
 
 Export these first. Path conversion would otherwise rewrite values that start with a slash.
@@ -230,7 +232,11 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
 
 5. **Write secret values.** Set `APPLICATION_ID` from the portal. The bot token comes from production Convex, because a reset would revoke the copy already there. Values read by `$(...)` carry no trailing newline. See [setting secret values](./convex-environments.md#setting-secret-values-without-corrupting-them).
 
+   Create the `discord-gateway-commands` environment first and restrict it to `main`. Only it holds the GitHub copies of these two values.
+
    ```bash
+   gh api --method PUT repos/BASIC-BIT/VRDex/environments/discord-gateway-commands \n     --input - <<< '{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}'
+   gh api --method POST repos/BASIC-BIT/VRDex/environments/discord-gateway-commands/deployment-branch-policies -f name=main -f type=branch
    BOT_TOKEN=$(pnpm --silent cx -- prod env get DISCORD_BOT_TOKEN)
    INTAKE_SECRET=$(openssl rand -base64 32)
    aws secretsmanager put-secret-value --secret-id vrdex/discord-gateway/DISCORD_BOT_TOKEN --secret-string "$BOT_TOKEN"
@@ -238,8 +244,8 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
    aws secretsmanager put-secret-value --secret-id vrdex/discord-gateway/DISCORD_INTAKE_SECRET --secret-string "$INTAKE_SECRET"
    pnpm cx -- prod env set DISCORD_INTAKE_SECRET "$INTAKE_SECRET"
    pnpm cx -- prod env set DISCORD_APPLICATION_ID "$APPLICATION_ID"
-   gh secret set DISCORD_BOT_TOKEN --body "$BOT_TOKEN"
-   gh secret set DISCORD_APPLICATION_ID --body "$APPLICATION_ID"
+   gh secret set DISCORD_BOT_TOKEN --env discord-gateway-commands --body "$BOT_TOKEN"
+   gh secret set DISCORD_APPLICATION_ID --env discord-gateway-commands --body "$APPLICATION_ID"
    ```
 
    Then run the check under "Always verify after writing a secret" in that section for each Convex value written here and in step 7. `CR` must be `0`.

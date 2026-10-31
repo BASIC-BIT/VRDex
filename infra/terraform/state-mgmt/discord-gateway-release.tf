@@ -70,8 +70,9 @@ resource "aws_iam_role_policy" "discord_gateway_release" {
         Resource = local.state_bucket_arn
       },
       {
-        # Read-only, and on * because these describe calls do not support
-        # resource scoping. No GetSecretValue: the stack has no secret versions.
+        # Several of these could be resource-scoped. The list stays on * for
+        # simplicity because every action is read-only. No GetSecretValue: the
+        # stack has no secret versions.
         Sid    = "RefreshGatewayStack"
         Effect = "Allow"
         Action = [
@@ -101,7 +102,7 @@ resource "aws_iam_role_policy" "discord_gateway_release" {
       {
         Sid      = "RegisterGatewayTaskDefinitions"
         Effect   = "Allow"
-        Action   = ["ecs:RegisterTaskDefinition", "ecs:DeregisterTaskDefinition", "ecs:TagResource"]
+        Action   = ["ecs:RegisterTaskDefinition", "ecs:TagResource"]
         Resource = "*"
       },
       {
@@ -119,6 +120,12 @@ resource "aws_iam_role_policy" "discord_gateway_release" {
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/vrdex-discord-gateway-task",
         ]
         Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } }
+      },
+      {
+        Sid      = "NotifyGatewayReleaseFailure"
+        Effect   = "Allow"
+        Action   = "sns:Publish"
+        Resource = "arn:aws:sns:us-east-1:${data.aws_caller_identity.current.account_id}:vrdex-group-telemetry-alerts"
       },
     ]
   })

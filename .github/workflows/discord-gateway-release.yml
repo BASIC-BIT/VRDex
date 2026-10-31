@@ -129,6 +129,23 @@ jobs:
           running="$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$service_name" --query 'services[0].taskDefinition' --output text)"
           [ "$running" = "$(terraform output -raw task_definition_arn)" ] || { echo "::error::Gateway rolled back to $running."; exit 1; }
 
+  # Holds the bot token, so it gets no AWS role. `environment:` stays off the jobs
+  # that assume the OIDC role: it changes `sub` and breaks the main-only trust.
+  register-commands:
+    name: Register slash commands
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: discord-gateway-commands
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout the released commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
 
@@ -146,3 +163,27 @@ jobs:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_APPLICATION_ID: ${{ secrets.DISCORD_APPLICATION_ID }}
         run: pnpm --filter @vrdex/discord-gateway register-commands
+
+  notify-failure:
+    name: Email a failed release
+    needs: [release, register-commands]
+    if: ${{ failure() && vars.DISCORD_GATEWAY_RELEASE_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Configure scoped AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DISCORD_GATEWAY_RELEASE_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Publish to the alerts topic
+        run: |
+          aws sns publish \
+            --topic-arn arn:aws:sns:us-east-1:079358094174:vrdex-group-telemetry-alerts \
+            --subject "Discord gateway release failed" \
+            --message "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
