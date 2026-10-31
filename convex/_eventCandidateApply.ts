@@ -89,14 +89,25 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
   // Rule 1: the connector's community, never the candidate's.
   const community = await db.get(connector.communityProfileId);
   if (!community?.slug) throw new Error("Connector community was not found.");
-  const tentative = candidatePatch(candidate).tentative ?? {};
+  const extracted = candidatePatch(candidate);
+  const tentative = extracted.tentative ?? {};
   const fields: EventIntakeFields = { ...tentative, communitySlug: community.slug, timeTba: !tentative.start };
+  const heldPatch = { ...extracted, tentative: { ...tentative, communitySlug: community.slug } };
 
   if (candidate.decision.kind === "not_event") return finish({ outcome: "not_event" });
 
   const link = args.link ?? (args.externalId === undefined ? null
     : await db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connector._id).eq("externalId", args.externalId!)).unique());
-  if (await pendingLinkDraft(db, link, now)) return finish({ outcome: "skipped_pending_draft", eventId: link?.eventId, draftId: link?.draftId });
+  const imported = { lastImportedAt: now, ...(args.externalUpdatedAt === undefined ? {} : { externalUpdatedAt: args.externalUpdatedAt }) };
+  const pending = await pendingLinkDraft(db, link, now);
+  if (link && pending) {
+    // A timestamped source delivers an edit only once, so it lands here, under what staff saved. Discord refreshes the draft in finishRun.
+    if (args.externalUpdatedAt !== undefined && args.externalUpdatedAt > (link.externalUpdatedAt ?? 0)) {
+      await saveIntakeDraft(db, pending.actorUserId, { draftId: pending._id, expectedVersion: pending.version, patch: heldPatch }, now, { connectorDriven: true, connectorId: connector._id });
+      await db.patch(link._id, { ...imported, updatedAt: now });
+    }
+    return finish({ outcome: "skipped_pending_draft", eventId: link.eventId, draftId: link.draftId });
+  }
 
   let target = link?.eventId ? await db.get(link.eventId) : null;
   if (!target && candidate.decision.kind === "update") {
@@ -104,7 +115,6 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
     if (bySlug?.communityProfileId === connector.communityProfileId) target = bySlug;
   }
 
-  const imported = { lastImportedAt: now, ...(args.externalUpdatedAt === undefined ? {} : { externalUpdatedAt: args.externalUpdatedAt }) };
   // Insert only when the item has an external id; otherwise there is nothing to key the link on.
   const upsertLink = async (values: { eventId?: Id<"events">; draftId?: Id<"eventIntakeDrafts"> }) => {
     if (link) { await db.patch(link._id, { ...values, ...imported, updatedAt: now }); return; }
@@ -118,8 +128,7 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
   };
   // Rule 7: a held draft keeps the target's eventId on the link, so My events shows a proposed update.
   const hold = async (outcome: "draft" | "conflict") => {
-    const patch = candidatePatch(candidate);
-    const { draftId } = await saveWorkingDraft({ ...patch, tentative: { ...patch.tentative, communitySlug: community.slug } });
+    const { draftId } = await saveWorkingDraft(heldPatch);
     await upsertLink({ draftId, ...(target ? { eventId: target._id } : {}) });
     return finish({ outcome, draftId, ...(target ? { eventId: target._id } : {}) });
   };
@@ -176,9 +185,8 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
     // These are thrown by the validation above or the read-only preflight, before publish writes; the saved draft stays as a hold.
     if (!HELD_PUBLISH_CODES.has(errorCode(error) as string)) throw error;
     // Rule 7's shape: top-level values read as staff edits, so a later refresh could not replace them.
-    const patch = candidatePatch(candidate);
     const cleared = Object.fromEntries(Object.keys(fields).map(key => [key, null]));
-    await saveIntakeDraft(db, actorUserId, { draftId: saved.draftId, expectedVersion: saved.version, patch: { ...cleared, ...patch, tentative: { ...patch.tentative, communitySlug: community.slug } } }, now, { connectorId: connector._id });
+    await saveIntakeDraft(db, actorUserId, { draftId: saved.draftId, expectedVersion: saved.version, patch: { ...cleared, ...heldPatch } }, now, { connectorId: connector._id });
     await upsertLink({ draftId: saved.draftId });
     return finish({ outcome: "draft", draftId: saved.draftId });
   }

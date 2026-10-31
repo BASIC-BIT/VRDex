@@ -143,8 +143,8 @@ export const applyImport = internalMutation({
       actorUserId: connector.authorityUserId, link: link ?? undefined, externalId: item.id, externalUpdatedAt: updatedMs,
       idempotencyKey: `google_calendar:${connector._id}:${item.id}:${updatedMs}`,
     });
-    // applyEventCandidate records the import times itself; a pending draft leaves the link alone so this edit is not lost.
-    if (item.recurringEventId && outcome !== "skipped_pending_draft") {
+    // applyEventCandidate records the import times itself.
+    if (item.recurringEventId) {
       const after = await linkByExternalId(db, connector._id, item.id);
       if (after) await db.patch(after._id, { externalSeriesId: item.recurringEventId });
     }

@@ -824,19 +824,21 @@ describe("vrchat calendar import", () => {
     for (const linkId of links) assert.equal((await t.run((ctx) => ctx.db.get(linkId)))!.state, "linked");
   });
 
-  it("a VRChat edit behind a pending draft is not marked seen, so a later poll retries it", async () => {
+  it("a VRChat edit behind a pending draft lands in it, and a later poll leaves it alone", async () => {
     const t = convexTest({ schema, modules });
     const { connectorId, authorityUserId } = await seedVrchatConnector(t, { direction: "import", mode: "hold" });
-    const draftId = await t.run((ctx) => ctx.db.insert("eventIntakeDrafts", { actorUserId: authorityUserId, version: 1, fields: {}, provenance: [], connectorId: connectorId!, createdAt: NOW, updatedAt: NOW, expiresAt: NOW + 86_400_000 }));
+    const draftId = await t.run((ctx) => ctx.db.insert("eventIntakeDrafts", { actorUserId: authorityUserId, version: 1, fields: { title: "Staff title" }, provenance: [], connectorId: connectorId!, createdAt: NOW, updatedAt: NOW, expiresAt: NOW + 86_400_000 }));
     const before = Date.parse("2026-11-01T00:00:00.000Z");
     const linkId = await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: connectorId!, draftId, externalId: CAL_1, externalUpdatedAt: before, lastImportedAt: before, state: "linked", createdAt: NOW, updatedAt: NOW }));
     assert.equal(await t.mutation(internal.vrchatCalendarConnector.applyImport, { connectorId: connectorId!, item: vrchatItem() }), "skipped_pending_draft");
     const link = (await t.run((ctx) => ctx.db.get(linkId)))!;
-    assert.deepEqual([link.externalUpdatedAt, link.lastImportedAt], [before, before]);
+    assert.deepEqual([link.externalUpdatedAt, link.lastImportedAt], [Date.parse(vrchatItem().updatedAt), NOW]);
+    const { fields } = (await t.run((ctx) => ctx.db.get(draftId)))!;
+    assert.deepEqual([fields.title, fields.tentative?.title], ["Staff title", vrchatItem().title]);
     const job = await runSyncJob(t, { connectorId: connectorId!, kind: "import_poll" });
     await workerSettle(t, { status: "succeeded", result: { calendarEvents: [vrchatItem()] } });
     await rerunJob(t, job._id);
-    assert.deepEqual(await importIds(t), [CAL_1]);
+    assert.deepEqual(await importIds(t), []);
   });
 
   it("never matches a draft, cancelled, or moderation-removed twin", async () => {
