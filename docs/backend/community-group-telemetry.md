@@ -66,6 +66,14 @@ Member metadata remains available without an aggregate slot under the shared pub
 
 ## Observation model
 
+The collector reads `GET /users/{collectorUserId}/instances/groups/{groupId}` after checking the group's membership. This returns full instance records in one request. Population uses each instance's `n_users`, not the group-list `memberCount`. Only normalized counts, locators, and closure timestamps leave the adapter; rosters are discarded. The collector identity comes from its verified service-account session.
+
+The response's `fetchedAt` is the observation time. Repeated cached responses therefore cannot renew liveness or count as new disappearance confirmations. Poll scheduling still uses the current request time, including on duplicates. Snapshots older than the connection epoch or the latest accepted observation do not change history. A response older than six minutes fails as unknown coverage instead of becoming a new observation.
+
+A provider-confirmed closure removes the instance from the live list on the first ingested observation. Remaining occupants still contribute to the group population and the instance's observed population history. Repeated closed records reuse the same session; ordinary disappearance without explicit closure retains the two-miss rule. When collection first discovers an already-closed instance, its recorded closure is bounded to its first observation, rather than inventing earlier observed history. The management instance picker uses the same full-instance endpoint, excludes closed or inactive destinations, and preserves `fetchedAt` for its existing freshness checks.
+
+Deploy the backend accepting the optional per-instance `closedAt` field before releasing the collector. Older collectors remain accepted. No historical population correction or backfill is performed.
+
 - `communityPopulationObservations`: one immutable total population, instance count, and world distribution per successful poll; the poll ID is the idempotency key.
 - `instanceSessions`: first seen, last seen, and confirmed close for an immutable provider location. The canonical location combines world and instance identifiers, so the same instance suffix can exist in different worlds. Only successful complete instance enumerations increment the miss counter. Two consecutive misses close a session; seeing the same provider location later opens a new session. `lastObservedAt` records actual visibility, while `closedAt` records the later confirmation poll.
 - `instancePopulationObservations`: aggregate population per visible instance per successful poll. These support exact confirmed-event recaps without collecting people.

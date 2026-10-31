@@ -120,6 +120,15 @@ function harness({
     },
   };
 }
+
+test("cached provider observations do not put the next poll in the past", async () => {
+  const h = harness();
+  let nextPollAt;
+  h.sandbox.provider.readAggregateSnapshot = async () => ({ observedAt: 820000, group: { memberCount: 1 }, instances: [] });
+  h.sandbox.control.send = async (op, args) => { if (op === "ingest") nextPollAt = args.nextPollAt; return { granted: true }; };
+  await h.pass();
+  assert.equal(nextPollAt, 1060000);
+});
 test("adopted managed poll skips named history despite current audit permission", async () => {
   const h = harness({ features: ["analytics"], namedMembershipCollectionEnabled: false });
   h.sandbox.refreshClubAuthority = async () => ({ authority: { groupId: "grp_00000000-0000-0000-0000-000000000001", userId: "bot", membershipStatus: "member", permissions: ["*"], observedAt: 1000000 } });

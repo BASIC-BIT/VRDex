@@ -796,7 +796,8 @@ export const getInstanceSummaryPage = query({
       args.sessionId,
     );
     const startAt = Math.max(state.epoch, session.openedAt, args.startAt);
-    const endAt = Math.min(args.endAt, session.closedAt ?? args.endAt);
+    const historyEndAt = Math.max(session.lastObservedAt + 1, session.closedAt ?? 0);
+    const endAt = Math.min(args.endAt, historyEndAt);
     const opts = checkedPagination(args.paginationOpts);
     if (endAt <= startAt) return { page: [], isDone: true, continueCursor: "" };
     const result = await ctx.db
@@ -831,7 +832,7 @@ export const getInstanceSummaryPage = query({
             .gte("observedAt", endAt)
             .lte(
               "observedAt",
-              Math.min(endAt + 300_000, session.closedAt ?? endAt + 300_000),
+              Math.min(endAt + 300_000, historyEndAt),
             ),
         )
         .first();

@@ -21,6 +21,7 @@ class SessionFixtureClient extends ConvexReactClient {
   private held = false;
   private eligible = true;
   private empty: boolean;
+  private instanceClosed = false;
   private addedObservation: number | null = null;
   constructor(private record: (value: unknown) => void, private variant = "normal") {
     super("https://fixture.invalid");
@@ -33,6 +34,7 @@ class SessionFixtureClient extends ConvexReactClient {
       if (this.variant === "delayed-clock") this.variant = "normal";
     }
     if (mode === "Disconnect") this.eligible = false;
+    if (mode === "Close observed instance") this.instanceClosed = true;
     if (mode === "Add fresh row") {
       this.empty = false;
       this.addedObservation = this.now();
@@ -63,8 +65,8 @@ class SessionFixtureClient extends ConvexReactClient {
       id: "session-one", worldId: "wrld_33333333-3333-3333-3333-333333333333",
       worldName: "The Observatory", providerInstanceId: "123~group(grp_fixture)",
       openedAt: SERVER_START - 240_000, lastObservedAt: this.observation,
-      closedAt: null, state: "open", now,
-      liveObservedAt: this.eligible && now - this.observation <= 360_000 ? this.observation : null,
+      closedAt: this.instanceClosed ? SERVER_START - 120_000 : null, state: this.instanceClosed ? "closed" : "open", now,
+      liveObservedAt: !this.instanceClosed && this.eligible && now - this.observation <= 360_000 ? this.observation : null,
     };
     const page = (values: unknown[]) => ({ page: values, isDone: true, continueCursor: "", before: null, after: null });
     let result: unknown;
@@ -86,6 +88,7 @@ class SessionFixtureClient extends ConvexReactClient {
       { at: SERVER_START, value: 100, coverage: "observed" },
     ]);
     else if (name === "clubAnalytics:getInstanceSummaryPage") {
+      if (this.instanceClosed && Number(args.endAt) <= this.observation) throw new Error("Occupied history was truncated at closure");
       const duration = Number(args.endAt) - Number(args.startAt);
       result = page([{ peak: 100, area: 75 * duration, observedDuration: duration, first: null, last: null }]);
     } else if (name === "clubProviderReads:context") result = { enabledFeatures: ["instances"], permittedProviderRoleIds: [], protectedUserIds: [] };
@@ -124,7 +127,7 @@ function SessionFixture({ mode = "owner", variant = "normal" }: { mode?: "owner"
   return <ConvexProvider client={client}>
     <div className="mx-auto max-w-6xl p-5">
       <div className="mb-4 flex flex-wrap gap-2">
-        {["Reactive evaluation", "Replace observation", "Disconnect", "Hold evaluations", "Release evaluations", "Add fresh row"].map(mode => <Button key={mode} onClick={() => client.update(mode)}>{mode}</Button>)}
+        {["Reactive evaluation", "Replace observation", "Disconnect", "Hold evaluations", "Release evaluations", "Add fresh row", "Close observed instance"].map(mode => <Button key={mode} onClick={() => client.update(mode)}>{mode}</Button>)}
         <Button onClick={() => setMount(value => value + 1)}>Remount owner</Button>
         <Button onClick={() => setDetail(true)}>Open detail</Button>
         <Button onClick={() => setRevoked(true)}>Revoke management</Button>

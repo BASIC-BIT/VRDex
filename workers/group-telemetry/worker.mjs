@@ -49,7 +49,7 @@ const control = new TelemetryControlClient({
   releaseSha: runtimeMetadata.releaseSha,
   workerId: process.env.VRDEX_GROUP_TELEMETRY_WORKER_ID,
 });
-const provider = new VrchatClient({ authCookie: secret.authCookie, twoFactorAuthCookie: secret.twoFactorAuthCookie, userAgent: requiredEnv("VRDEX_GROUP_TELEMETRY_USER_AGENT") });
+const provider = new VrchatClient({ userId: secret.vrchatUserId, authCookie: secret.authCookie, twoFactorAuthCookie: secret.twoFactorAuthCookie, userAgent: requiredEnv("VRDEX_GROUP_TELEMETRY_USER_AGENT") });
 const accountBudget = new RequestBudget(Number(process.env.VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE ?? 30));
 /**
  * Fast local guard for the proof share.
@@ -289,7 +289,7 @@ async function collect(assignment) {
       await control.send("ingest", {...lease, pollId: pollId(assignment.integrationId, snapshot.observedAt), observedAt: snapshot.observedAt,
         collectorVersion: COLLECTOR_PROTOCOL_VERSION, groupMemberCount: snapshot.group.memberCount, groupVisibility: snapshot.group.groupVisibility,
         joinPolicy: snapshot.group.joinPolicy, ...(snapshot.group.groupCreatedAt === undefined ? {} : {groupCreatedAt: snapshot.group.groupCreatedAt}),
-        instances: snapshot.instances, nextPollAt: snapshot.observedAt + randomPollDelayMs(snapshot.instances.length > 0)});
+        instances: snapshot.instances, nextPollAt: Date.now() + randomPollDelayMs(snapshot.instances.length > 0)});
       attempts.delete(assignment.integrationId);
       return;
     }
@@ -327,7 +327,7 @@ async function collect(assignment) {
         groupMemberCount: snapshot.group.memberCount,
         groupVisibility: snapshot.group.groupVisibility, joinPolicy: snapshot.group.joinPolicy,
         ...(snapshot.group.groupCreatedAt === undefined ? {} : { groupCreatedAt: snapshot.group.groupCreatedAt }),
-        instances: snapshot.instances, nextPollAt: snapshot.observedAt + randomPollDelayMs(snapshot.instances.length > 0) });
+        instances: snapshot.instances, nextPollAt: Date.now() + randomPollDelayMs(snapshot.instances.length > 0) });
       attempts.delete(assignment.integrationId);
       return;
     }
@@ -378,7 +378,7 @@ async function collect(assignment) {
       );
       if (!snapshot) return;
       const nextPollAt =
-        snapshot.observedAt + randomPollDelayMs(snapshot.instances.length > 0);
+        Date.now() + randomPollDelayMs(snapshot.instances.length > 0);
       await control.send("ingest", {
         ...lease,
         pollId: pollId(assignment.integrationId, snapshot.observedAt),
