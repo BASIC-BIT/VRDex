@@ -30,7 +30,7 @@ export const listPage = query({
       const page: InventoryRow[] = [];
       const now = Date.now();
       for (const draft of candidates.page) {
-        if (draft.expiresAt <= now || draft.publishedReceiptId !== undefined) continue;
+        if (draft.expiresAt <= now || draft.publishedReceiptId !== undefined || draft.connectorId !== undefined) continue;
         const fields = EventIntakePatchSchema.parse(draft.fields);
         const profile = fields.communitySlug ? await ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug", fields.communitySlug ?? "")).unique() : null;
         const community = profile?.profileType === "community" && (canReadProfile("public", profile) || communities.some(entry => entry.profile._id === profile._id)) ? profile : null;

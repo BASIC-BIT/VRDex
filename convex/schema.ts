@@ -1176,10 +1176,13 @@ export default defineSchema({
     provenance: v.array(v.object({ field: v.string(), kind: v.union(v.literal("contributor"), v.literal("tentative")), version: v.number() })),
     publishedReceiptId: v.optional(v.id("eventContributionReceipts")),
     connectorId: v.optional(v.id("eventConnectors")),
+    // A held connector draft leaves review once published, applied as an update, or dismissed.
+    dismissedAt: v.optional(v.number()), resolvedAt: v.optional(v.number()),
     createdAt: v.number(), updatedAt: v.number(), expiresAt: v.number(),
   }).index("by_actor_updatedAt", ["actorUserId", "updatedAt"])
     .index("by_actor_expiresAt", ["actorUserId", "expiresAt"])
     .index("by_actor_connector_expiresAt", ["actorUserId", "connectorId", "expiresAt"])
+    .index("by_connectorId_resolvedAt_expiresAt", ["connectorId", "resolvedAt", "expiresAt"])
     .index("by_expiresAt", ["expiresAt"]),
   eventContributionReceipts: defineTable({
     actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"), draftVersion: v.number(),
@@ -1216,8 +1219,12 @@ export default defineSchema({
     lastImportedAt: v.optional(v.number()), externalUpdatedAt: v.optional(v.number()), state: syncLinkState, createdAt: v.number(), updatedAt: v.number(),
     // vrchat_calendar: the poster URL last exported, so an unchanged poster is not re-sent.
     externalArtworkUrl: v.optional(v.string()),
+    // Staff kept the event after its external item was deleted.
+    flagReviewedAt: v.optional(v.number()),
   }).index("by_connectorId_externalId", ["connectorId", "externalId"])
-    .index("by_eventId", ["eventId"]),
+    .index("by_eventId", ["eventId"])
+    .index("by_draftId", ["draftId"])
+    .index("by_connectorId_state_flagReviewedAt", ["connectorId", "state", "flagReviewedAt"]),
   eventSyncJobs: defineTable({
     connectorId: v.id("eventConnectors"), eventId: v.optional(v.id("events")), kind: syncJobKind, payload: v.any(),
     dueAt: v.number(), attempts: v.number(), leaseExpiresAt: v.optional(v.number()), state: syncJobState, lastError: v.optional(v.string()),
@@ -1252,7 +1259,8 @@ export default defineSchema({
     externalId: v.string(),
     draftId: v.optional(v.id("eventIntakeDrafts")), runId: v.id("discordIntakeRuns"), createdAt: v.number(),
   }).index("by_connectorId_messageId", ["connectorId", "messageId"])
-    .index("by_eventId", ["eventId"]),
+    .index("by_eventId", ["eventId"])
+    .index("by_draftId", ["draftId"]),
   discordGatewayHeartbeats: defineTable({ instanceId: v.string(), at: v.number(), receivedAt: v.number() })
     .index("by_instanceId", ["instanceId"])
     .index("by_receivedAt", ["receivedAt"]),

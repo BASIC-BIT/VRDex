@@ -10,7 +10,7 @@ import { ensureShortLinkForTarget } from "./_shortLinks";
 import { eventPathForRecord, eventPathForSlugs } from "./_eventPaths";
 import { eventParticipantRoleLabels, linkedPublishedEventWorld, recordEventAuditEvent, replaceEventWorldLink } from "./events";
 import { enqueueEventSync } from "./_eventSync";
-import { userAuthSubject } from "./_eventConnectors";
+import { userAuthSubject, userHasCommunityPermission } from "./_eventConnectors";
 
 const submitterFor = async (db: DatabaseReader, userId: Id<"users">) => {
   const submitter = await userAuthSubject(db, userId);
@@ -47,12 +47,22 @@ export function sanitizeEventIntakePatch(raw: unknown): EventIntakePatch {
   }
   return patch;
 }
+// A held connector draft is the community's, whoever the connector's authority is. The connector's state does not matter: drafts outlive a paused or removed connector.
+export async function getConnectorDraftForManager(db: DatabaseReader, userId: Id<"users">, draftId: Id<"eventIntakeDrafts">, now = Date.now()) {
+  const draft = await db.get(draftId);
+  const connector = draft?.connectorId ? await db.get(draft.connectorId) : null;
+  const community = connector ? await db.get(connector.communityProfileId) : null;
+  if (!draft || !connector || !community || draft.expiresAt <= now || draft.resolvedAt !== undefined || draft.publishedReceiptId || !await userHasCommunityPermission(db, community._id, userId, ["manage_events"])) throw new Error("Draft not found.");
+  return { draft, connector, community };
+}
 export async function getActorIntakeDraft(db: DatabaseReader, actorUserId: Id<"users">, draftId: Id<"eventIntakeDrafts">, now = Date.now()) {
   if (!await db.get(actorUserId)) throw new Error("A signed-in user is required.");
-  const draft = await db.get(draftId);
-  if (!draft || draft.actorUserId !== actorUserId || draft.expiresAt <= now) throw new Error("Draft not found.");
+  const owned = await db.get(draftId);
+  const draft = owned && owned.actorUserId !== actorUserId ? (await getConnectorDraftForManager(db, actorUserId, draftId, now)).draft : owned;
+  if (!draft || draft.expiresAt <= now) throw new Error("Draft not found.");
   const artwork = draft.artworkAssetId ? await db.get(draft.artworkAssetId) : null;
-  const artworkSourceId = artwork?.draftId === draft._id && artwork.actorUserId === actorUserId && ["ready", "published"].includes(artwork.state) ? artwork.sourceId : undefined;
+  // Posters bind to the draft, not the actor: a manager works with what the connector's authority attached.
+  const artworkSourceId = artwork?.draftId === draft._id && ["ready", "published"].includes(artwork.state) ? artwork.sourceId : undefined;
   return { ...draft, artworkSourceId, fields: sanitizeEventIntakePatch(draft.fields) };
 }
 export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users">, args: { draftId?: Id<"eventIntakeDrafts">; expectedVersion?: number; patch: unknown }, now = Date.now(), options: { connectorDriven?: boolean; connectorId?: Id<"eventConnectors"> } = {}) {
@@ -66,7 +76,7 @@ export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users
     if (!rawId) continue;
     const id = db.normalizeId("eventPosterSources", rawId);
     const source = id ? await db.get(id) : null;
-    if (!draft || !source || source.actorUserId !== actorUserId || source.draftId !== draft._id) throw new Error("POSTER_DRAFT_MISMATCH");
+    if (!draft || !source || source.draftId !== draft._id) throw new Error("POSTER_DRAFT_MISMATCH");
     if (source.state !== "pending" && source.state !== "ready") throw new Error("POSTER_NOT_READY");
     if ((source.state === "pending" ? source.uploadExpiresAt : Math.min(source.uploadedAt + 180 * 86_400_000, draft.updatedAt + 30 * 86_400_000)) <= now) throw new Error("POSTER_NOT_FOUND");
   }
@@ -124,6 +134,8 @@ export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "schedule
     if (recentRequests.length >= 100) throw new ConvexError({ code: "REQUEST_QUOTA" });
   }
   const draft = await getActorIntakeDraft(db, actorUserId, args.draftId, now);
+  // Connector drafts publish as the community's listing, only through the held path.
+  if (!connectorId && draft.connectorId) throw new Error("DRAFT_ACCESS");
   const connector = connectorId ? await db.get(connectorId) : null;
   if (connectorId && (draft.connectorId !== connectorId || connector?.state !== "active")) throw new Error("CONNECTOR_DRAFT_MISMATCH");
   if (draft.version !== args.expectedVersion) throw new ConvexError({ code: "VERSION_CONFLICT" });
@@ -187,7 +199,7 @@ export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "schedule
     // An explicit selection belongs to this contributor's (or connector's) newly created event only.
     if (draft.artworkAssetId && receipt.draftId === draft._id && (connectorId ? createdEvent : event.contributorUserId === actorUserId)) {
       const artwork = await db.get(draft.artworkAssetId);
-      if (!artwork || artwork.actorUserId !== actorUserId || artwork.draftId !== draft._id || artwork.state !== "ready" || (draft.fields.posterSourceId !== undefined && draft.fields.posterSourceId !== artwork.sourceId)) throw new Error("ARTWORK_NOT_READY");
+      if (!artwork || artwork.draftId !== draft._id || artwork.state !== "ready" || (draft.fields.posterSourceId !== undefined && draft.fields.posterSourceId !== artwork.sourceId)) throw new Error("ARTWORK_NOT_READY");
       await db.patch(artwork._id, { state: "published", eventId: event._id, expiresAt: now + 86_400_000 });
       const posterImageUrl = `/api/v0/events/${event._id}/artwork/${artwork._id}`;
       await db.patch(event._id, { posterImageUrl });
