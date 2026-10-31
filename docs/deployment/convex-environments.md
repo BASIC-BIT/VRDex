@@ -222,7 +222,7 @@ again at once. Current alarms:
   alert: a successful read says nothing about writes.
 - `discord-intake:` plus the connector ID: a connector's three most recently
   started intake runs all failed, or the five-minute sweep closed one of its
-  runs as `stalled`. The email names the connector and community IDs and the
+  runs as `stalled` and requeued its posts. The email names the connector and community IDs and the
   failure codes or run ID only. The next finished run, or removing or
   disconnecting the connector, resolves it.
 - `discord-intake-dropped:` plus the run ID: the sweep closed a run as `stalled`
