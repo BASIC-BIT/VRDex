@@ -356,3 +356,238 @@ it("leaves imported occurrences and Discord-deleted links alone", async (test) =
   assert.equal((await linkOf(t, s.eventIds[0]))?.externalId, occurrence);
   assert.equal((await linkOf(t, s.eventIds[1]))?.externalId, OTHER);
 });
+
+const importJob = (t: ReturnType<typeof convexTest>, connectorId: Id<"eventConnectors">, action: string, event: unknown, receivedAt = Date.now()) =>
+  runJob(t, { connectorId, kind: "import_item", payload: { action, event, receivedAt } });
+const patchLink = (t: ReturnType<typeof convexTest>, eventId: Id<"events">, patch: Partial<Doc<"eventSyncLinks">>) => t.run(async (ctx) => {
+  const link = await ctx.db.query("eventSyncLinks").withIndex("by_eventId", (q) => q.eq("eventId", eventId)).unique();
+  await ctx.db.patch(link!._id, patch);
+});
+const weekly = (start: number) => ({ start: iso(start), end: null, frequency: 2, interval: 1, by_weekday: [(new Date(start).getUTCDay() + 6) % 7], by_n_weekday: null, by_month: null, by_month_day: null, by_year_day: null, count: null });
+const EVENT_LINE = "Deep house by the water.\n\nhttps://vrdex.test/afterglow-social/events/night-0";
+
+it("ignores its own export coming back", async (test) => {
+  const calls = fakeDiscord(test);
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{}]);
+  await upsert(t, s);
+  const sent = calls.find((call) => call.method === "POST")!.body!;
+  const echo = { ...discordEvent(s.now + 2 * DAY), ...sent, id: "900000000000000001", image: "a1b2c3d4" };
+  assert.equal((await importJob(t, s.connectorId, "update", echo))?.state, "done");
+  assert.deepEqual(await all(t, "eventIntakeDrafts"), []);
+  assert.equal((await t.run((ctx) => ctx.db.get(s.eventIds[0])))?.updatedAt, 1);
+});
+
+it("files nothing for an update that matches the event before the export hash lands", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE }]);
+  const receivedAt = Date.now();
+  assert.equal((await importJob(t, s.connectorId, "update", discordEvent(s.now + 2 * DAY, { description: EVENT_LINE }), receivedAt))?.state, "done");
+  assert.deepEqual(await all(t, "eventIntakeDrafts"), []);
+  const link = await linkOf(t, s.eventIds[0]);
+  assert.equal(link?.lastExportedHash, undefined);
+  assert.equal(link?.externalUpdatedAt, receivedAt);
+  assert.ok(link?.lastImportedAt);
+});
+
+it("files a held draft and a link for a new Discord event", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, []);
+  await importJob(t, s.connectorId, "create", discordEvent(s.now + DAY, { id: OTHER, name: "Harbor Sunrise" }));
+  assert.equal((await all(t, "eventIntakeDrafts")).length, 1);
+  const [link] = await all(t, "eventSyncLinks");
+  assert.equal(link.externalId, OTHER);
+  assert.ok(link.draftId);
+  assert.equal(link.eventId, undefined);
+  assert.ok(link.lastImportedAt);
+  assert.equal(link.externalSeriesId, undefined);
+});
+
+it("links an unlinked Discord event to the same VRDex night instead of creating one", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{}]);
+  await importJob(t, s.connectorId, "create", discordEvent(s.now + 2 * DAY, { name: "AFTERGLOW harbor sessions", description: "New details." }));
+  assert.equal((await linkOf(t, s.eventIds[0]))?.externalId, LIVE);
+  assert.equal((await all(t, "events")).length, 1);
+});
+
+it("gives a none: link the Discord ID instead of adding a second link", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: "none:held", linkState: "vrdex_retracted" }]);
+  await patchLink(t, s.eventIds[0], { lastExportedAt: 5, lastExportedHash: "stale" });
+  await importJob(t, s.connectorId, "create", discordEvent(s.now + 2 * DAY));
+  const links = await all(t, "eventSyncLinks");
+  assert.equal(links.length, 1);
+  assert.deepEqual([links[0].externalId, links[0].state, links[0].lastExportedAt, links[0].lastExportedHash], [LIVE, "linked", undefined, undefined]);
+});
+
+it("matches only a public, scheduled event on that night with no Discord copy", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [
+    { link: OTHER }, { eventStatus: "cancelled" }, { publicationState: "draft_private" }, { link: "333333333333333333:2026-12-01" }, { link: "444444444444444444", linkState: "external_deleted" },
+    { title: "Another night" }, { startAt: Date.now() + 3 * DAY }, { slug: undefined },
+  ]);
+  await importJob(t, s.connectorId, "create", discordEvent(s.now + 2 * DAY));
+  const links = await all(t, "eventSyncLinks");
+  assert.equal(links.length, 4);
+  assert.deepEqual(links.filter((link) => link.externalId === LIVE).map((link) => link.eventId), [undefined]);
+});
+
+it("reads the match's night in the event's own zone", async () => {
+  const t = convexTest({ schema, modules });
+  const day = Date.parse(iso(Date.now() + 5 * DAY).slice(0, 10) + "T00:00:00.000Z");
+  // 05:00 UTC is the previous evening in Los Angeles, and the event's stored date is that evening.
+  const startAt = day + 5 * HOUR;
+  const s = await seed(t, [{ startAt, eventDate: iso(day - DAY).slice(0, 10), timezone: "America/Los_Angeles" }]);
+  const { findTitleDateMatch } = await import("../../convex/eventSyncKinds/discordScheduledEvents");
+  const match = (at: number) => t.run(async (ctx) => (await findTitleDateMatch(ctx.db, (await ctx.db.get(s.connectorId))!, " afterglow harbor SESSIONS ", at))?._id ?? null);
+  assert.equal(await match(startAt + HOUR), s.eventIds[0]);
+  assert.equal(await match(startAt + 24 * HOUR), null);
+});
+
+it("a Discord cancel flags the event and never cancels it", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE }]);
+  await importJob(t, s.connectorId, "update", discordEvent(s.now + 2 * DAY, { status: 4 }));
+  assert.equal((await linkOf(t, s.eventIds[0]))?.state, "external_deleted");
+  const event = await t.run((ctx) => ctx.db.get(s.eventIds[0]));
+  assert.deepEqual([event?.eventStatus, event?.publicationState], ["scheduled", "published"]);
+  assert.deepEqual(await all(t, "eventIntakeDrafts"), []);
+});
+
+it("its own cancel coming back is not a deletion", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ eventStatus: "cancelled", link: LIVE }]);
+  await importJob(t, s.connectorId, "update", discordEvent(s.now + 2 * DAY, { status: 4 }));
+  assert.equal((await linkOf(t, s.eventIds[0]))?.state, "linked");
+});
+
+it("a Discord delete flags the event; its own delete does not", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE }, { link: OTHER, linkState: "vrdex_retracted" }]);
+  await importJob(t, s.connectorId, "delete", discordEvent(s.now + 2 * DAY));
+  await importJob(t, s.connectorId, "delete", discordEvent(s.now + 2 * DAY, { id: OTHER }));
+  assert.equal((await linkOf(t, s.eventIds[0]))?.state, "external_deleted");
+  assert.equal((await linkOf(t, s.eventIds[1]))?.state, "vrdex_retracted");
+});
+
+it("a delete flags a held draft's link and every night of a series, and no longer ID sharing the prefix", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: `${LIVE}:2026-12-01` }, { link: `${LIVE}:2026-12-08` }, { link: `${LIVE}0` }, { link: `${LIVE}0:2026-12-01` }]);
+  await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: s.connectorId, externalId: LIVE, state: "linked", createdAt: s.now, updatedAt: s.now }));
+  await importJob(t, s.connectorId, "delete", discordEvent(s.now + 2 * DAY));
+  const states = Object.fromEntries((await all(t, "eventSyncLinks")).map((link) => [link.externalId, link.state]));
+  assert.deepEqual(states, {
+    [LIVE]: "external_deleted", [`${LIVE}:2026-12-01`]: "external_deleted", [`${LIVE}:2026-12-08`]: "external_deleted", [`${LIVE}0`]: "linked", [`${LIVE}0:2026-12-01`]: "linked",
+  });
+});
+
+it("nothing restores a link Discord deleted or VRDex retracted", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE, linkState: "external_deleted" }, { link: OTHER, linkState: "vrdex_retracted" }]);
+  await importJob(t, s.connectorId, "update", discordEvent(s.now + 2 * DAY, { description: "Changed." }));
+  await importJob(t, s.connectorId, "update", discordEvent(s.now + 2 * DAY, { id: OTHER, description: "Changed." }));
+  assert.deepEqual((await all(t, "eventSyncLinks")).map((link) => link.state), ["external_deleted", "vrdex_retracted"]);
+  assert.deepEqual(await all(t, "eventIntakeDrafts"), []);
+});
+
+it("ignores an update no newer than the last one seen", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE }]);
+  await patchLink(t, s.eventIds[0], { externalUpdatedAt: 500 });
+  await importJob(t, s.connectorId, "update", discordEvent(s.now + 2 * DAY, { description: "Late." }), 500);
+  assert.deepEqual(await all(t, "eventIntakeDrafts"), []);
+  assert.equal((await linkOf(t, s.eventIds[0]))?.lastImportedAt, undefined);
+});
+
+it("ignores an update to a linked event that is no longer public", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE, publicationState: "draft_private" }]);
+  await importJob(t, s.connectorId, "update", discordEvent(s.now + 2 * DAY, { description: "Changed." }));
+  assert.deepEqual(await all(t, "eventIntakeDrafts"), []);
+  assert.equal((await linkOf(t, s.eventIds[0]))?.lastImportedAt, undefined);
+});
+
+it("ignores a span past the intake's day range instead of failing the job", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, []);
+  const start = s.now + DAY;
+  const job = await importJob(t, s.connectorId, "create", discordEvent(start, { id: OTHER, scheduled_end_time: iso(start + 9 * DAY) }));
+  assert.equal(job?.state, "done");
+  assert.deepEqual(await all(t, "eventSyncLinks"), []);
+});
+
+it("ignores a completed event, a past unlinked event, another guild, a bad payload, and a connector that does not import", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, []);
+  await importJob(t, s.connectorId, "update", discordEvent(s.now + DAY, { id: OTHER, status: 3 }));
+  await importJob(t, s.connectorId, "update", discordEvent(s.now - HOUR, { id: OTHER, status: 2 }));
+  await importJob(t, s.connectorId, "create", discordEvent(s.now + DAY, { id: OTHER, guild_id: "999999999999999999" }));
+  await importJob(t, s.connectorId, "create", { id: "not-a-snowflake" });
+  const exporting = await seed(t, [], { direction: "export" });
+  await importJob(t, exporting.connectorId, "create", discordEvent(s.now + DAY, { id: OTHER }));
+  assert.deepEqual(await all(t, "eventSyncLinks"), []);
+});
+
+it("fails an import with the flag off", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, []);
+  delete process.env.VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED;
+  const job = await importJob(t, s.connectorId, "create", discordEvent(s.now + DAY, { id: OTHER }));
+  assert.match(job?.lastError ?? "", /CONNECTOR_KIND_DISABLED/);
+  assert.deepEqual(await all(t, "eventSyncLinks"), []);
+});
+
+it("bidirectional keeps a newer VRDex edit and applies a newer Discord one", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE, updatedAt: Date.now() }]);
+  const updatedAt = (await t.run((ctx) => ctx.db.get(s.eventIds[0])))!.updatedAt;
+  const edited = discordEvent(s.now + 2 * DAY, { name: "Harbor Sessions Live" });
+  await importJob(t, s.connectorId, "update", edited, updatedAt - 1);
+  assert.deepEqual(await all(t, "eventIntakeDrafts"), []);
+  await importJob(t, s.connectorId, "update", edited, updatedAt + 1);
+  assert.equal((await all(t, "eventIntakeDrafts")).length, 1);
+});
+
+it("leaves a link alone while its held draft is pending, so the later edit is not lost", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, []);
+  await importJob(t, s.connectorId, "create", discordEvent(s.now + DAY, { id: OTHER, name: "Harbor Sunrise" }), 100);
+  await t.run(async (ctx) => ctx.db.patch((await ctx.db.query("eventSyncLinks").first())!._id, { lastImportedAt: 1 }));
+  await importJob(t, s.connectorId, "update", discordEvent(s.now + DAY, { id: OTHER, name: "Harbor Sunset" }), 200);
+  assert.equal((await all(t, "eventIntakeDrafts")).length, 1);
+  const [link] = await all(t, "eventSyncLinks");
+  assert.deepEqual([link.externalUpdatedAt, link.lastImportedAt], [100, 1]);
+});
+
+it("autopublish patches the linked event and keeps its zone", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE, timezone: "America/New_York" }], { mode: "autopublish" });
+  await importJob(t, s.connectorId, "update", discordEvent(s.now + 2 * DAY, { name: "Harbor Sessions Live" }));
+  const event = await t.run((ctx) => ctx.db.get(s.eventIds[0]));
+  assert.deepEqual([event?.title, event?.timezone, event?.startAt], ["Harbor Sessions Live", "America/New_York", s.now + 2 * DAY]);
+  assert.deepEqual(await all(t, "eventIntakeDrafts"), []);
+});
+
+it("expands a recurring Discord event into one link per night within 60 days", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, []);
+  const start = s.now + DAY;
+  await importJob(t, s.connectorId, "create", discordEvent(start, { id: OTHER, name: "Harbor Fridays", recurrence_rule: weekly(start) }));
+  const links = await all(t, "eventSyncLinks");
+  assert.equal(links.length, 9);
+  assert.equal(new Set(links.map((link) => link.externalId)).size, 9);
+  assert.ok(links.every((link) => link.externalSeriesId === OTHER && link.externalId.startsWith(`${OTHER}:`)));
+  assert.equal((await all(t, "eventIntakeDrafts")).length, 9);
+});
+
+it("marks a night matched from a series even when nothing differs, so an export never reads it as a Discord event", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{}]);
+  const start = s.now + 2 * DAY;
+  await importJob(t, s.connectorId, "create", discordEvent(start, { id: OTHER, description: EVENT_LINE, recurrence_rule: weekly(start) }));
+  assert.equal((await linkOf(t, s.eventIds[0]))?.externalSeriesId, OTHER);
+  const links = await all(t, "eventSyncLinks");
+  assert.ok(links.every((link) => link.externalSeriesId === OTHER));
+  assert.equal((await all(t, "eventIntakeDrafts")).length, links.length - 1);
+});

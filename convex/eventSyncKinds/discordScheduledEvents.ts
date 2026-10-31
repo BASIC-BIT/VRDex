@@ -1,11 +1,15 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import type { Doc } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type ActionCtx, type DatabaseReader } from "../_generated/server";
+import type { Doc, Id } from "../_generated/dataModel";
+import { internalMutation, internalQuery, type ActionCtx, type DatabaseReader, type DatabaseWriter } from "../_generated/server";
 import { discordRequest } from "../_discordRest";
-import { DISCORD_IMAGE_MAX_BYTES, parseScheduledEvent, toScheduledEventBody, type DiscordScheduledEvent, type DiscordScheduledEventBody, type ScheduledEventSource } from "../_discordScheduledEventMap";
-import { DISCORD_ID, discordScheduledEventsEnabled } from "../_eventConnectors";
-import { enqueueSyncJob } from "../_eventSync";
+import { DISCORD_IMAGE_MAX_BYTES, parseScheduledEvent, scheduledEventCandidateFields, scheduledEventOccurrences, scheduledEventToFields, toScheduledEventBody, type DiscordScheduledEvent, type DiscordScheduledEventBody, type ScheduledEventSource } from "../_discordScheduledEventMap";
+import { applyEventCandidate, candidateFromConnectorFields } from "../_eventCandidateApply";
+import { carriedFieldsHash, DISCORD_ID, discordScheduledEventsEnabled } from "../_eventConnectors";
+import { eventDateForInstant, readEventSchedule } from "../_eventSchedule";
+import { enqueueSyncJob, eventIsSyncable } from "../_eventSync";
+import { correctionFields } from "../eventCorrections";
+import { EventIntakeLocalTimeSchema } from "../../packages/api-contracts/src/event-intake";
 import { liveMessageId as liveExternalId, pause, publicEventProjection, readObject } from "./discordBoard";
 import type { SyncKindHandler } from "./types";
 
@@ -14,6 +18,10 @@ export type ScheduledEventJobPayload = { action: "create" | "update" | "delete";
 
 const ARTWORK_TYPES = new Set(["image/png", "image/jpeg", "image/gif"]);
 const BASE64_CHUNK = 0x8000; // String.fromCharCode's spread overflows the stack on a whole image.
+const KIND = "discord_scheduled_events";
+const MATCH_WINDOW_MS = 36 * 3_600_000; // Wide enough for any zone's local date around an instant.
+
+const importing = (connector: Connector) => connector.state === "active" && (connector.direction === "import" || connector.direction === "bidirectional");
 
 /** One `import_item` job per active importing connector on the guild; returns how many were enqueued. */
 export const relayScheduledEvent = internalMutation({
@@ -23,10 +31,10 @@ export const relayScheduledEvent = internalMutation({
     const event = parseScheduledEvent(payload);
     if (!discordScheduledEventsEnabled() || !DISCORD_ID.test(guildId) || event?.guild_id !== guildId) return 0;
     const connectors = await ctx.db.query("eventConnectors").withIndex("by_kind_target_guildId", q => q.eq("kind", "discord_scheduled_events").eq("target.guildId", guildId)).collect();
-    const importing = connectors.filter(connector => connector.state === "active" && (connector.direction === "import" || connector.direction === "bidirectional"));
+    const targets = connectors.filter(importing);
     const job: ScheduledEventJobPayload = { action, event, receivedAt };
-    for (const connector of importing) await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: connector._id, kind: "import_item", payload: job });
-    return importing.length;
+    for (const connector of targets) await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: connector._id, kind: "import_item", payload: job });
+    return targets.length;
   },
 });
 
@@ -43,6 +51,99 @@ export const getExportState = internalQuery({
   handler: async (ctx, { eventId }): Promise<ScheduledEventSource | null> => {
     const event = await ctx.db.get(eventId);
     return event && await loadScheduledEventSource(ctx.db, event);
+  },
+});
+
+const linkByExternalId = (db: DatabaseReader, connectorId: Id<"eventConnectors">, externalId: string) =>
+  db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connectorId).eq("externalId", externalId)).unique();
+const linkForEvent = async (db: DatabaseReader, connectorId: Id<"eventConnectors">, eventId: Id<"events">) =>
+  (await db.query("eventSyncLinks").withIndex("by_eventId", q => q.eq("eventId", eventId)).take(100)).find(link => link.connectorId === connectorId) ?? null;
+
+// A syncable community event on the item's local night, in the event's own zone, with the same title.
+// Any link but a `none:` one means the event is taken: by another Discord event, a night of a series, or a copy staff were flagged about.
+export async function findTitleDateMatch(db: DatabaseReader, connector: Connector, title: string, startAt: number): Promise<Doc<"events"> | null> {
+  const name = title.trim().toLowerCase();
+  const events = await db.query("events").withIndex("by_communityProfileId_sortAt", q => q.eq("communityProfileId", connector.communityProfileId).gte("sortAt", startAt - MATCH_WINDOW_MS).lte("sortAt", startAt + MATCH_WINDOW_MS)).take(150);
+  for (const event of events) {
+    if (!event.slug || !eventIsSyncable(event) || event.title.trim().toLowerCase() !== name) continue;
+    if (readEventSchedule(event).eventDate !== eventDateForInstant(startAt, event.timezone ?? "UTC")) continue;
+    const link = await linkForEvent(db, connector._id, event._id);
+    if (!link || link.externalId.startsWith("none:")) return event;
+  }
+  return null;
+}
+
+// One event, one link per connector: a `none:` row takes the ID and drops its export fields, since nothing was sent to this item.
+// The series ID goes on here, not after the import: a matched night that imports nothing must still read as a night to exports.
+export async function linkTitleDateMatch(db: DatabaseWriter, connector: Connector, title: string, occurrence: { externalId: string; externalSeriesId?: string; startAt: number }): Promise<Doc<"eventSyncLinks"> | null> {
+  const match = await findTitleDateMatch(db, connector, title, occurrence.startAt);
+  if (!match) return null;
+  const { externalId, externalSeriesId } = occurrence;
+  const now = Date.now();
+  const placeholder = await linkForEvent(db, connector._id, match._id);
+  if (!placeholder) return await db.get(await db.insert("eventSyncLinks", { connectorId: connector._id, eventId: match._id, externalId, externalSeriesId, state: "linked", createdAt: now, updatedAt: now }));
+  await db.patch(placeholder._id, { externalId, externalSeriesId, state: "linked", lastExportedAt: undefined, lastExportedHash: undefined, updatedAt: now });
+  return await db.get(placeholder._id);
+}
+
+const iso = (at: number) => new Date(at).toISOString();
+
+export const applyScheduledEventImport = internalMutation({
+  args: { connectorId: v.id("eventConnectors"), payload: v.any() },
+  handler: async (ctx, { connectorId, payload }): Promise<void> => {
+    const { db } = ctx;
+    const { action, event: raw, receivedAt } = payload as ScheduledEventJobPayload;
+    const connector = await db.get(connectorId);
+    const item = parseScheduledEvent(raw);
+    if (!connector || !importing(connector) || !item || item.guild_id !== connector.target.guildId) return;
+    const now = Date.now();
+    const seen = { lastImportedAt: now, externalUpdatedAt: receivedAt, updatedAt: now };
+
+    // Discord's cancel and delete never touch a VRDex event; staff see the flag instead.
+    if (action === "delete" || item.status === 4) {
+      // `;` sorts just after `:`, but a longer ID sorts inside the range too, so it still needs the filter.
+      const links = await db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connector._id).gte("externalId", item.id).lt("externalId", `${item.id};`)).collect();
+      for (const link of links) {
+        if (link.externalId !== item.id && !link.externalId.startsWith(`${item.id}:`)) continue;
+        // VRDex's own write coming back. A held draft's link has no event: staff see the flag and the draft stays theirs.
+        const own = action === "delete" ? link.state === "vrdex_retracted" : link.eventId && (await db.get(link.eventId))?.eventStatus === "cancelled";
+        await db.patch(link._id, own ? seen : { ...seen, state: "external_deleted" });
+      }
+      return;
+    }
+    if (item.status === 3) return;
+
+    for (const occurrence of scheduledEventOccurrences(item, now)) {
+      const { externalId, externalSeriesId, startAt, endAt } = occurrence;
+      let link = await linkByExternalId(db, connector._id, externalId);
+      // Discord's cancel and delete are terminal, so nothing restores those links. Relay jobs are not serialised, so an older one can run last.
+      if (link && (link.state !== "linked" || (link.externalUpdatedAt !== undefined && link.externalUpdatedAt >= receivedAt))) continue;
+      if (!link && startAt <= now) continue;
+      link ??= await linkTitleDateMatch(db, connector, item.name, occurrence);
+      const event = link?.eventId ? await db.get(link.eventId) : null;
+      const source = event && await loadScheduledEventSource(db, event);
+      if (link?.eventId && !source) continue;
+
+      const fields = scheduledEventToFields({ ...item, scheduled_start_time: iso(startAt), scheduled_end_time: endAt === null ? null : iso(endAt) }, source);
+      // A span past the intake's day range can never import, and would only burn the job's attempts.
+      if ([fields.start, fields.end].some(time => time && !EventIntakeLocalTimeSchema.safeParse(time).success)) continue;
+      const hash = carriedFieldsHash(KIND, fields);
+      // The gateway pushes our PATCH back, possibly before completeJob has written lastExportedHash, so compare with the event itself. Google polls and never hit this.
+      if (link && event && hash === carriedFieldsHash(KIND, await correctionFields(db, event))) {
+        await db.patch(link._id, seen);
+        continue;
+      }
+
+      const { outcome } = await applyEventCandidate(ctx, {
+        connector, candidate: candidateFromConnectorFields(KIND, scheduledEventCandidateFields(fields), event?.slug ? { kind: "update", slug: event.slug } : { kind: "new" }),
+        actorUserId: connector.authorityUserId, link: link ?? undefined, externalId, externalUpdatedAt: receivedAt, expectedUpdatedAt: event?.updatedAt,
+        idempotencyKey: `${KIND}:${connector._id}:${externalId}:${hash}`,
+      });
+      // A pending draft leaves the link alone so this edit is not lost.
+      if (outcome === "skipped_pending_draft") continue;
+      const after = await linkByExternalId(db, connector._id, externalId);
+      if (after) await db.patch(after._id, { ...(externalSeriesId ? { externalSeriesId } : {}), lastImportedAt: now, updatedAt: now });
+    }
   },
 });
 
@@ -147,5 +248,9 @@ export const discordScheduledEventsHandler: SyncKindHandler = {
     const path = `/guilds/${scheduledEventsGuildId(connector)}/scheduled-events`;
     const liveId = liveExternalId(link);
     if (liveId) await removeLive(ctx, connector, `${path}/${liveId}`);
+  },
+  async importItem(ctx, connector, payload): Promise<void> {
+    scheduledEventsGuildId(connector);
+    await ctx.runMutation(internal.eventSyncKinds.discordScheduledEvents.applyScheduledEventImport, { connectorId: connector._id, payload });
   },
 };
