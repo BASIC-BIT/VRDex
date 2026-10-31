@@ -1,13 +1,15 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type ActionCtx, type DatabaseReader, type DatabaseWriter } from "../_generated/server";
+import { action, internalMutation, internalQuery, query, type ActionCtx, type DatabaseReader, type DatabaseWriter } from "../_generated/server";
+import { requireActiveBrowserSessionSubject } from "../_browserSessionAuthority";
 import { discordRequest } from "../_discordRest";
 import { DISCORD_IMAGE_MAX_BYTES, parseScheduledEvent, RECONCILE_HORIZON_MS, scheduledEventCandidateFields, scheduledEventOccurrences, scheduledEventToFields, toScheduledEventBody, type DiscordScheduledEvent, type DiscordScheduledEventBody, type ScheduledEventSource } from "../_discordScheduledEventMap";
 import { applyEventCandidate, candidateFromConnectorFields } from "../_eventCandidateApply";
-import { carriedFieldsHash, DISCORD_ID, discordScheduledEventsEnabled, sha256Hex } from "../_eventConnectors";
+import { carriedFieldsHash, DISCORD_ID, discordScheduledEventsEnabled, requireConnectorAuthority, sha256Hex } from "../_eventConnectors";
 import { eventDateForInstant, readEventSchedule } from "../_eventSchedule";
 import { enqueueSyncJob, eventIsSyncable } from "../_eventSync";
+import { listActiveControlProofsForUser, meetsControlLevel, MINIMUM_COMMUNITY_CONTROL_LEVEL } from "../_externalControl";
 import { correctionFields } from "../eventCorrections";
 import { EventIntakeLocalTimeSchema } from "../../packages/api-contracts/src/event-intake";
 import { liveMessageId as liveExternalId, pause, publicEventProjection, readObject } from "./discordBoard";
@@ -23,6 +25,39 @@ const KIND = "discord_scheduled_events";
 const MATCH_WINDOW_MS = 36 * 3_600_000; // Wide enough for any zone's local date around an instant.
 
 const importing = (connector: Connector) => connector.state === "active" && (connector.direction === "import" || connector.direction === "bidirectional");
+
+export const isEnabled = query({ args: {}, handler: async (): Promise<boolean> => discordScheduledEventsEnabled() });
+
+/** Guilds the signed-in staffer has a usable proof over, once they pass the community's connector authority. `create` re-checks the chosen one. */
+export const provedGuildIds = internalQuery({
+  args: { communityProfileId: v.id("profiles") },
+  handler: async (ctx, { communityProfileId }): Promise<string[]> => {
+    const { userId } = await requireActiveBrowserSessionSubject(ctx);
+    await requireConnectorAuthority(ctx, communityProfileId, userId);
+    const now = Date.now();
+    return (await listActiveControlProofsForUser(ctx.db, userId))
+      .filter(proof => proof.assetType === "discord_guild" && (proof.revalidateAfter === undefined || proof.revalidateAfter > now) && meetsControlLevel(proof.controlLevel, MINIMUM_COMMUNITY_CONTROL_LEVEL))
+      .map(proof => proof.assetExternalId);
+  },
+});
+
+/** Servers the bot is in that the staffer has proved they manage, by name, for the connect picker. */
+export const listConnectableGuilds = action({
+  args: { communityProfileId: v.id("profiles") },
+  handler: async (ctx, args): Promise<Array<{ id: string; name: string }>> => {
+    if (!discordScheduledEventsEnabled()) throw new ConvexError({ code: "CONNECTOR_KIND_DISABLED" });
+    const proved = new Set(await ctx.runQuery(internal.eventSyncKinds.discordScheduledEvents.provedGuildIds, args));
+    // ponytail: one page of 200 bot guilds; paginate with `after` when the bot passes 200 servers.
+    const response = await discordRequest({ method: "GET", path: "/users/@me/guilds?limit=200" });
+    if (!response.ok) throw new ConvexError({ code: `discord_${response.status}` });
+    const rows: unknown = await response.json().catch(() => null);
+    if (!Array.isArray(rows)) throw new ConvexError({ code: "discord_bad_response" });
+    return rows
+      .filter((row): row is { id: string; name: string } => proved.has(row?.id) && typeof row.name === "string")
+      .map(({ id, name }) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
 
 /** One `import_item` job per active importing connector on the guild; returns how many were enqueued. */
 export const relayScheduledEvent = internalMutation({

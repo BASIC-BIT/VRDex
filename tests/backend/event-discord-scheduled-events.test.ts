@@ -742,3 +742,61 @@ it("sees a pending reconcile behind a burst of import jobs, and enqueues nothing
   assert.equal(await enqueue(), 0);
   assert.deepEqual(await all(t, "eventSyncJobs"), []);
 });
+
+const proof = { assetType: "discord_guild", controlLevel: "manager", state: "active", evidenceSource: "discord_oauth" } as const;
+async function staffer(t: ReturnType<typeof convexTest>, provedGuilds: string[]) {
+  const s = await seed(t, []);
+  await t.run(async (ctx) => {
+    for (const assetExternalId of provedGuilds) await ctx.db.insert("externalControlProofs", { ...proof, userId: s.userId, assetExternalId, verifiedAt: s.now, revalidateAfter: s.now + DAY, createdAt: s.now, updatedAt: s.now });
+  });
+  return { s, as: t.withIdentity({ ...staff, email: "staff@example.test", emailVerified: true }) };
+}
+
+it("lists servers the bot is in that the staffer manages", async (test) => {
+  const calls = fakeDiscord(test, (call) => (call.path === "/users/@me/guilds" ? Response.json([
+    { id: "999999999999999999", name: "Elsewhere" }, { id: GUILD, name: "Afterglow" }, { id: "777777777777777777", name: "Bot Only" }, { id: "666666666666666666", name: "Lapsed" },
+  ]) : undefined));
+  const t = convexTest({ schema, modules });
+  const { s, as } = await staffer(t, [GUILD, "999999999999999999", "888888888888888888"]);
+  await t.run((ctx) => ctx.db.insert("externalControlProofs", { ...proof, userId: s.userId, assetExternalId: "666666666666666666", verifiedAt: s.now - 2 * DAY, revalidateAfter: s.now - DAY, createdAt: s.now, updatedAt: s.now }));
+  assert.deepEqual(await as.action(api.eventSyncKinds.discordScheduledEvents.listConnectableGuilds, { communityProfileId: s.communityProfileId }), [
+    { id: GUILD, name: "Afterglow" }, { id: "999999999999999999", name: "Elsewhere" },
+  ]);
+  assert.deepEqual(said(calls), ["GET /users/@me/guilds"]);
+});
+
+it("refuses the server list before calling Discord without the flag or the authority", async (test) => {
+  const calls = fakeDiscord(test);
+  const t = convexTest({ schema, modules });
+  const { s, as } = await staffer(t, [GUILD]);
+  const stranger = t.withIdentity({ subject: "stranger", issuer: ISSUER, tokenIdentifier: `${ISSUER}|stranger`, email: "stranger@example.test", emailVerified: true });
+  await t.run((ctx) => ctx.db.insert("users", { clerkUserId: "stranger" }));
+  await assert.rejects(stranger.action(api.eventSyncKinds.discordScheduledEvents.listConnectableGuilds, { communityProfileId: s.communityProfileId }), /CONNECTOR_FORBIDDEN/);
+  delete process.env.VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED;
+  await assert.rejects(as.action(api.eventSyncKinds.discordScheduledEvents.listConnectableGuilds, { communityProfileId: s.communityProfileId }), /CONNECTOR_KIND_DISABLED/);
+  assert.deepEqual(calls, []);
+});
+
+it("turns a Discord failure on the server list into a short code", async (test) => {
+  fakeDiscord(test, (call) => (call.path === "/users/@me/guilds" ? new Response("secret detail", { status: 500 }) : undefined));
+  const t = convexTest({ schema, modules });
+  const { s, as } = await staffer(t, [GUILD]);
+  await assert.rejects(as.action(api.eventSyncKinds.discordScheduledEvents.listConnectableGuilds, { communityProfileId: s.communityProfileId }), /discord_500/);
+});
+
+it("refuses to connect a server the staffer has not proved", async () => {
+  const t = convexTest({ schema, modules });
+  const { s, as } = await staffer(t, ["999999999999999999"]);
+  const args = { communityProfileId: s.communityProfileId, kind: "discord_scheduled_events" as const, direction: "export" as const, mode: "hold" as const };
+  await assert.rejects(as.mutation(api.eventConnectors.create, { ...args, target: { guildId: GUILD } }), /CONTROL_NOT_VERIFIED/);
+  assert.ok(await as.mutation(api.eventConnectors.create, { ...args, target: { guildId: "999999999999999999", guildName: "Elsewhere" } }));
+  delete process.env.VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED;
+  await assert.rejects(as.mutation(api.eventConnectors.create, { ...args, target: { guildId: "888888888888888888" } }), /CONNECTOR_KIND_DISABLED/);
+});
+
+it("reports whether Discord events are enabled", async () => {
+  const t = convexTest({ schema, modules });
+  assert.equal(await t.query(api.eventSyncKinds.discordScheduledEvents.isEnabled, {}), true);
+  delete process.env.VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED;
+  assert.equal(await t.query(api.eventSyncKinds.discordScheduledEvents.isEnabled, {}), false);
+});
