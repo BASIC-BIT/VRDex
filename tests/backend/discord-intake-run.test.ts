@@ -5,7 +5,7 @@ import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { ConvexError } from "convex/values";
 import { buildSourceText, pickPosterAttachments } from "../../convex/_discordIntake";
 import { saveIntakeDraft } from "../../convex/_eventIntake";
-import { dismissHeldDraft } from "../../convex/_eventIntakeHeld";
+import { dismissHeldDraft, heldUpdatePatch } from "../../convex/_eventIntakeHeld";
 import { failureReason } from "../../convex/discordIntakeRun";
 import { EVENT_POSTER_MAX_BYTES, resolveEventLocalTime } from "../../packages/api-contracts/src/event-intake";
 import { newClerkUserId } from "./_clerkTestIdentity";
@@ -1233,4 +1233,23 @@ it("replaces a draft when a run re-reads every post behind it", async () => {
   await record(t, "update", message(M2, { content: "two", editedAt: Date.now() }));
   await finish(t, { kind: "new" }, { summary: null });
   assert.equal((await getDraft(t, first.draftId!)).fields.tentative?.summary, undefined);
+});
+
+it("keeps a held explicit value when a flyer's differing value is only inferred or conflicting", async () => {
+  const { t, connectorId, communityProfileId } = await seedDiscordIntake();
+  const eventId = await seedEvent(t, communityProfileId, { slug: "night-at-ari" });
+  await linkEvent(t, connectorId, eventId, M1);
+  await seedPost(t, connectorId, M1, "Night at Ari");
+  await record(t, "update", message(M1, { createdAt: Date.now() - 10_000, content: "now 22:00", editedAt: Date.now() }));
+  const proposed = await finish(t, { kind: "update", slug: "night-at-ari" });
+  // The excerpt is not in the post, so the first comes back inferred; the second says so itself.
+  for (const [messageId, assessment] of [[M2, "explicit"], [M3, "conflicting"]]) {
+    await record(t, "create", message(messageId, { content: "doors 11pm" }));
+    await finish(t, { kind: "update", slug: `draft:${proposed.draftId}` }, { start: "23:00", venueLabel: "Flyer Room" }, { evidence: [{ fieldPath: "event.start", origin: "text", excerpt: "23:00", assessment }] });
+    const { fields } = await getDraft(t, proposed.draftId!);
+    assert.deepEqual(fields.tentative?.start, { time: "22:00" }, assessment);
+    assert.deepEqual(heldUpdatePatch(fields, "discord_announcements").start, { time: "22:00" }, assessment);
+    // A value no explicit entry vouches for still comes across.
+    assert.equal(fields.tentative?.venueLabel, "Flyer Room", assessment);
+  }
 });

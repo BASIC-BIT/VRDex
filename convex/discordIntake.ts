@@ -265,18 +265,22 @@ export const saveRunDraft = internalMutation({
 
 /**
  * A run that did not re-read every post behind a draft adds to its import. Lineup replaces whole, with its evidence, because a partial
- * one must not pass on the held entries. Explicit entries go first so the cap cannot drop them; held ones beat a new inferred entry.
+ * one must not pass on the held entries. Explicit entries go first so the cap cannot drop them. A held explicit field keeps its value
+ * and evidence until a new explicit entry states it, or the held entry would carry a value it never vouched for onto the event.
  */
 function mergeHeldImport(held: EventIntakePatch, patch: EventIntakePatch): EventIntakePatch {
-  const { timezone, ...facts } = patch.tentative ?? {};
+  const explicit = (entries: EventIntakePatch["evidence"]) => (entries ?? []).filter(entry => entry.assessment === "explicit");
   const fresh = patch.evidence ?? [];
-  const stated = new Set(fresh.filter(entry => entry.assessment === "explicit").map(entry => entry.fieldPath));
-  const evidence = [...fresh, ...(held.evidence ?? []).filter(entry => !stated.has(entry.fieldPath) && !(facts.lineup && evidenceKey(entry.fieldPath) === "lineup"))];
+  const stated = explicit(fresh);
+  const statedPaths = new Set(stated.map(entry => entry.fieldPath)), statedKeys = new Set(stated.map(entry => evidenceKey(entry.fieldPath)));
+  const pinned = new Set(explicit(held.evidence).map(entry => evidenceKey(entry.fieldPath)).filter(key => key !== "lineup" && !statedKeys.has(key)));
+  // candidatePatch writes a null timezone for a time with no zone, which must not erase the held one.
+  const facts = Object.fromEntries(Object.entries(patch.tentative ?? {}).filter(([key, value]) => value !== null && !pinned.has(key))) as EventIntakeFields;
+  const evidence = [...fresh, ...(held.evidence ?? []).filter(entry => !statedPaths.has(entry.fieldPath) && !(facts.lineup && evidenceKey(entry.fieldPath) === "lineup"))];
   return {
     ...patch,
-    // candidatePatch writes a null timezone for a time with no zone, which must not erase the held one.
-    tentative: { ...held.tentative, ...facts, ...(timezone ? { timezone } : {}) },
-    evidence: [...evidence.filter(entry => entry.assessment === "explicit"), ...evidence.filter(entry => entry.assessment !== "explicit")].slice(0, EVIDENCE_LIMIT),
+    tentative: { ...held.tentative, ...facts },
+    evidence: [...explicit(evidence), ...evidence.filter(entry => entry.assessment !== "explicit")].slice(0, EVIDENCE_LIMIT),
   };
 }
 
