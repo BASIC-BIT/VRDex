@@ -70,6 +70,7 @@ export const listHeldImports = query({
     const communities = communityProfileId ? managed.filter(({ profile }) => profile._id === communityProfileId) : managed;
     if (communityProfileId && !communities.length) throw new Error("You do not have access to this action.");
     const now = Date.now();
+    // ponytail: builds every row, with N+1 reads per draft, then cuts to the limit, and a failure hides the whole section; page per connector if that grows.
     const rows = (await Promise.all(communities.map(({ profile }) => heldImportRows(ctx.db, profile, now)))).flat();
     return rows.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, HELD_IMPORT_LIMIT);
   },
