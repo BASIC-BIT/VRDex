@@ -4,7 +4,7 @@
 
 Deployed by `infra/terraform/discord-gateway`, production only. Staging has no gateway.
 
-The process relays announcement messages, scheduled-event changes, and `/vrdex` commands to Convex. Media controls in the checked-in runtime are ACK/routing-only; they do not enqueue Convex commands or mutate live media.
+The process relays announcement messages and `/vrdex` commands to Convex. Media controls in the checked-in runtime are ACK/routing-only; they do not enqueue Convex commands or mutate live media.
 
 ## Runtime
 
@@ -101,7 +101,7 @@ Future media enqueue integration should add a scoped service credential. Do not 
 | `DISCORD_APPLICATION_ID` | GitHub environment `discord-gateway-commands` secret | Same value as Secrets Manager | Yes, for command registration |
 | `AWS_DISCORD_GATEWAY_RELEASE_ROLE_ARN` | GitHub variable | `terraform output -raw discord_gateway_release_role_arn` in `infra/terraform/state-mgmt` | Yes |
 | `DISCORD_GATEWAY_RELEASE_ENABLED` | GitHub variable | `true`. Anything else skips every release | Yes |
-| `GROUP_TELEMETRY_CONVEX_SITE_URL` | GitHub variable | Production Convex HTTP actions origin, `https://db.vrdex.net`. Shared with the collector release | Yes |
+| `GROUP_TELEMETRY_CONVEX_SITE_URL` | GitHub variable | Production Convex HTTP actions origin. Shared with the collector release | Yes |
 | `DISCORD_INTAKE_SECRET` | Convex production | Same value as Secrets Manager | Yes |
 | `DISCORD_APPLICATION_ID` | Convex production | Same value as Secrets Manager. The Integrations page builds the bot invite from it | Yes |
 | `DISCORD_BOT_TOKEN` | Convex production | The gateway application's bot token | Yes |
@@ -199,15 +199,24 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
    - Interactions Endpoint URL empty.
    - A server count under 100. Above 100, message content needs Discord's verification.
 
-2. **Release role.** Work in the checkout that holds the local state of `infra/terraform/state-mgmt`, on current `main`. If that stack has no `terraform.tfvars`, copy `terraform.tfvars.example` to it and set `route53_zone_id` to the `vrdex.net` public zone ID: the part after `/hostedzone/` in the first command's output. Add `enable_discord_gateway_release_permissions = true` to that file.
+2. **Release role.** Work in the checkout that holds the local state of `infra/terraform/state-mgmt`, on current `main`. Find the `vrdex.net` public zone ID: the part after `/hostedzone/` in this output.
 
-   The plan must show `2 to add, 0 to change, 0 to destroy`: the role and its policy. If it shows anything else, stop and do not approve it.
+   ```bash
+   aws route53 list-hosted-zones-by-name --dns-name vrdex.net --query 'HostedZones[0].Id' --output text
+   ```
+
+   Add `enable_discord_gateway_release_permissions = true` to `infra/terraform/state-mgmt/terraform.tfvars`. If that file does not exist, create it with only this line and `route53_zone_id`; everything else defaults. Do not copy `terraform.tfvars.example`.
 
    ```bash
    cd infra/terraform/state-mgmt
-   aws route53 list-hosted-zones-by-name --dns-name vrdex.net --query 'HostedZones[0].Id' --output text
    terraform init
-   terraform apply
+   terraform plan
+   ```
+
+   Expect two additions: the role and its policy. Other changes may be pending, including a policy update on the CI role. Those are a separate decision, so read them. The targets below apply only this step.
+
+   ```bash
+   terraform apply -target='aws_iam_role.discord_gateway_release[0]' -target='aws_iam_role_policy.discord_gateway_release[0]'
    gh variable set AWS_DISCORD_GATEWAY_RELEASE_ROLE_ARN --body "$(terraform output -raw discord_gateway_release_role_arn)"
    cd ../../..
    ```
@@ -220,7 +229,7 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
    aws sns list-subscriptions-by-topic --topic-arn "$TOPIC_ARN"
    ```
 
-4. **First stack apply.** With `enable_service = false`, this creates the repository, secrets, roles, and network only. No image exists yet, so this is the one apply without `container_image`.
+4. **First stack apply.** With `enable_service = false`, this creates the repository, secrets, roles, network, cluster, log group, and a task definition holding the placeholder image. No image exists yet, so this is the one apply without `container_image`.
 
    ```bash
    cd infra/terraform/discord-gateway
@@ -248,7 +257,7 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
    gh secret set DISCORD_APPLICATION_ID --env discord-gateway-commands --body "$APPLICATION_ID"
    ```
 
-   Then run the check under "Always verify after writing a secret" in that section for each Convex value written here and in step 7. `CR` must be `0`.
+   Then run the check under "Always verify after writing a secret" in [that section](./convex-environments.md#setting-secret-values-without-corrupting-them) for each Convex value written here. `CR` must be `0`.
 
 6. **First release.** This pushes the first image and registers commands. There is no service yet, so the workflow reports nothing to roll. `GROUP_TELEMETRY_CONVEX_SITE_URL` must already be set.
 
@@ -273,6 +282,8 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
    pnpm cx -- prod env set VRDEX_DISCORD_POSTER_TOKEN "$POSTER_TOKEN"
    ```
 
+   Then run the same check for each Convex value written here. `CR` must be `0`.
+
 8. **Enable the service in git.** Open a PR setting `enable_service = true` in `infra/terraform/discord-gateway/environments/production.tfvars` and merge it. A release that runs before step 10 fails at the plan guard, because the plan would create the service and its alarm.
 
 9. **Turn on intake.** Do this immediately before step 10. While the flag is off the gateway's connector lookups answer 503, so every guild message would log a failed lookup.
@@ -283,7 +294,9 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
 
    With the flag on and no gateway yet, `checkHeartbeat` usually emails one stale alert within five minutes, then one resolved email once heartbeats arrive. That pair is expected and proves the email path. If the first heartbeat lands before the next check, no pair arrives at all. Keep this step and step 10 close together.
 
-10. **Create the service.** This also creates the running-task alarm, which may send the alarm and OK email pair described under [Alarms](#alarms). Run it from an updated `main`, so the merged tfvars apply. The image is the one step 6 released.
+   The flag is global: it reveals the Integrations connect flow to every community, and `/vrdex connect` defaults to `hold`, so the [Rollout](#rollout) prerequisite applies to the first connect by anyone.
+
+10. **Create the service.** This also creates the running-task alarm, which may send the alarm and OK email pair described under [Alarms](#alarms). Run it from an updated `main`, so the merged tfvars apply. The image is the one step 6 released. Check the plan for a task definition replacement: with the image unchanged it means `linuxParameters` shows a perpetual diff, and every manual apply then rolls the task.
 
     ```bash
     cd infra/terraform/discord-gateway
