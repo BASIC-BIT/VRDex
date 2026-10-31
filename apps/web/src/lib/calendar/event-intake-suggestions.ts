@@ -64,11 +64,11 @@ function translateSuggestionTimes(fields: EventIntakeFields, proposalDate: Event
   return { ...fields, start, end, doors, lineup };
 }
 
-/** Rebase already normalized pending clocks when the editor's base moves. */
-export function rebaseIntakeSuggestions(fields: EventIntakePatch, previousDate: EventIntakeFields["eventDate"]): EventIntakePatch {
+/** Rebase already normalized pending clocks when the editor's base moves. A connector draft's stay on the import's date: row Publish has nobody to check a translated clock. */
+export function rebaseIntakeSuggestions(fields: EventIntakePatch, previousDate: EventIntakeFields["eventDate"], connectorDraft = false): EventIntakePatch {
   if (!fields.tentative || fields.tentative.eventDate || fields.eventDate === previousDate || !previousDate) return fields;
   const pendingClocks = [fields.tentative.start, fields.tentative.end, fields.tentative.doors, ...(fields.tentative.lineup ?? []).flatMap(row => [row.start, row.end])].filter(local => local != null);
-  if (!fields.eventDate && pendingClocks.length && pendingClocks.every(local => local.dayOffset !== undefined)) {
+  if ((connectorDraft && pendingClocks.some(local => local.dayOffset !== undefined)) || (!fields.eventDate && pendingClocks.length && pendingClocks.every(local => local.dayOffset !== undefined))) {
     return { ...fields, tentative: { ...fields.tentative, eventDate: previousDate } };
   }
   // Translation needs the old base, but unknown source clocks must remain unknown.

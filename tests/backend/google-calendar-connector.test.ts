@@ -658,16 +658,50 @@ describe("google calendar import", () => {
     assert.equal((await t.run((ctx) => ctx.db.get(linkId)))!.state, "linked");
   });
 
+  const staff = (t: TestConvex<typeof schema>) => t.withIdentity({ subject: "staff", issuer: "test", tokenIdentifier: "test|staff" });
+
+  it("a dismissed item stays out until Google changes it", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "import", mode: "hold" });
+    assert.equal(await applyImport(t, connectorId, googleItem()), "draft");
+    const [link] = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
+    await staff(t).mutation(api.eventIntakeHeld.dismiss, { draftId: link.draftId! });
+    assert.equal(await applyImport(t, connectorId, googleItem()), "unchanged");
+    assert.equal((await t.run((ctx) => ctx.db.get(link._id)))!.draftId, undefined);
+    assert.equal(await applyImport(t, connectorId, googleItem({ summary: "Bass Temple Late", updated: "2026-11-02T11:30:00.000Z" })), "draft");
+    const refiled = (await t.run((ctx) => ctx.db.get(link._id)))!;
+    assert.ok(refiled.draftId && refiled.draftId !== link.draftId);
+    assert.equal((await staff(t).query(api.eventInventory.listHeldImports, {})).length, 1);
+  });
+
+  it("publishing a cancelled held item makes no second Google copy", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "bidirectional", mode: "hold" });
+    assert.equal(await applyImport(t, connectorId, googleItem()), "draft");
+    assert.equal(await applyImport(t, connectorId, googleItem({ status: "cancelled", updated: "2026-11-02T11:30:00.000Z" })), "flagged");
+    const [held] = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
+    const { eventId } = await staff(t).mutation(api.eventIntakeHeld.publish, { draftId: held.draftId! });
+    const job = await t.run(async (ctx) => (await ctx.db.query("eventSyncJobs").collect()).find((row) => row.eventId === eventId && row.state === "pending")!);
+    const fake = fakeFetch(() => new Response("", { status: 500 }));
+    await t.action(internal.eventSync.runJob, { jobId: job._id });
+    fake.restore();
+    assert.deepEqual(fake.calls, []);
+    const links = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
+    assert.deepEqual(links.map((link) => [link.externalId, link.state, link.eventId, link.draftId]), [["g1", "external_deleted", eventId, undefined]]);
+    assert.deepEqual((await staff(t).query(api.eventInventory.listHeldImports, {})).map((row) => row.kind), ["flag"]);
+  });
+
   it("a restored item relinks, and exports resume", async () => {
     const t = convexTest({ schema, modules });
     const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "bidirectional" });
     const eventId = await seedEvent(t, communityProfileId);
     const linkId = await t.run((ctx) => ctx.db.insert("eventSyncLinks", {
-      connectorId, eventId, externalId: "g1", state: "external_deleted", externalUpdatedAt: Date.parse("2026-11-02T10:00:00.000Z"),
+      connectorId, eventId, externalId: "g1", state: "external_deleted", flagReviewedAt: NOW, externalUpdatedAt: Date.parse("2026-11-02T10:00:00.000Z"),
       lastExportedHash: carriedFieldsHash("google_calendar", fieldsFromGoogleEvent(googleItem(), "America/New_York", SITE)), createdAt: NOW, updatedAt: NOW,
     }));
     assert.equal(await applyImport(t, connectorId, googleItem({ updated: "2026-11-02T11:59:59.000Z" })), "skipped_echo");
-    assert.equal((await t.run((ctx) => ctx.db.get(linkId)))!.state, "linked");
+    const restored = (await t.run((ctx) => ctx.db.get(linkId)))!;
+    assert.deepEqual([restored.state, restored.flagReviewedAt], ["linked", undefined]);
     const fake = fakeFetch(() => Response.json(googleItem()));
     await runSyncJob(t, { connectorId, kind: "export_upsert", eventId });
     fake.restore();
@@ -741,17 +775,69 @@ describe("google calendar import", () => {
     assert.equal(reconcileList.url.searchParams.has("showDeleted"), false);
   });
 
-  // Ruling C5: the edit waits behind the held draft, so the link must not record having seen it.
-  it("leaves the link's external time alone while its held draft is pending", async () => {
+  it("records an edit it put in the pending draft on the link", async () => {
     const t = convexTest({ schema, modules });
     const { connectorId, staffUserId } = await seedGoogleConnector(t, { direction: "import" });
-    const linkId = await t.run(async (ctx) => {
+    const { draftId, linkId } = await t.run(async (ctx) => {
       const draftId = await ctx.db.insert("eventIntakeDrafts", { actorUserId: staffUserId, connectorId, version: 1, fields: { title: "Held" }, provenance: [], createdAt: NOW, updatedAt: NOW, expiresAt: NOW + 86_400_000 });
-      return await ctx.db.insert("eventSyncLinks", { connectorId, draftId, externalId: "g1", state: "linked", createdAt: NOW, updatedAt: NOW });
+      return { draftId, linkId: await ctx.db.insert("eventSyncLinks", { connectorId, draftId, externalId: "g1", state: "linked", createdAt: NOW, updatedAt: NOW }) };
     });
-    assert.equal(await applyImport(t, connectorId, googleItem({ recurringEventId: "series-1" })), "skipped_pending_draft");
+    const item = googleItem({ recurringEventId: "series-1" });
+    assert.equal(await applyImport(t, connectorId, item), "skipped_pending_draft");
     const link = (await t.run((ctx) => ctx.db.get(linkId)))!;
-    assert.deepEqual([link.externalUpdatedAt, link.externalSeriesId], [undefined, undefined]);
+    assert.deepEqual([link.externalUpdatedAt, link.lastImportedAt, link.externalSeriesId, link.draftId], [Date.parse(item.updated), NOW, "series-1", draftId]);
+    assert.equal((await t.run((ctx) => ctx.db.get(draftId)))!.fields.tentative?.title, "Bass Temple");
+  });
+
+  const moved = (updated: string) => googleItem({
+    summary: "Bass Temple Late", start: { dateTime: "2026-11-07T21:00:00-05:00", timeZone: "America/New_York" }, end: { dateTime: "2026-11-07T23:30:00-05:00", timeZone: "America/New_York" }, updated,
+  });
+  const movedStart = Date.parse("2026-11-08T02:00:00.000Z");
+
+  it("a new held item picks up a later Google edit, and Publish carries it under staff's saves", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "bidirectional", mode: "hold" });
+    assert.equal(await applyImport(t, connectorId, googleItem()), "draft");
+    const [{ draftId }] = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
+    await staff(t).mutation(api.eventIntake.saveEventIntakeDraft, { draftId: draftId!, expectedVersion: 1, patch: { venueLabel: "Staff Hall" } });
+    const edit = moved("2026-11-02T11:30:00.000Z");
+    assert.equal(await applyImport(t, connectorId, edit), "skipped_pending_draft");
+    const [row] = await staff(t).query(api.eventInventory.listHeldImports, {});
+    assert.equal(row.kind, "new");
+    assert.deepEqual(row.kind === "new" && [row.title, row.schedule.kind === "timed" && row.schedule.startAt], ["Bass Temple Late", movedStart]);
+    const { eventId } = await staff(t).mutation(api.eventIntakeHeld.publish, { draftId: draftId! });
+    const event = (await t.run((ctx) => ctx.db.get(eventId)))!;
+    assert.deepEqual([event.title, event.startAt, event.venueLabel], ["Bass Temple Late", movedStart, "Staff Hall"]);
+    assert.equal(await applyImport(t, connectorId, edit), "unchanged");
+  });
+
+  it("a proposed update picks up a later Google edit, so the queued export cannot undo it", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "bidirectional", mode: "hold" });
+    const eventId = await seedEvent(t, communityProfileId);
+    const linkId = await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId, eventId, externalId: "g1", state: "linked", createdAt: NOW, updatedAt: NOW }));
+    assert.equal(await applyImport(t, connectorId, googleItem({ summary: "Bass Temple Early", updated: "2026-11-02T11:59:30.000Z" })), "draft");
+    const edit = moved("2026-11-02T11:59:40.000Z");
+    assert.equal(await applyImport(t, connectorId, edit), "skipped_pending_draft");
+    const [row] = await staff(t).query(api.eventInventory.listHeldImports, {});
+    assert.deepEqual(row.kind === "update" && row.changes.filter(({ field }) => field === "title" || field === "start").map(({ field, after }) => [field, after]), [["title", "Bass Temple Late"], ["start", movedStart]]);
+    const { draftId } = (await t.run((ctx) => ctx.db.get(linkId)))!;
+    await staff(t).mutation(api.eventIntakeHeld.publish, { draftId: draftId! });
+    const event = (await t.run((ctx) => ctx.db.get(eventId)))!;
+    assert.deepEqual([event.title, event.startAt], ["Bass Temple Late", movedStart]);
+    assert.ok((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).some((job) => job.kind === "export_upsert" && job.eventId === eventId && job.state === "pending"));
+    assert.equal(await applyImport(t, connectorId, edit), "unchanged");
+  });
+
+  it("a dismissed draft that held the edit stays out", async () => {
+    const t = convexTest({ schema, modules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "import", mode: "hold" });
+    assert.equal(await applyImport(t, connectorId, googleItem()), "draft");
+    const edit = moved("2026-11-02T11:30:00.000Z");
+    assert.equal(await applyImport(t, connectorId, edit), "skipped_pending_draft");
+    const [{ draftId }] = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
+    await staff(t).mutation(api.eventIntakeHeld.dismiss, { draftId: draftId! });
+    assert.equal(await applyImport(t, connectorId, edit), "unchanged");
   });
 
   it("skips an item longer than the intake's day range", async () => {

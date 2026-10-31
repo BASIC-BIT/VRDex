@@ -284,7 +284,7 @@ export const advanceList = internalMutation({
       let link = await linkByExternalId(ctx, connector._id, item.id);
       // Missing from a date-filtered list is weak evidence of a delete; being listed is proof it exists.
       if (link?.state === "external_deleted") {
-        await ctx.db.patch(link._id, { state: "linked", updatedAt: Date.now() });
+        await ctx.db.patch(link._id, { state: "linked", flagReviewedAt: undefined, updatedAt: Date.now() });
         link = { ...link, state: "linked" };
       }
       if (purpose === "reconcile") {
@@ -341,8 +341,7 @@ export const applyImport = internalMutation({
       expectedUpdatedAt: event?.updatedAt, idempotencyKey: `vrchat_calendar:${connectorId}:${item.id}:${updatedMs}`,
     });
     // Recording the item as seen stops an echo or a stale item being re-enqueued by the next poll.
-    // An edit waiting behind a draft stays unseen, so the poll retries it once the draft resolves.
-    const seen = outcome === "skipped_pending_draft" ? null : await linkByExternalId(ctx, connectorId, item.id);
+    const seen = await linkByExternalId(ctx, connectorId, item.id);
     if (seen) await ctx.db.patch(seen._id, { lastImportedAt: Date.now(), externalUpdatedAt: updatedMs, updatedAt: Date.now() });
     return outcome;
   },

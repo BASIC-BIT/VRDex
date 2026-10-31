@@ -12,6 +12,7 @@ import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/pa
 
 type InventoryArgs = FunctionArgs<typeof api.eventInventory.listPage>;
 type InventoryPage = FunctionReturnType<typeof api.eventInventory.listPage>;
+type HeldImports = FunctionReturnType<typeof api.eventInventory.listHeldImports>;
 
 const community = { slug: "afterglow", displayName: "Afterglow" };
 const incomplete = { kind: "incomplete", eventDate: null } satisfies EventInventoryRow["schedule"];
@@ -29,21 +30,38 @@ const rows: EventInventoryRow[] = [
   { kind: "own_contribution", id: eventId("own-2"), eventId: eventId("own-2"), title: "Retracted night", community, schedule: incomplete, thumbnailUrl: null, state: "retracted", continuation: { kind: "unavailable" } },
 ];
 const matchingRow = (title: string): EventInventoryRow => ({ ...staffDraft, title });
+const heldId = (value: string) => value as Id<"eventIntakeDrafts">;
+const heldOrigin = { community, connectorKind: "discord_announcements", targetName: "#events" } as const;
+const harbor = { slug: "harbor", title: "Harbor Night", href: "/afterglow/events/harbor/edit" };
+const heldRows: HeldImports = [
+  { ...heldOrigin, kind: "new", draftId: heldId("held-new"), title: "Afterglow Social", schedule: { kind: "date_only", eventDate: "2099-07-20" }, author: "Promoter", sourceUrl: "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333", openHref: "/events/new?draft=held-new", updatedAt: 3 },
+  { ...heldOrigin, kind: "update", draftId: heldId("held-update"), title: "Harbor Night", schedule: { kind: "timed", startAt: Date.UTC(2099, 6, 15, 21), endAt: null, eventDate: "2099-07-15", timezone: "UTC" }, author: "Promoter", sourceUrl: "https://discord.com/channels/111111111111111111/222222222222222222/444444444444444444", openHref: "/events/new?draft=held-update", updatedAt: 2, target: harbor, changes: [{ field: "start", before: Date.UTC(2099, 6, 15, 20), after: Date.UTC(2099, 6, 15, 21) }] },
+  { ...heldOrigin, kind: "flag", eventId: eventId("flag-1"), reason: "source_deleted", title: "Pier Night", href: "/afterglow/events/pier/edit", updatedAt: 1 },
+];
+const sparseHeldRows: HeldImports = [
+  { ...heldOrigin, connectorKind: "google_calendar", targetName: "Club calendar", kind: "new", draftId: heldId("held-untitled"), title: null, schedule: incomplete, author: null, sourceUrl: null, openHref: "/events/new?draft=held-untitled", updatedAt: 3 },
+  { ...heldOrigin, kind: "update", draftId: heldId("held-sparse-update"), title: "Harbor Night", schedule: incomplete, author: null, sourceUrl: null, openHref: "/events/new?draft=held-sparse-update", updatedAt: 2, target: harbor, changes: [{ field: "eventDate", before: "2099-07-15", after: "next week" }, { field: "venueLabel", before: "Hall", after: null }, { field: "summary", before: null, after: "Long description ".repeat(30) }, { field: "sourceUrl", before: null, after: `https://example.test/${"a".repeat(400)}` }] },
+  { ...heldOrigin, connectorKind: "google_calendar", targetName: "Club calendar", kind: "flag", eventId: eventId("flag-2"), reason: "external_deleted", title: "Lantern Night", href: "/afterglow/events/lantern/edit", updatedAt: 1 },
+];
 
-function inventoryFixture(contributorOnly: boolean, failShortcuts: boolean) {
+function inventoryFixture(contributorOnly: boolean, failShortcuts: boolean, held?: string) {
   const listeners = new Set<() => void>();
   const cache = new Map<string, unknown>();
   let shortcutsUnavailable = failShortcuts;
   let slowReleased = false;
   let failed = false;
   let reads = 0;
+  let heldImports = !held ? [] : held === "sparse" ? sparseHeldRows : heldRows;
+  let heldUnavailable = held === "fail-query";
   sessionStorage.setItem("inventory-later-reads", "0");
   sessionStorage.setItem("inventory-protected-reads", "0");
   const notify = () => listeners.forEach(listener => listener());
   const release = () => { slowReleased = true; cache.clear(); notify(); };
-  const recoverShortcuts = () => { shortcutsUnavailable = false; notify(); };
+  const recoverShortcuts = () => { shortcutsUnavailable = false; heldUnavailable = false; notify(); };
+  const dropHeld = () => { heldImports = heldImports.slice(0, -1); notify(); };
   window.addEventListener("inventory-release", release);
   window.addEventListener("inventory-recover-shortcuts", recoverShortcuts);
+  window.addEventListener("held-drop", dropHeld);
   const empty: unknown[] = [];
   const viewer = { user: { id: "fixture-viewer", name: "Fixture organizer", emailVerified: true } };
   const communities = contributorOnly ? [] : [{ profileId: "fixture-community", ...community }];
@@ -84,6 +102,15 @@ function inventoryFixture(contributorOnly: boolean, failShortcuts: boolean) {
       if (getFunctionName(query) === "search:searchUniversal" && args.query?.toLowerCase().includes("aurora")) return [{ entityType: "profile", profileType: "person", slug: "playwright-dj-aurora", title: "Aurora", routePath: "/playwright-dj-aurora" }];
       return empty;
     },
+    async mutation(mutation: FunctionReference<"mutation">, args: { draftId?: string; eventId?: string }) {
+      const name = getFunctionName(mutation);
+      if (held === `fail-${name.split(":")[1]}`) throw new Error("Fixture held command failed");
+      if (held === "slow") await new Promise(resolve => window.addEventListener("held-release", resolve, { once: true }));
+      sessionStorage.setItem("held-command", JSON.stringify([name, args]));
+      heldImports = heldImports.filter(row => (row.kind === "flag" ? row.eventId : row.draftId) !== (args.draftId ?? args.eventId));
+      notify();
+      return null;
+    },
     watchQuery(query: FunctionReference<"query">, args: InventoryArgs) {
       const name = getFunctionName(query);
       const key = JSON.stringify([name, args]);
@@ -95,6 +122,10 @@ function inventoryFixture(contributorOnly: boolean, failShortcuts: boolean) {
             return communities;
           }
           if (name === "eventCorrections:getEventReportAccess") return !contributorOnly;
+          if (name === "eventInventory:listHeldImports") {
+            if (heldUnavailable) throw new Error("Fixture held source failed");
+            return heldImports;
+          }
           if (name !== "eventInventory:listPage") return empty;
           if (!cache.has(key)) {
             try { cache.set(key, inventoryPage(args)); }
@@ -109,7 +140,7 @@ function inventoryFixture(contributorOnly: boolean, failShortcuts: boolean) {
       };
     },
   } as unknown as ConvexReactClient;
-  return { client, dispose: () => { window.removeEventListener("inventory-release", release); window.removeEventListener("inventory-recover-shortcuts", recoverShortcuts); } };
+  return { client, dispose: () => { window.removeEventListener("inventory-release", release); window.removeEventListener("inventory-recover-shortcuts", recoverShortcuts); window.removeEventListener("held-drop", dropHeld); } };
 }
 
 function useFixtureAuth(session?: string) {
@@ -122,13 +153,13 @@ function useFixtureAuth(session?: string) {
   return { isLoading: session === "loading", isAuthenticated: !signedOut && session !== "loading", fetchAccessToken: async () => signedOut ? null : "fixture-token" };
 }
 
-export function EventInventoryPreview({ contributorOnly, session }: { contributorOnly: boolean; session?: string }) {
+export function EventInventoryPreview({ contributorOnly, held, session }: { contributorOnly: boolean; held?: string; session?: string }) {
   const [fixture, setFixture] = useState<ReturnType<typeof inventoryFixture> | null>(null);
   useEffect(() => {
-    const value = inventoryFixture(contributorOnly, session === "shortcuts-failure");
+    const value = inventoryFixture(contributorOnly, session === "shortcuts-failure", held);
     setFixture(value);
     return value.dispose;
-  }, [contributorOnly, session]);
+  }, [contributorOnly, held, session]);
   const useInventoryFixtureAuth = () => useFixtureAuth(session);
   return fixture ? <ConvexProviderWithAuth client={fixture.client} useAuth={useInventoryFixtureAuth}>
     <div className="ph-no-capture" data-ph-no-capture><PageShell className="py-10"><PageContainer max="5xl"><PageNav><BrandLink /></PageNav><ManagedEventsPanel /></PageContainer></PageShell></div>

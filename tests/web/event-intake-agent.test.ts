@@ -263,6 +263,12 @@ it("accepts an update slug only when list_events returned it in this run", async
   const listed = await extractEventIntake({ draftId: "draft", sourceText: "Friday moves to 22:00", context: discord }, { ...base, list_events: async (n: number) => { limit = n; return rows; }, fetchImplementation: async () => ++turn === 1 ? toolCall("list_events", { limit: 40 }) : response(update) });
   assert.equal(limit, 40);
   assert.deepEqual(listed.decision, { kind: "update", slug: "friday-night" });
+  const held = { ...rows[0], slug: "draft:k57abc" };
+  let step = 0, read: unknown;
+  const script = [toolCall("list_events", { limit: 5 }, "a"), toolCall("get_event", { slug: held.slug }, "b"), response({ ...blank(), decision: { kind: "update", slug: held.slug } })];
+  const flyer = await extractEventIntake({ draftId: "draft", sourceText: "flyer", context: discord }, { ...base, list_events: async () => [held], get_event: async (slug: string) => { read = slug; return { title: "Friday Night" }; }, fetchImplementation: async () => script[step++] });
+  assert.equal(read, held.slug);
+  assert.deepEqual(flyer.decision, { kind: "update", slug: held.slug });
 });
 it("keeps not_event with run context", async () => {
   const result = await extractEventIntake({ draftId: "draft", sourceText: "anyone around tonight?", context: discord }, { ...base, fetchImplementation: async () => response({ ...blank(), decision: { kind: "not_event", reason: "chatter" } }) });

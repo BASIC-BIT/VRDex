@@ -5,7 +5,7 @@ import { candidatePatch } from "../apps/web/src/lib/event-intake-source";
 import type { EventIntakeCandidate, EventIntakeDecision, EventIntakeFields, EventIntakeLocalTime, EventIntakePatch } from "../packages/api-contracts/src/event-intake";
 import { carriedFields, carriedFieldsHash, connectorsEnabled, EventIntakeUpdatePatchSchema, pendingLinkDraft, requireConnectorAuthority, type ConnectorKind } from "./_eventConnectors";
 import { normalizeIntakePublication } from "./_eventContributionPreflight";
-import { getActorIntakeDraft, publishIntakeDraft, sanitizeEventIntakePatch, saveIntakeDraft } from "./_eventIntake";
+import { DISCORD_MESSAGE_URL, getActorIntakeDraft, publishIntakeDraft, sanitizeEventIntakePatch, saveIntakeDraft } from "./_eventIntake";
 import { requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { getEventBySlug } from "./_eventSlugs";
 import { patchCommunityEventFieldsAsStaffRecord, validStaffPatch } from "./events";
@@ -24,6 +24,18 @@ export function evidenceKey(fieldPath: string): string {
   if (fieldPath === "event.endDate") return "end";
   if (fieldPath.startsWith("lineup.")) return "lineup";
   return fieldPath.startsWith("event.") ? fieldPath.slice("event.".length) : fieldPath;
+}
+
+/** Rule 8's keys: what explicit evidence names and the kind carries, plus values a staffer saved on a held draft. */
+export function explicitUpdateKeys(evidence: NonNullable<EventIntakePatch["evidence"]>, kind: ConnectorKind, saved: Partial<EventIntakeFields> = {}) {
+  const explicit = new Set(evidence.filter(entry => entry.assessment === "explicit").map(entry => evidenceKey(entry.fieldPath)));
+  const carried = carriedFields(kind);
+  // A top-level Discord message URL is the draft's private provenance, never a staff edit.
+  const staffSet = (key: keyof EventIntakeFields) => (saved[key] ?? null) !== null && !(key === "sourceUrl" && DISCORD_MESSAGE_URL.test(saved.sourceUrl ?? ""));
+  const keys = UPDATE_KEYS.filter(key => (explicit.has(key) && carried.includes(key)) || staffSet(key));
+  // A start that appears or disappears also flips time TBA.
+  if (keys.includes("start") && !keys.includes("timeTba") && carried.includes("timeTba")) keys.push("timeTba");
+  return keys;
 }
 
 const CANDIDATE_KEYS = ["title", "communitySlug", "eventDate", "start", "end", "timezone", "venueLabel", "summary", "sourceUrl"] as const;
@@ -77,14 +89,25 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
   // Rule 1: the connector's community, never the candidate's.
   const community = await db.get(connector.communityProfileId);
   if (!community?.slug) throw new Error("Connector community was not found.");
-  const tentative = candidatePatch(candidate).tentative ?? {};
+  const extracted = candidatePatch(candidate);
+  const tentative = extracted.tentative ?? {};
   const fields: EventIntakeFields = { ...tentative, communitySlug: community.slug, timeTba: !tentative.start };
+  const heldPatch = { ...extracted, tentative: { ...tentative, communitySlug: community.slug } };
 
   if (candidate.decision.kind === "not_event") return finish({ outcome: "not_event" });
 
   const link = args.link ?? (args.externalId === undefined ? null
     : await db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connector._id).eq("externalId", args.externalId!)).unique());
-  if (await pendingLinkDraft(db, link, now)) return finish({ outcome: "skipped_pending_draft", eventId: link?.eventId, draftId: link?.draftId });
+  const imported = { lastImportedAt: now, ...(args.externalUpdatedAt === undefined ? {} : { externalUpdatedAt: args.externalUpdatedAt }) };
+  const pending = await pendingLinkDraft(db, link, now);
+  if (link && pending) {
+    // A timestamped source delivers an edit only once, so it lands here, under what staff saved. Discord announcements refresh the draft in finishRun.
+    if (args.externalUpdatedAt !== undefined && args.externalUpdatedAt > (link.externalUpdatedAt ?? 0)) {
+      await saveIntakeDraft(db, pending.actorUserId, { draftId: pending._id, expectedVersion: pending.version, patch: heldPatch }, now, { connectorDriven: true, connectorId: connector._id });
+      await db.patch(link._id, { ...imported, updatedAt: now });
+    }
+    return finish({ outcome: "skipped_pending_draft", eventId: link.eventId, draftId: link.draftId });
+  }
 
   let target = link?.eventId ? await db.get(link.eventId) : null;
   if (!target && candidate.decision.kind === "update") {
@@ -92,7 +115,6 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
     if (bySlug?.communityProfileId === connector.communityProfileId) target = bySlug;
   }
 
-  const imported = { lastImportedAt: now, ...(args.externalUpdatedAt === undefined ? {} : { externalUpdatedAt: args.externalUpdatedAt }) };
   // Insert only when the item has an external id; otherwise there is nothing to key the link on.
   const upsertLink = async (values: { eventId?: Id<"events">; draftId?: Id<"eventIntakeDrafts"> }) => {
     if (link) { await db.patch(link._id, { ...values, ...imported, updatedAt: now }); return; }
@@ -106,8 +128,7 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
   };
   // Rule 7: a held draft keeps the target's eventId on the link, so My events shows a proposed update.
   const hold = async (outcome: "draft" | "conflict") => {
-    const patch = candidatePatch(candidate);
-    const { draftId } = await saveWorkingDraft({ ...patch, tentative: { ...patch.tentative, communitySlug: community.slug } });
+    const { draftId } = await saveWorkingDraft(heldPatch);
     await upsertLink({ draftId, ...(target ? { eventId: target._id } : {}) });
     return finish({ outcome, draftId, ...(target ? { eventId: target._id } : {}) });
   };
@@ -127,12 +148,8 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
   if (connector.mode === "hold" || args.forceHold) return hold("draft");
 
   if (target) {
-    const explicit = new Set(candidate.evidence.filter(entry => entry.assessment === "explicit").map(entry => evidenceKey(entry.fieldPath)));
-    const carried = carriedFields(connector.kind);
-    const keys = UPDATE_KEYS.filter(key => explicit.has(key) && carried.includes(key));
-    // A start that appears or disappears also flips time TBA; timeTba is always a boolean here, never null.
-    if (keys.includes("start") && !keys.includes("timeTba") && carried.includes("timeTba")) keys.push("timeTba");
-    const patch = Object.fromEntries(keys.map(key => [key, fields[key] ?? null]));
+    // timeTba is always a boolean here, never null.
+    const patch = Object.fromEntries(explicitUpdateKeys(candidate.evidence, connector.kind).map(key => [key, fields[key] ?? null]));
     try {
       await patchCommunityEventFieldsAsStaffRecord(ctx, { actorUserId, slug: target.slug!, expectedUpdatedAt: args.expectedUpdatedAt ?? target.updatedAt, patch });
     } catch (error) {
@@ -167,6 +184,9 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
   } catch (error) {
     // These are thrown by the validation above or the read-only preflight, before publish writes; the saved draft stays as a hold.
     if (!HELD_PUBLISH_CODES.has(errorCode(error) as string)) throw error;
+    // Rule 7's shape: top-level values read as staff edits, so a later refresh could not replace them.
+    const cleared = Object.fromEntries(Object.keys(fields).map(key => [key, null]));
+    await saveIntakeDraft(db, actorUserId, { draftId: saved.draftId, expectedVersion: saved.version, patch: { ...cleared, ...heldPatch } }, now, { connectorId: connector._id });
     await upsertLink({ draftId: saved.draftId });
     return finish({ outcome: "draft", draftId: saved.draftId });
   }

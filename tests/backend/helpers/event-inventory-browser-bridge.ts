@@ -16,6 +16,7 @@ async function main() {
     "../../../convex/eventInventory.ts": () => import("../../../convex/eventInventory"),
     "../../../convex/eventIntake.ts": () => import("../../../convex/eventIntake"),
     "../../../convex/eventCorrections.ts": () => import("../../../convex/eventCorrections"),
+    "../../../convex/eventSeries.ts": () => import("../../../convex/eventSeries"),
     "../../../convex/accounts.ts": () => import("../../../convex/accounts"),
     "../../../convex/profiles.ts": () => import("../../../convex/profiles"),
     "../../../convex/search.ts": () => import("../../../convex/search"),
@@ -42,7 +43,7 @@ async function main() {
     const discord = editable.publicationState === "published" ? formatDiscordEventPost({ event: editable, canonicalUrl: `https://vrdex.example/checkpoint-club/events/${staff.slug}` }) : null;
     return { editable, discord, draftId: intake.draftId, staffPath: `/checkpoint-club/events/${staff.slug}`, staffPublic: await t.query(api.events.getPublicBySlug, { slug: staff.slug }), intakePublic: publishedIntakeSlug ? await t.query(api.events.getPublicBySlug, { slug: publishedIntakeSlug }) : null };
   }
-  const queries = new Set(["events:getPublicBySlug", "events:listVrcdnOutputAccounts", "events:getEventMediaControlStatus", "events:listEventAudit", "eventCorrections:getEventContributionAccess", "accounts:viewer", "events:listManagedCommunities", "eventCorrections:getEventReportAccess", "eventInventory:listPage", "eventIntake:getEventIntakeDraft", "eventCorrections:getOwnContributedEvent", "profiles:getPublicBySlug", "profiles:lookupPeople", "search:searchUniversal"]);
+  const queries = new Set(["events:getPublicBySlug", "events:listVrcdnOutputAccounts", "events:getEventMediaControlStatus", "events:listEventAudit", "eventCorrections:getEventContributionAccess", "accounts:viewer", "events:listManagedCommunities", "eventCorrections:getEventReportAccess", "eventInventory:listPage", "eventInventory:listHeldImports", "eventSeries:isEnabled", "eventIntake:getEventIntakeDraft", "eventCorrections:getOwnContributedEvent", "profiles:getPublicBySlug", "profiles:lookupPeople", "search:searchUniversal"]);
   console.log(JSON.stringify({ ready: true, snapshot: await snapshot() }));
   for await (const line of createInterface({ input: process.stdin })) {
     const request = JSON.parse(line) as { v: number; id: number; type: string; name: string; args: Record<string, unknown> };
