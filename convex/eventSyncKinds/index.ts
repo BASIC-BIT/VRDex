@@ -1,5 +1,6 @@
 import type { ConnectorKind } from "../_eventConnectors";
 import { discordBoardHandler } from "./discordBoard";
+import { discordScheduledEventsHandler } from "./discordScheduledEvents";
 import { googleCalendarHandler } from "./googleCalendar";
 import type { SyncKindHandler } from "./types";
 
@@ -10,7 +11,7 @@ import { vrchatCalendarHandler } from "./vrchatCalendar";
 export const syncKindHandlers: Record<ConnectorKind, SyncKindHandler> = {
   discord_announcements: {},
   discord_board: discordBoardHandler,
-  discord_scheduled_events: {},
+  discord_scheduled_events: discordScheduledEventsHandler,
   google_calendar: googleCalendarHandler,
   vrchat_calendar: vrchatCalendarHandler,
   notion: {},

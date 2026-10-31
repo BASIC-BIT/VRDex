@@ -1204,7 +1204,8 @@ export default defineSchema({
     quietWindowSeconds: v.optional(v.number()), state: connectorState, lastSyncedAt: v.optional(v.number()), lastError: v.optional(v.string()),
     consecutiveFailures: v.optional(v.number()), createdAt: v.number(), updatedAt: v.number(),
   }).index("by_communityProfileId", ["communityProfileId"])
-    .index("by_kind_target_channelId", ["kind", "target.channelId"]),
+    .index("by_kind_target_channelId", ["kind", "target.channelId"])
+    .index("by_kind_target_guildId", ["kind", "target.guildId"]),
   connectorCredentials: defineTable({
     provider: credentialProvider, ownerUserId: v.id("users"), encryptedAccessToken: v.string(), encryptedRefreshToken: v.string(),
     accessTokenExpiresAt: v.number(), scopes: v.array(v.string()), externalAccountId: v.string(),
@@ -1216,6 +1217,8 @@ export default defineSchema({
     lastImportedAt: v.optional(v.number()), externalUpdatedAt: v.optional(v.number()), state: syncLinkState, createdAt: v.number(), updatedAt: v.number(),
     // vrchat_calendar: the poster URL last exported, so an unchanged poster is not re-sent.
     externalArtworkUrl: v.optional(v.string()),
+    // discord_scheduled_events: a series night as Discord last stated it, so a packet that changes nothing about the night leaves a VRDex edit alone.
+    lastImportedHash: v.optional(v.string()),
   }).index("by_connectorId_externalId", ["connectorId", "externalId"])
     .index("by_eventId", ["eventId"]),
   eventSyncJobs: defineTable({

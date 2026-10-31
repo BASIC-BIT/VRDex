@@ -4,7 +4,7 @@ import { mutation, query, type MutationCtx } from "./_generated/server";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
   allowedDirections, boardEnabled, connectorDirection, connectorKind, connectorMode, connectorState, connectorTarget, connectorsEnabled,
-  DISCORD_ID, requireConnectorAuthority, type ConnectorDirection, type ConnectorKind,
+  DISCORD_ID, discordScheduledEventsEnabled, requireConnectorAuthority, type ConnectorDirection, type ConnectorKind,
 } from "./_eventConnectors";
 import { enqueueSyncJob, removeConnector } from "./_eventSync";
 import { MINIMUM_COMMUNITY_CONTROL_LEVEL, requireControlProof } from "./_externalControl";
@@ -107,11 +107,12 @@ export const create = mutation({
     if (args.kind === "notion" || args.kind === "discord_announcements") return fail("CONNECTOR_KIND_RESERVED");
     if (args.kind === "google_calendar" && !googleCalendarEnabled()) fail("CONNECTOR_KIND_DISABLED");
     if (args.kind === "discord_board" && !boardEnabled()) fail("CONNECTOR_KIND_DISABLED");
+    if (args.kind === "discord_scheduled_events" && !discordScheduledEventsEnabled()) fail("CONNECTOR_KIND_DISABLED");
     requireDirection(args.kind, args.direction);
     const target = args.kind === "vrchat_calendar" ? await vrchatCalendarTarget(ctx, args.communityProfileId, args.target.timezone) : args.target;
     requireTarget(args.kind, target);
-    // The bot posts the board as VRDex, so the staffer must prove the guild it posts into.
-    if (args.kind === "discord_board") await requireControlProof(ctx.db, userId, "discord_guild", args.target.guildId!, MINIMUM_COMMUNITY_CONTROL_LEVEL);
+    // The bot writes into the guild as VRDex, so the staffer must prove that guild.
+    if (args.kind === "discord_board" || args.kind === "discord_scheduled_events") await requireControlProof(ctx.db, userId, "discord_guild", args.target.guildId!, MINIMUM_COMMUNITY_CONTROL_LEVEL);
     const credential = args.credentialId ? await ctx.db.get(args.credentialId) : null;
     if (args.credentialId && (credential?.state !== "active" || credential.ownerUserId !== userId)) fail("CONNECTOR_CREDENTIAL");
     if (args.kind === "google_calendar" && credential?.provider !== "google") fail("CONNECTOR_CREDENTIAL");
