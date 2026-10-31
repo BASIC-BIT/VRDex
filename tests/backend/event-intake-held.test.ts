@@ -6,6 +6,7 @@ import { api, internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { EventIntakePatch } from "../../packages/api-contracts/src/event-intake";
 import { getConnectorDraftForManager, publishIntakeDraft } from "../../convex/_eventIntake";
+import { HELD_IMPORT_LIMIT, heldChanges, heldUpdatePatch, promoteHeldFields } from "../../convex/_eventIntakeHeld";
 
 process.env.CLERK_JWT_ISSUER_DOMAIN = "test";
 process.env.EVENT_DATE_ONLY_ENABLED = "true";
@@ -15,7 +16,8 @@ const schema = (schemaModule as unknown as { default?: typeof schemaModule }).de
 const DAY = 86_400_000;
 const sha256 = "a".repeat(64);
 const evidence = (fieldPath: string, assessment: "explicit" | "inferred" = "explicit") => ({ fieldPath, origin: "text" as const, excerpt: null, assessment });
-const newDraft: EventIntakePatch = { communitySlug: "club", tentative: { communitySlug: "club", title: "Afterglow Social", eventDate: "2027-07-20", timeTba: true }, evidence: [evidence("event.title"), evidence("event.eventDate")] };
+const newDraft: EventIntakePatch = { communitySlug: "club", tentative: { communitySlug: "club", title: "Afterglow Social", eventDate: "2027-07-20" }, evidence: [evidence("event.title"), evidence("event.eventDate")] };
+const updateDraft: EventIntakePatch = { communitySlug: "club", tentative: { title: "Harbor Night", eventDate: "2027-07-15", timezone: "UTC", start: { time: "21:00", dayOffset: 0 }, venueLabel: "Club Room" }, evidence: [evidence("event.title"), evidence("event.start"), evidence("event.venueLabel", "inferred")] };
 const publishable: EventIntakePatch = { communitySlug: "club", title: "Afterglow Social", eventDate: "2027-07-20", timeTba: true };
 
 async function fixture() {
@@ -201,4 +203,229 @@ it("connector drafts stay out of the owner's inventory and draft quota", async (
   }
   assert.equal(rows.filter(row => row.kind === "intake_draft").length, 0);
   await as("owner").mutation(api.eventIntake.saveEventIntakeDraft, { patch: { title: "Personal" } });
+});
+
+it("a poster change keeps a connector draft's import", async () => {
+  const { t, ids, as, draft, upload } = await fixture();
+  const draftId = await draft(newDraft);
+  const { posterAssetId } = await upload(ids.second, draftId);
+  await t.mutation(internal.eventIntakeSources.completePosterUpload, { actorUserId: ids.second, posterAssetId, sha256 });
+  await as("second").mutation(api.eventIntake.saveEventIntakeDraft, { draftId, expectedVersion: 1, patch: { posterSourceId: posterAssetId, questions: ["event.start: missing"] } });
+  await as("second").mutation(api.eventIntake.saveEventIntakeDraft, { draftId, expectedVersion: 2, patch: { sourceText: "Edited post" } });
+  const fields = (await as("second").query(api.eventIntake.getEventIntakeDraft, { draftId }))?.fields;
+  assert.deepEqual([fields?.tentative, fields?.evidence, fields?.questions], [newDraft.tentative, newDraft.evidence, ["event.start: missing"]]);
+});
+
+const A = { clientKey: "a", position: 0, performerLabel: "A" };
+const B = { clientKey: "b", position: 1, performerLabel: "B" };
+const nine = { time: "21:00", dayOffset: 0 };
+
+it("promotes extracted values under staff edits and pins the connector community", () => {
+  assert.deepEqual(promoteHeldFields({ title: "Staff title", tentative: { title: "Extracted", communitySlug: "elsewhere", eventDate: "2027-07-20", timeTba: true }, evidence: [evidence("event.title")] }, "club"),
+    { title: "Staff title", communitySlug: "club", eventDate: "2027-07-20", timeTba: true, tentative: null, evidence: null, questions: null });
+  // A held tentative never carries timeTba: it follows from the promoted start.
+  assert.equal(promoteHeldFields({ tentative: { eventDate: "2027-07-20" } }, "club").timeTba, true);
+  assert.equal(promoteHeldFields({ tentative: { eventDate: "2027-07-20", start: nine } }, "club").timeTba, false);
+  assert.equal(promoteHeldFields({ timeTba: false, tentative: { eventDate: "2027-07-20" } }, "club").timeTba, false);
+  assert.equal(promoteHeldFields(publishable, "club").timeTba, true);
+  assert.equal(promoteHeldFields({ title: "Saved", eventDate: "2027-07-20" }, "club").timeTba, undefined);
+  // A staffer re-dated the draft: extracted clocks belong to the old date and are not promoted.
+  const redated = promoteHeldFields({ eventDate: "2027-07-21", tentative: { eventDate: "2027-07-20", title: "Kept", start: nine, end: nine, doors: nine, timeTba: false, lineup: [A] } }, "club");
+  assert.deepEqual(redated, { eventDate: "2027-07-21", title: "Kept", communitySlug: "club", tentative: null, evidence: null, questions: null });
+});
+
+it("builds the update patch through rule 8's key selection", () => {
+  const kind = "discord_announcements";
+  assert.deepEqual(heldUpdatePatch({ tentative: { title: "T", start: nine, venueLabel: "V", communitySlug: "elsewhere", lineup: [A] },
+    evidence: [evidence("event.title"), evidence("event.startDate"), evidence("event.venueLabel", "inferred"), evidence("event.communitySlug"), evidence("lineup.0.performerLabel")] }, kind),
+    { title: "T", start: nine, timeTba: false, lineup: [A] });
+  assert.deepEqual(heldUpdatePatch({ title: "Staff edit", tentative: { title: "T" }, evidence: [evidence("event.title")] }, kind), { title: "Staff edit" });
+  assert.deepEqual(heldUpdatePatch({ tentative: { title: "T" }, evidence: [{ ...evidence("event.title"), assessment: "conflicting" }] }, kind), {});
+  // Explicit evidence for a value now gone clears it, as an autopublish update does.
+  assert.deepEqual(heldUpdatePatch({ tentative: { eventDate: "2027-07-15" }, evidence: [evidence("event.venueLabel"), evidence("event.start")] }, "google_calendar"), { start: null, timeTba: true, venueLabel: null });
+});
+
+it("counts what a staffer saved as update keys, and only that without evidence", () => {
+  const saved = { title: "Edited", doors: nine, worldSlug: "harbor-world", summary: null };
+  assert.deepEqual(heldUpdatePatch({ ...saved, tentative: { title: "T", start: nine }, evidence: [evidence("event.start")] }, "google_calendar"),
+    { title: "Edited", doors: nine, worldSlug: "harbor-world", start: nine, timeTba: false });
+  assert.deepEqual(heldUpdatePatch({ ...saved, tentative: null, evidence: null }, "google_calendar"), { title: "Edited", doors: nine, worldSlug: "harbor-world" });
+});
+
+it("never carries a Discord message URL onto the event", () => {
+  const url = "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333";
+  for (const fields of [{ sourceUrl: url }, { tentative: { sourceUrl: url }, evidence: [evidence("event.sourceUrl")] }]) {
+    assert.deepEqual(heldUpdatePatch(fields, "discord_announcements"), {});
+    assert.deepEqual(heldUpdatePatch(fields, "discord_board"), { sourceUrl: url });
+  }
+});
+
+it("does not clear event clocks a re-dated draft declined to promote", () => {
+  assert.deepEqual(heldUpdatePatch({ eventDate: "2027-07-21", tentative: { eventDate: "2027-07-20", start: nine, lineup: [A] }, evidence: [evidence("event.start"), evidence("event.eventDate"), evidence("lineup.0.performerLabel")] }, "discord_announcements"),
+    { eventDate: "2027-07-21" });
+});
+
+it("reports only changed fields, with instants for clocks", () => {
+  const current: EventIntakePatch = { title: "Harbor Night", eventDate: "2027-07-15", timezone: "UTC", start: { time: "20:00", dayOffset: 0 }, venueLabel: "Hand-set hall", lineup: [A] };
+  assert.deepEqual(heldChanges(current, { title: "Harbor Night", start: nine, lineup: [A, B] }), [
+    { field: "start", before: Date.UTC(2027, 6, 15, 20), after: Date.UTC(2027, 6, 15, 21) },
+    { field: "lineup", before: "A", after: "A, B" },
+  ]);
+  assert.deepEqual(heldChanges(current, { lineup: [{ ...A, clientKey: "other" }] }), []);
+  assert.deepEqual(heldChanges(current, { start: { time: "20:00" }, timeTba: null }), []);
+  // A clock that cannot resolve shows no instant, and each side reads in its own date.
+  assert.deepEqual(heldChanges(current, { eventDate: "2027-07-16", start: nine, timezone: "Not/AZone" }), [
+    { field: "eventDate", before: "2027-07-15", after: "2027-07-16" },
+    { field: "timezone", before: "UTC", after: "Not/AZone" },
+    { field: "start", before: Date.UTC(2027, 6, 15, 20), after: null },
+  ]);
+  assert.deepEqual(heldChanges(current, { eventDate: "2027-07-16", start: nine }).at(-1), { field: "start", before: Date.UTC(2027, 6, 15, 20), after: Date.UTC(2027, 6, 16, 21) });
+});
+
+it("reports every change field in declared order", () => {
+  const current: EventIntakePatch = { title: "T", eventDate: "2027-07-15", timeTba: true, timezone: "UTC", summary: "S", sourceUrl: "https://a.example", venueLabel: "V", worldSlug: "old", lineup: [A] };
+  assert.deepEqual(heldChanges(current, { title: "U", eventDate: "2027-07-15", timeTba: false, timezone: "UTC", start: nine, end: { time: "23:00" }, doors: { time: "20:00" }, venueLabel: null, worldSlug: "new", summary: "R", sourceUrl: "https://b.example", lineup: [B] }), [
+    { field: "title", before: "T", after: "U" },
+    { field: "timeTba", before: "Time TBA", after: null },
+    { field: "start", before: null, after: Date.UTC(2027, 6, 15, 21) },
+    { field: "end", before: null, after: Date.UTC(2027, 6, 15, 23) },
+    { field: "doors", before: null, after: Date.UTC(2027, 6, 15, 20) },
+    { field: "venueLabel", before: "V", after: null },
+    { field: "worldSlug", before: "old", after: "new" },
+    { field: "summary", before: "S", after: "R" },
+    { field: "sourceUrl", before: "https://a.example", after: "https://b.example" },
+    { field: "lineup", before: "A", after: "B" },
+  ]);
+  assert.deepEqual(heldChanges({ ...current, timeTba: false }, { timeTba: true }), [{ field: "timeTba", before: null, after: "Time TBA" }]);
+});
+
+it("lists a held new draft with its Discord provenance and never an autopublished one", async () => {
+  const { as, draft, discordSource, autopublished, now } = await fixture();
+  const draftId = await draft(newDraft);
+  await discordSource(draftId);
+  await discordSource(await autopublished(newDraft), { kind: "new" }, "444444444444444444");
+  assert.deepEqual(await as("staff").query(api.eventInventory.listHeldImports, {}), [{
+    kind: "new", draftId, title: "Afterglow Social", schedule: { kind: "date_only", eventDate: "2027-07-20" },
+    community: { slug: "club", displayName: "Club" }, connectorKind: "discord_announcements", targetName: "#events",
+    author: "Promoter", sourceUrl: "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333",
+    openHref: `/events/new?draft=${draftId}`, updatedAt: now,
+  }]);
+});
+
+it("takes provenance from a draft's first post", async () => {
+  const { t, ids, as, draft, discordSource } = await fixture();
+  const draftId = await draft(newDraft);
+  await discordSource(draftId);
+  await discordSource(draftId, { kind: "new" }, "444444444444444444");
+  await t.run(async ({ db }) => {
+    const later = (await db.query("discordIntakeMessages").withIndex("by_connectorId_messageId", q => q.eq("connectorId", ids.discord).eq("messageId", "444444444444444444")).unique())!;
+    await db.patch(later._id, { authorDisplayName: "Later" });
+  });
+  const [row] = await as("staff").query(api.eventInventory.listHeldImports, {});
+  assert.ok(row?.kind === "new");
+  assert.deepEqual([row.author, row.sourceUrl], ["Promoter", "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"]);
+});
+
+it("leaves a run's in-flight working draft off the list", async () => {
+  const { t, ids, as, draft } = await fixture();
+  const working = await draft({ sourceText: "Afterglow Social", sourceUrl: "https://discord.com/channels/1/2/3" });
+  await t.run(({ db }) => db.insert("discordIntakeRuns", { connectorId: ids.discord, authorId: "555555555555555555", triggerMessageIds: ["333333333333333333"], state: "running", draftId: working, createdAt: Date.now() }));
+  assert.deepEqual(await as("staff").query(api.eventInventory.listHeldImports, {}), []);
+});
+
+it("lists drafts on a removed connector but not expired or resolved ones", async () => {
+  const { t, ids, as, draft, now } = await fixture();
+  const link = (draftId: Id<"eventIntakeDrafts">, externalId: string) => t.run(({ db }) => db.insert("eventSyncLinks", { connectorId: ids.google, draftId, externalId, state: "linked", createdAt: now, updatedAt: now }));
+  const kept = await draft(newDraft, { connectorId: ids.google });
+  await link(kept, "g-1");
+  await link(await draft(newDraft, { connectorId: ids.google, expiresAt: now - 1 }), "g-2");
+  await link(await draft(newDraft, { connectorId: ids.google, resolvedAt: now }), "g-3");
+  await t.run(({ db }) => db.patch(ids.google, { state: "removed" }));
+  const rows = await as("staff").query(api.eventInventory.listHeldImports, {});
+  assert.deepEqual(rows.map(row => row.kind === "new" && [row.draftId, row.targetName]), [[kept, "club@group.calendar.google.com"]]);
+});
+
+it("lists proposed updates from a linked draft and from a run decision with the explicit diff", async () => {
+  const { t, ids, as, draft, discordSource } = await fixture();
+  const linked = await draft(updateDraft, { connectorId: ids.google });
+  await t.run(({ db }) => db.insert("eventSyncLinks", { connectorId: ids.google, draftId: linked, eventId: ids.event, externalId: "g-1", state: "linked", createdAt: Date.now(), updatedAt: Date.now() }));
+  const decided = await draft(updateDraft);
+  await discordSource(decided, { kind: "update", slug: "harbor" });
+  const rows = await as("second").query(api.eventInventory.listHeldImports, { communityProfileId: ids.community });
+  for (const draftId of [linked, decided]) {
+    const row = rows.find(item => item.kind === "update" && item.draftId === draftId);
+    assert.ok(row?.kind === "update");
+    assert.deepEqual(row.target, { slug: "harbor", title: "Harbor Night", href: "/club/events/harbor/edit" });
+    assert.deepEqual(row.changes, [{ field: "start", before: Date.UTC(2027, 6, 15, 20), after: Date.UTC(2027, 6, 15, 21) }]);
+  }
+  const googleRow = rows.find(item => item.kind === "update" && item.draftId === linked);
+  assert.ok(googleRow?.kind === "update");
+  assert.deepEqual([googleRow.author, googleRow.sourceUrl, googleRow.targetName], [null, null, "club@group.calendar.google.com"]);
+});
+
+it("reads the newest run's decision and shows a new row when the target is unusable", async () => {
+  const { t, ids, as, draft, discordSource, now } = await fixture();
+  const kind = async (draftId: Id<"eventIntakeDrafts">) => (await as("staff").query(api.eventInventory.listHeldImports, {})).find(row => row.kind !== "flag" && row.draftId === draftId)?.kind;
+  const newest = await draft(updateDraft);
+  await discordSource(newest, { kind: "new" });
+  await discordSource(newest, { kind: "update", slug: "harbor" }, "444444444444444444");
+  assert.equal(await kind(newest), "update");
+  const elsewhere = await t.run(async ({ db }) => {
+    const other = await db.insert("profiles", { slug: "other", displayName: "Other", sortName: "other", profileType: "community", community: { categoryTags: [] }, aliases: [], tags: [], claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public", creationSource: "community", updatedAt: now });
+    return db.insert("events", { communityProfileId: other, communityName: "Other", title: "Other Night", sortTitle: "other night", slug: "other-night", scheduleKind: "date_only", eventDate: "2027-08-01", sortAt: Date.UTC(2027, 7, 1), sourceType: "community", sourceLabel: "Other", eventStatus: "scheduled", publicationState: "published", createdAt: now, updatedAt: now });
+  });
+  const foreign = await draft(updateDraft);
+  await discordSource(foreign, { kind: "update", slug: "other-night" }, "555555555555555556");
+  const linkedElsewhere = await draft(updateDraft, { connectorId: ids.google });
+  await t.run(({ db }) => db.insert("eventSyncLinks", { connectorId: ids.google, draftId: linkedElsewhere, eventId: elsewhere, externalId: "g-1", state: "linked", createdAt: now, updatedAt: now }));
+  assert.deepEqual([await kind(foreign), await kind(linkedElsewhere)], ["new", "new"]);
+  await t.run(({ db }) => db.patch(ids.event, { moderationRemovedAt: now }));
+  assert.equal(await kind(newest), "new");
+});
+
+it("lists staff-attention rows from deleted links, one per event and reason", async () => {
+  const { t, ids, as, draft, now } = await fixture();
+  const { pier, gone } = await t.run(async ({ db }) => {
+    const event = (slug: string, title: string, extra: { moderationRemovedAt?: number } = {}) => db.insert("events", { communityProfileId: ids.community, communityName: "Club", title, sortTitle: title.toLowerCase(), slug, scheduleKind: "date_only", eventDate: "2027-08-01", sortAt: Date.UTC(2027, 7, 1), sourceType: "community", sourceLabel: "Club", eventStatus: "scheduled", publicationState: "published", createdAt: now, updatedAt: now, ...extra });
+    const [pier, removed, gone] = [await event("pier", "Pier Night"), await event("removed", "Removed", { moderationRemovedAt: now }), await event("gone", "Gone")];
+    const link = (connectorId: Id<"eventConnectors">, externalId: string, values: { eventId?: Id<"events">; flagReviewedAt?: number }) => db.insert("eventSyncLinks", { connectorId, externalId, state: "external_deleted", createdAt: now, updatedAt: now, ...values });
+    await link(ids.google, "g-1", { eventId: ids.event });
+    await link(ids.discord, "333333333333333333", { eventId: pier });
+    await link(ids.discord, "444444444444444444", { eventId: pier });
+    await link(ids.google, "g-2", { eventId: pier, flagReviewedAt: now });
+    await link(ids.google, "g-3", { eventId: removed });
+    await link(ids.google, "g-4", { eventId: gone });
+    await link(ids.google, "g-5", {});
+    return { pier, gone };
+  });
+  await t.run(({ db }) => db.delete(gone));
+  await draft(newDraft);
+  const flags = (await as("staff").query(api.eventInventory.listHeldImports, {})).filter(row => row.kind === "flag");
+  assert.deepEqual(flags.map(row => row.kind === "flag" && [row.eventId, row.reason, row.title, row.href, row.connectorKind, row.updatedAt]).sort(), [
+    [ids.event, "external_deleted", "Harbor Night", "/club/events/harbor/edit", "google_calendar", now],
+    [pier, "source_deleted", "Pier Night", "/club/events/pier/edit", "discord_announcements", now],
+  ].sort());
+});
+
+it("sorts newest first and caps the list", async () => {
+  const { t, ids, as, draft, now } = await fixture();
+  for (let n = 0; n <= HELD_IMPORT_LIMIT; n++) {
+    const connectorId = n % 2 ? ids.discord : ids.google;
+    const draftId = await draft(newDraft, { connectorId, updatedAt: now + n });
+    await t.run(({ db }) => db.insert("eventSyncLinks", { connectorId, draftId, externalId: `e-${n}`, state: "linked", createdAt: now, updatedAt: now }));
+  }
+  const rows = await as("staff").query(api.eventInventory.listHeldImports, {});
+  assert.equal(rows.length, HELD_IMPORT_LIMIT);
+  assert.deepEqual([rows[0]?.updatedAt, rows.at(-1)?.updatedAt], [now + HELD_IMPORT_LIMIT, now + 1]);
+});
+
+it("shows nothing to staff without manage_events", async () => {
+  const { t, ids, as, draft } = await fixture();
+  const draftId = await draft(newDraft);
+  await t.run(({ db }) => db.insert("eventSyncLinks", { connectorId: ids.discord, draftId, externalId: "m-1", state: "linked", createdAt: Date.now(), updatedAt: Date.now() }));
+  assert.equal((await as("owner").query(api.eventInventory.listHeldImports, {})).length, 1);
+  for (const name of ["authority", "outsider"]) {
+    assert.deepEqual(await as(name).query(api.eventInventory.listHeldImports, {}), []);
+    await assert.rejects(as(name).query(api.eventInventory.listHeldImports, { communityProfileId: ids.community }), /access/);
+  }
 });

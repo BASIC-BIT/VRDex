@@ -7,7 +7,7 @@ import { getAccountFeatureAccess } from "./_accountFeatures";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
   buildDraftSourceText, buildSourceText, clampQuietWindowSeconds, connectDiscordAnnouncements, discordAttachmentValidator, discordBotInviteUrl, discordCommandReplies, discordIntakeEnabled,
-  DISCORD_SNOWFLAKE, discordMessagePayloadValidator, findRunLink, isConnectableChannelType, isDiscordCdnUrl, liveChannelConnectors, pickPosterAttachments, quietWindowMs,
+  DISCORD_SNOWFLAKE, discordMessagePayloadValidator, findRunLink, isConnectableChannelType, isDiscordCdnUrl, liveChannelConnectors, messageRow, messageUrl, pickPosterAttachments, quietWindowMs,
   readableTextChannels, resolveDiscordUserId, sanitizeRunEvidence, type DiscordChannel,
 } from "./_discordIntake";
 import { discordRequest } from "./_discordRest";
@@ -136,9 +136,6 @@ const RUNNING_LEASE_MS = 15 * 60_000;
 type SkipReason = "connector_inactive" | "authority_lost" | "binding_cap" | "source_deleted" | "trigger_deleted";
 const skipReason = v.union(v.literal("connector_inactive"), v.literal("authority_lost"), v.literal("binding_cap"), v.literal("source_deleted"), v.literal("trigger_deleted"), v.literal("deferred"));
 const capAlertKey = (connectorId: Id<"eventConnectors">) => `discord-intake-cap:${connectorId}`;
-const messageUrl = (message: Doc<"discordIntakeMessages">) => `https://discord.com/channels/${message.guildId}/${message.channelId}/${message.messageId}`;
-const messageRow = (db: DatabaseReader, connectorId: Id<"eventConnectors">, messageId: string) =>
-  db.query("discordIntakeMessages").withIndex("by_connectorId_messageId", q => q.eq("connectorId", connectorId).eq("messageId", messageId)).unique();
 const triggerRows = async (db: DatabaseReader, connectorId: Id<"eventConnectors">, messageIds: string[]) =>
   (await Promise.all(messageIds.map(messageId => messageRow(db, connectorId, messageId)))).filter(row => row !== null);
 const sourceRow = (db: DatabaseReader, connectorId: Id<"eventConnectors">, messageId: string) =>

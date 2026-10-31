@@ -13,6 +13,10 @@ export { isDiscordCdnUrl } from "../packages/api-contracts/src/event-intake";
 
 export const DISCORD_SNOWFLAKE = DISCORD_ID;
 
+export const messageUrl = (message: Doc<"discordIntakeMessages">) => `https://discord.com/channels/${message.guildId}/${message.channelId}/${message.messageId}`;
+export const messageRow = (db: DatabaseReader, connectorId: Id<"eventConnectors">, messageId: string) =>
+  db.query("discordIntakeMessages").withIndex("by_connectorId_messageId", q => q.eq("connectorId", connectorId).eq("messageId", messageId)).unique();
+
 const TARGET_NAME_MAX = 100;
 
 /** Types a connector can read: text (0) and announcement (5). */

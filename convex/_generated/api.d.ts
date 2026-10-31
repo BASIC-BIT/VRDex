@@ -61,6 +61,7 @@ import type * as _eventContributorLock from "../_eventContributorLock.js";
 import type * as _eventDiscordExport from "../_eventDiscordExport.js";
 import type * as _eventInputs from "../_eventInputs.js";
 import type * as _eventIntake from "../_eventIntake.js";
+import type * as _eventIntakeHeld from "../_eventIntakeHeld.js";
 import type * as _eventInventory from "../_eventInventory.js";
 import type * as _eventLineup from "../_eventLineup.js";
 import type * as _eventMediaControl from "../_eventMediaControl.js";
@@ -316,6 +317,7 @@ declare const fullApi: ApiFromModules<{
   _eventDiscordExport: typeof _eventDiscordExport;
   _eventInputs: typeof _eventInputs;
   _eventIntake: typeof _eventIntake;
+  _eventIntakeHeld: typeof _eventIntakeHeld;
   _eventInventory: typeof _eventInventory;
   _eventLineup: typeof _eventLineup;
   _eventMediaControl: typeof _eventMediaControl;

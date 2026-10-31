@@ -26,6 +26,18 @@ export function evidenceKey(fieldPath: string): string {
   return fieldPath.startsWith("event.") ? fieldPath.slice("event.".length) : fieldPath;
 }
 
+/** Rule 8's keys: what explicit evidence names and the kind carries, plus values a staffer saved on a held draft. */
+export function explicitUpdateKeys(evidence: NonNullable<EventIntakePatch["evidence"]>, kind: ConnectorKind, saved: Partial<EventIntakeFields> = {}) {
+  const explicit = new Set(evidence.filter(entry => entry.assessment === "explicit").map(entry => evidenceKey(entry.fieldPath)));
+  const carried = carriedFields(kind);
+  // A top-level sourceUrl on a Discord draft is the private message URL, never a staff edit.
+  const staffSet = (key: keyof EventIntakeFields) => (saved[key] ?? null) !== null && (key !== "sourceUrl" || carried.includes(key));
+  const keys = UPDATE_KEYS.filter(key => (explicit.has(key) && carried.includes(key)) || staffSet(key));
+  // A start that appears or disappears also flips time TBA.
+  if (keys.includes("start") && !keys.includes("timeTba") && carried.includes("timeTba")) keys.push("timeTba");
+  return keys;
+}
+
 const CANDIDATE_KEYS = ["title", "communitySlug", "eventDate", "start", "end", "timezone", "venueLabel", "summary", "sourceUrl"] as const;
 
 /**
@@ -127,12 +139,8 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
   if (connector.mode === "hold" || args.forceHold) return hold("draft");
 
   if (target) {
-    const explicit = new Set(candidate.evidence.filter(entry => entry.assessment === "explicit").map(entry => evidenceKey(entry.fieldPath)));
-    const carried = carriedFields(connector.kind);
-    const keys = UPDATE_KEYS.filter(key => explicit.has(key) && carried.includes(key));
-    // A start that appears or disappears also flips time TBA; timeTba is always a boolean here, never null.
-    if (keys.includes("start") && !keys.includes("timeTba") && carried.includes("timeTba")) keys.push("timeTba");
-    const patch = Object.fromEntries(keys.map(key => [key, fields[key] ?? null]));
+    // timeTba is always a boolean here, never null.
+    const patch = Object.fromEntries(explicitUpdateKeys(candidate.evidence, connector.kind).map(key => [key, fields[key] ?? null]));
     try {
       await patchCommunityEventFieldsAsStaffRecord(ctx, { actorUserId, slug: target.slug!, expectedUpdatedAt: args.expectedUpdatedAt ?? target.updatedAt, patch });
     } catch (error) {

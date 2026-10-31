@@ -83,7 +83,8 @@ export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users
   const posterChanged = Boolean(draft && patch.posterSourceId !== undefined && patch.posterSourceId !== draft.fields.posterSourceId);
   const sourceChanged = posterChanged || Boolean(draft && patch.sourceText !== undefined && (patch.sourceText ?? "") !== (draft.fields.sourceText ?? ""));
   const fields = omitEmpty({ ...draft?.fields, ...patch,
-    ...(sourceChanged ? { tentative: null, questions: null, evidence: null } : {}) }) as EventIntakePatch;
+    // On a connector draft, tentative is the only copy of the import.
+    ...(sourceChanged && !draft?.connectorId ? { tentative: null, questions: null, evidence: null } : {}) }) as EventIntakePatch;
   if (!draft && !hasMeaningfulInput(fields)) throw new Error("A draft needs at least one meaningful field.");
   if (JSON.stringify(fields).length > 48_000) throw new Error("Draft exceeds storage limit.");
   if (!draft && !options.connectorDriven && !options.connectorId) {
