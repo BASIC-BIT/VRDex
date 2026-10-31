@@ -30,7 +30,8 @@ export function EventIntakeSuggestions({ fields, onAccept, lineup = false }: { f
     {evidence?.length ? <details><summary className="cursor-pointer text-sm">Source evidence</summary><ul className="mt-2 grid gap-2 text-sm">{evidence.map((row, index) => <li key={index} className="break-words">{labels[row.fieldPath.replace(/^event\./, "")] ?? row.fieldPath}: {row.excerpt} ({row.assessment}{` · ${row.origin}`})</li>)}</ul></details> : null}
   </>;
 }
-export function EventIntakeSource({ fields, revision, onChange, onSaved, action, busy, setBusy, setMessage, initialArtworkSourceId, onPreview, onExtract }: {
+export function EventIntakeSource({ fields, keepImport = false, revision, onChange, onSaved, action, busy, setBusy, setMessage, initialArtworkSourceId, onPreview, onExtract }: {
+  keepImport?: boolean;
   onSaved?: (submitted: EventIntakePatch, saved: EventIntakePatch) => void;
   fields: EventIntakePatch; revision: number; onChange: (fields: EventIntakePatch) => void; action: IntakeSourceAction;
   busy: boolean; setBusy: (busy: boolean) => void; setMessage: (message: string) => void; initialArtworkSourceId?: string;
@@ -70,7 +71,7 @@ export function EventIntakeSource({ fields, revision, onChange, onSaved, action,
     } finally { inFlight.current = false; setBusy(false); }
   }
   return <section className="grid min-w-0 gap-5" aria-label="Event source">
-    <Field>Source text<Textarea value={fields.sourceText ?? ""} maxLength={12000} rows={6} onChange={event => onChange({ ...fields, sourceText: event.target.value, tentative: null, questions: null, evidence: null })} /></Field>
+    <Field>Source text<Textarea value={fields.sourceText ?? ""} maxLength={12000} rows={6} onChange={event => onChange({ ...fields, sourceText: event.target.value, ...(keepImport ? {} : { tentative: null, questions: null, evidence: null }) })} /></Field>
     <Field>Poster<Input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={event => { const file = event.target.files?.[0]; if (file) void run("upload", file); event.target.value = ""; }} /></Field>
     {sourceId ? <div className="grid content-start gap-3 rounded-control border border-border p-3">
       {previewUrl ? <>{/* eslint-disable-next-line @next/next/no-img-element */}

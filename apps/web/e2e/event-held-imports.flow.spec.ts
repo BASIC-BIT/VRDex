@@ -56,6 +56,17 @@ test("a poster change keeps a connector draft's import @flow @fixture", async ({
   await expect(page.getByRole("button", { name: "Accept Event title", exact: true })).toBeVisible();
 });
 
+test("a source text edit keeps a connector draft's import @flow @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake?revision=held-date-only");
+  await page.getByRole("button", { name: "Import poster or text", exact: true }).click();
+  await page.getByRole("textbox", { name: "Source text", exact: true }).fill("Held night moved");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Accept Event title", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Draft saved");
+  expect(JSON.parse((await stored(page, "event-intake-revision-submission"))!).patch).toMatchObject({ sourceText: "Held night moved", tentative: { title: "Held night" } });
+});
+
 test("a personal draft still needs a start @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?revision=draft");
   await review(page);
