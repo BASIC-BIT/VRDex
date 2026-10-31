@@ -1204,7 +1204,8 @@ export default defineSchema({
     quietWindowSeconds: v.optional(v.number()), state: connectorState, lastSyncedAt: v.optional(v.number()), lastError: v.optional(v.string()),
     consecutiveFailures: v.optional(v.number()), createdAt: v.number(), updatedAt: v.number(),
   }).index("by_communityProfileId", ["communityProfileId"])
-    .index("by_kind_target_channelId", ["kind", "target.channelId"]),
+    .index("by_kind_target_channelId", ["kind", "target.channelId"])
+    .index("by_kind_target_guildId", ["kind", "target.guildId"]),
   connectorCredentials: defineTable({
     provider: credentialProvider, ownerUserId: v.id("users"), encryptedAccessToken: v.string(), encryptedRefreshToken: v.string(),
     accessTokenExpiresAt: v.number(), scopes: v.array(v.string()), externalAccountId: v.string(),

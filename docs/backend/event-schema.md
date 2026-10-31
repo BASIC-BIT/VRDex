@@ -493,7 +493,7 @@ Connectors sync a community's events with an external surface (Discord, Google C
 
 Tables, with validators in `convex/_eventConnectors.ts`:
 
-- `eventConnectors`: one connector per community, kind, and target, with direction, mode, the authority user whose `manage_integrations` permission every job re-checks, state, `lastSyncedAt`, and `lastError`. Indexes `by_communityProfileId` and `by_kind_target_channelId`.
+- `eventConnectors`: one connector per community, kind, and target, with direction, mode, the authority user whose `manage_integrations` permission every job re-checks, state, `lastSyncedAt`, and `lastError`. Indexes `by_communityProfileId`, `by_kind_target_channelId`, and `by_kind_target_guildId`.
 - `connectorCredentials`: encrypted OAuth tokens for Google and Notion connectors.
 - `eventSyncLinks`: one row per connector per external copy, keyed to an event or to a held draft. Indexes `by_connectorId_externalId` (unique by convention) and `by_eventId`.
 - `eventSyncJobs`: the job queue. Indexes `by_connectorId_eventId_state` and `by_state_dueAt`.

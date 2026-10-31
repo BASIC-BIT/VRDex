@@ -203,6 +203,7 @@ import type * as eventScheduleMigration from "../eventScheduleMigration.js";
 import type * as eventSeries from "../eventSeries.js";
 import type * as eventSync from "../eventSync.js";
 import type * as eventSyncKinds_discordBoard from "../eventSyncKinds/discordBoard.js";
+import type * as eventSyncKinds_discordScheduledEvents from "../eventSyncKinds/discordScheduledEvents.js";
 import type * as eventSyncKinds_googleCalendar from "../eventSyncKinds/googleCalendar.js";
 import type * as eventSyncKinds_index from "../eventSyncKinds/index.js";
 import type * as eventSyncKinds_types from "../eventSyncKinds/types.js";
@@ -459,6 +460,7 @@ declare const fullApi: ApiFromModules<{
   eventSeries: typeof eventSeries;
   eventSync: typeof eventSync;
   "eventSyncKinds/discordBoard": typeof eventSyncKinds_discordBoard;
+  "eventSyncKinds/discordScheduledEvents": typeof eventSyncKinds_discordScheduledEvents;
   "eventSyncKinds/googleCalendar": typeof eventSyncKinds_googleCalendar;
   "eventSyncKinds/index": typeof eventSyncKinds_index;
   "eventSyncKinds/types": typeof eventSyncKinds_types;
