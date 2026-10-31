@@ -7,7 +7,7 @@ import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { acceptIntakeSuggestion, rebaseIntakeSuggestions, rebaseIntakeTimes } from "../../apps/web/src/lib/calendar/event-intake-suggestions";
 import { EventIntakePatchSchema, heldImportTimeTba, selectEventLocalTime, type EventIntakePatch } from "../../packages/api-contracts/src/event-intake";
 import { normalizeIntakePublication } from "../../convex/_eventContributionPreflight";
-import { EVENT_INTAKE_DRAFT_TTL_MS, getConnectorDraftForManager, publishIntakeDraft } from "../../convex/_eventIntake";
+import { EVENT_INTAKE_DRAFT_TTL_MS, getConnectorDraftForManager, publishIntakeDraft, saveIntakeDraft } from "../../convex/_eventIntake";
 import { HELD_IMPORT_LIMIT, heldChanges, heldUpdatePatch, promoteHeldFields } from "../../convex/_eventIntakeHeld";
 import { intakeSchedule } from "../../convex/_eventInventory";
 
@@ -739,6 +739,13 @@ it("publishing clears a deletion flag only when a live post feeds the draft", as
   // Ruling P6: a cancelled Google item has no source row and keeps its flag.
   const cancelled = await draft(updateDraft, { connectorId: ids.google });
   assert.deepEqual((await published(cancelled, await googleLink({ draftId: cancelled, eventId: ids.event, state: "external_deleted" }))).slice(0, 1), ["external_deleted"]);
+});
+
+it("refuses a save to a resolved draft, the owner's too", async () => {
+  const { t, ids, draft, now } = await fixture();
+  const draftId = await draft(newDraft, { resolvedAt: now, dismissedAt: now });
+  await t.run(({ db }) => assert.rejects(saveIntakeDraft(db, ids.authority, { draftId, expectedVersion: 1, patch: { title: "Late" } }), /Draft not found/));
+  assert.equal((await t.run(({ db }) => db.get(draftId)))?.version, 1);
 });
 
 it("row Publish agrees with Open over every date, clock, and saved start combination", () => {

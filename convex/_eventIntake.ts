@@ -71,6 +71,7 @@ export async function saveIntakeDraft(db: DatabaseWriter, actorUserId: Id<"users
   const draft = args.draftId ? await getActorIntakeDraft(db, actorUserId, args.draftId, now) : undefined;
   if (draft ? draft.version !== args.expectedVersion : args.expectedVersion !== undefined) throw new ConvexError({ code: "VERSION_CONFLICT" });
   if (draft?.publishedReceiptId) throw new Error("Published drafts cannot be edited. Use the event correction flow.");
+  if (draft?.resolvedAt !== undefined) throw new Error("Draft not found.");
   for (const group of [patch, patch.tentative]) {
     const rawId = group?.posterSourceId;
     if (!rawId) continue;
