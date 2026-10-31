@@ -104,6 +104,19 @@ export async function dismissHeldDraft(ctx: Pick<MutationCtx, "db" | "scheduler"
 const targetName = ({ target }: Doc<"eventConnectors">) => target.channelName ? `#${target.channelName}`
   : target.calendarName ?? target.groupName ?? target.guildName ?? target.channelId ?? target.calendarId ?? target.groupId ?? null;
 
+/** A connector's drafts awaiting review, newest first. A run's working draft has neither a source row nor a link until the run finishes. */
+export async function pendingHeldDrafts(db: DatabaseReader, connectorId: Id<"eventConnectors">, now: number) {
+  const drafts = await db.query("eventIntakeDrafts")
+    .withIndex("by_connectorId_resolvedAt_expiresAt", q => q.eq("connectorId", connectorId).eq("resolvedAt", undefined).gt("expiresAt", now)).order("desc").take(HELD_IMPORT_LIMIT);
+  const pending = [];
+  for (const draft of drafts) {
+    if (draft.publishedReceiptId) continue;
+    const source = await db.query("discordIntakeSources").withIndex("by_draftId", q => q.eq("draftId", draft._id)).first();
+    if (source || await db.query("eventSyncLinks").withIndex("by_draftId", q => q.eq("draftId", draft._id)).first()) pending.push({ draft, source });
+  }
+  return pending;
+}
+
 export async function heldImportRows(db: DatabaseReader, community: Doc<"profiles">, now: number): Promise<HeldImportRow[]> {
   const rows: HeldImportRow[] = [];
   const flagged = new Set<string>();
@@ -111,13 +124,7 @@ export async function heldImportRows(db: DatabaseReader, community: Doc<"profile
   // Removed connectors stay in: their drafts outlive them.
   for (const connector of await db.query("eventConnectors").withIndex("by_communityProfileId", q => q.eq("communityProfileId", community._id)).take(HELD_IMPORT_LIMIT)) {
     const origin = { community: { slug: community.slug, displayName: community.displayName }, connectorKind: connector.kind, targetName: targetName(connector) };
-    const drafts = await db.query("eventIntakeDrafts")
-      .withIndex("by_connectorId_resolvedAt_expiresAt", q => q.eq("connectorId", connector._id).eq("resolvedAt", undefined).gt("expiresAt", now)).order("desc").take(HELD_IMPORT_LIMIT);
-    for (const draft of drafts) {
-      if (draft.publishedReceiptId) continue;
-      const source = await db.query("discordIntakeSources").withIndex("by_draftId", q => q.eq("draftId", draft._id)).first();
-      // A run's working draft has neither until the run finishes.
-      if (!source && !await db.query("eventSyncLinks").withIndex("by_draftId", q => q.eq("draftId", draft._id)).first()) continue;
+    for (const { draft, source } of await pendingHeldDrafts(db, connector._id, now)) {
       const message = source ? await messageRow(db, connector._id, source.messageId) : null;
       const fields = EventIntakePatchSchema.parse(draft.fields);
       const promoted = promoteHeldFields(fields, community.slug);

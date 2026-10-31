@@ -175,6 +175,10 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
   } catch (error) {
     // These are thrown by the validation above or the read-only preflight, before publish writes; the saved draft stays as a hold.
     if (!HELD_PUBLISH_CODES.has(errorCode(error) as string)) throw error;
+    // Rule 7's shape: top-level values read as staff edits, so a later refresh could not replace them.
+    const patch = candidatePatch(candidate);
+    const cleared = Object.fromEntries(Object.keys(fields).map(key => [key, null]));
+    await saveIntakeDraft(db, actorUserId, { draftId: saved.draftId, expectedVersion: saved.version, patch: { ...cleared, ...patch, tentative: { ...patch.tentative, communitySlug: community.slug } } }, now, { connectorId: connector._id });
     await upsertLink({ draftId: saved.draftId });
     return finish({ outcome: "draft", draftId: saved.draftId });
   }
