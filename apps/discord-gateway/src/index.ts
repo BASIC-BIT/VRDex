@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 
-import { Client, Events, GatewayIntentBits, Partials, type Interaction } from "discord.js";
+import { Client, Events, GatewayIntentBits, Partials, type GatewayDispatchPayload, type Interaction } from "discord.js";
 
 import { catchUpMissedMessages } from "./catchUp";
 import { handleVrdexInteraction } from "./commands";
 import { createConnectorCache } from "./connectorCache";
 import { routeMediaInteraction, type DiscordMediaInteractionRoute } from "./mediaControlRouting";
 import { fetchConnectors, logFailure, logRejections, relay, relayBulkDelete, relayConnected, sendHeartbeat, toMessagePayload } from "./relay";
+import { relayScheduledEventPacket } from "./scheduledEvents";
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
 
@@ -40,6 +41,9 @@ client.on(Events.MessageUpdate, (_previous, message) =>
   relayConnected(connectors.get, "update", message, async () => toMessagePayload(message.partial ? await message.fetch() : message)));
 client.on(Events.MessageDelete, message => relayConnected(connectors.get, "delete", message, () => ({ messageId: message.id })));
 client.on(Events.MessageBulkDelete, messages => relayBulkDelete(connectors.get, messages.values()));
+client.on(Events.Raw, logRejections("discord_gateway_scheduled_event_failed", async (packet: GatewayDispatchPayload) => {
+  await relayScheduledEventPacket(packet, { botUserId: client.user?.id ?? null, getConnectors: connectors.get, relay });
+}));
 client.on(Events.Error, error => logFailure("discord_gateway_client_error", error));
 
 client.on(Events.InteractionCreate, logRejections("discord_gateway_interaction_failed", async (interaction: Interaction) => {

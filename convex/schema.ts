@@ -1207,7 +1207,8 @@ export default defineSchema({
     quietWindowSeconds: v.optional(v.number()), state: connectorState, lastSyncedAt: v.optional(v.number()), lastError: v.optional(v.string()),
     consecutiveFailures: v.optional(v.number()), createdAt: v.number(), updatedAt: v.number(),
   }).index("by_communityProfileId", ["communityProfileId"])
-    .index("by_kind_target_channelId", ["kind", "target.channelId"]),
+    .index("by_kind_target_channelId", ["kind", "target.channelId"])
+    .index("by_kind_target_guildId", ["kind", "target.guildId"]),
   connectorCredentials: defineTable({
     provider: credentialProvider, ownerUserId: v.id("users"), encryptedAccessToken: v.string(), encryptedRefreshToken: v.string(),
     accessTokenExpiresAt: v.number(), scopes: v.array(v.string()), externalAccountId: v.string(),
@@ -1221,6 +1222,8 @@ export default defineSchema({
     externalArtworkUrl: v.optional(v.string()),
     // Staff kept the event after its external item was deleted.
     flagReviewedAt: v.optional(v.number()),
+    // discord_scheduled_events: a series night as Discord last stated it, so a packet that changes nothing about the night leaves a VRDex edit alone.
+    lastImportedHash: v.optional(v.string()),
   }).index("by_connectorId_externalId", ["connectorId", "externalId"])
     .index("by_eventId", ["eventId"])
     .index("by_draftId", ["draftId"])

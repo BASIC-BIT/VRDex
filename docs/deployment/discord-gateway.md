@@ -2,7 +2,7 @@
 
 ## Status
 
-Current recommendation for the first `program/restream/discord-gateway` leaf. Media controls in the checked-in runtime are ACK/routing-only; they do not enqueue Convex commands or mutate live media. The runtime also relays connected-channel posts to Convex and serves `/vrdex`.
+Current recommendation for the first `program/restream/discord-gateway` leaf. Media controls in the checked-in runtime are ACK/routing-only; they do not enqueue Convex commands or mutate live media. The runtime also relays connected-channel posts and scheduled event changes to Convex and serves `/vrdex`.
 
 ## Runtime Shape
 
@@ -22,6 +22,7 @@ The runtime entrypoint acknowledges interactions quickly and keeps provider muta
 - Bot posts, system messages, and posts with neither text nor an image are dropped. Image attachments are the only attachments relayed.
 - At startup the runtime replays up to 100 posts per connected channel made while it was down, starting from the newest stored post. Channels with no stored post are skipped. Replays are safe to repeat because Convex upserts by message ID.
 - A relay failure logs one JSON line with the message ID and is not retried. The post is recovered only if a later restart's replay still reaches it.
+- `GUILD_SCHEDULED_EVENT_CREATE`, `GUILD_SCHEDULED_EVENT_UPDATE`, and `GUILD_SCHEDULED_EVENT_DELETE` dispatches are relayed exactly as received for guilds with an active `import` or `bidirectional` `discord_scheduled_events` connector, looked up per guild and cached for 60 seconds. Creates authored by the bot are dropped, because the export writes that link itself. A relay failure logs one JSON line and is not retried. This path never writes to Discord.
 - `/vrdex connect`, `/vrdex disconnect`, and `/vrdex status` need Manage Server by default. `pnpm --filter @vrdex/discord-gateway register-commands` registers them globally through `DISCORD_APPLICATION_ID` and `DISCORD_BOT_TOKEN`. Rerun it when the command tree changes.
 - The runtime posts a heartbeat to Convex every minute while its Discord session is ready, so a dropped session stops the beat. Heartbeat failures log one JSON line and never stop the process.
 - A failed interaction handler and a Discord client error each log one JSON line and never stop the process.
