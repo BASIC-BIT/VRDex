@@ -397,12 +397,14 @@ http.route({ path: "/discord-intake/relay", method: "POST", handler: httpAction(
   const denied = discordIntakeGate(request);
   if (denied) return denied;
   const body = await readJson(request);
-  if (body?.kind === "scheduled_event") return json({ ignored: true }, 202);
-  const { action, guildId, channelId, payload } = body ?? {};
-  if (body?.kind !== "message" || (action !== "create" && action !== "update" && action !== "delete") || !isSnowflake(guildId) || !isSnowflake(channelId)
-    || typeof payload !== "object" || payload === null) {
+  const { kind, action, guildId, channelId, payload } = body ?? {};
+  if ((action !== "create" && action !== "update" && action !== "delete") || !isSnowflake(guildId) || typeof payload !== "object" || payload === null) {
     return json({ error: "invalid_request" }, 400);
   }
+  if (kind === "scheduled_event") {
+    return json({ enqueued: await ctx.runMutation(internal.eventSyncKinds.discordScheduledEvents.relayScheduledEvent, { action, guildId, payload, receivedAt: Date.now() }) });
+  }
+  if (kind !== "message" || !isSnowflake(channelId)) return json({ error: "invalid_request" }, 400);
   try {
     return json(await ctx.runMutation(internal.discordIntake.recordMessage, { action, guildId, channelId, payload: payload as never }));
   } catch (error) {

@@ -50,6 +50,24 @@ export function eventLocalTime(instant: number, date: string, timeZone: string):
   return value;
 }
 
+// eventLocalTime for external input: a zero dayOffset drops, and what it would throw on stays for the caller's schema check.
+// Mirrors correctionFields, occurrence included, so a fall-back-hour echo hashes the same as the export.
+export function eventLocalTimeLenient(instant: number, date: string, timeZone: string): EventIntakeLocalTime {
+  const dayOffset = (Date.parse(eventDateForInstant(instant, timeZone)) - Date.parse(date)) / 86_400_000;
+  const value: EventIntakeLocalTime = {
+    time: new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(instant),
+    ...(dayOffset ? { dayOffset } : {}),
+  };
+  let choices: number[] = [];
+  try {
+    choices = resolveEventLocalTime(date, value, timeZone);
+  } catch {
+    // An offset zone or an out-of-range dayOffset.
+  }
+  if (choices.length > 1) value.occurrence = choices[0] === instant ? "earlier" : "later";
+  return value;
+}
+
 export function readEventSchedule(event: StoredEventSchedule) {
   if (event.scheduleKind === "date_only") return normalizeEventSchedule({ kind: "date_only", date: event.eventDate ?? "" });
   if (event.startAt === undefined) throw new Error("Timed event requires a start time.");

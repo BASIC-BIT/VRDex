@@ -135,6 +135,8 @@ crons.interval("recover event sync jobs", { minutes: 5 }, internal.eventSync.rec
 crons.interval("check discord gateway heartbeat", { minutes: 5 }, internal.discordIntake.checkHeartbeat, {});
 crons.interval("sweep stalled discord intake runs", { minutes: 5 }, internal.discordIntake.sweepStalledRuns, {});
 crons.daily("refresh discord event boards", { hourUTC: 6, minuteUTC: 15 }, internal.eventSyncKinds.discordBoard.enqueueBoardRefreshes, {});
+// Only enqueues runner jobs; the runner owns retries and the failure alarm.
+crons.daily("reconcile Discord scheduled event connectors", { hourUTC: 5, minuteUTC: 20 }, internal.eventSyncKinds.discordScheduledEvents.enqueueReconciles, {});
 
 // Inert unless VRDEX_RECURRING_EVENTS_ENABLED; a failed series emails ops.
 crons.daily("materialize event series", { hourUTC: 6, minuteUTC: 20 }, internal.eventSeries.materializeAll, {});

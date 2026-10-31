@@ -119,6 +119,17 @@ Owner: the deployment operator (BASIC). Not a secret; recreate it with
 disconnect existing boards first: while it is `false`, their queued jobs fail
 toward the five-failure connector alarm.
 
+`VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED`: `true` enables Discord
+scheduled event jobs, the relay of scheduled event changes into import jobs,
+the daily reconcile, and the Connect button. Scope: the Convex deployment
+environment only. Default off: the relay enqueues nothing and scheduled event
+jobs fail with `CONNECTOR_KIND_DISABLED`. Also needs
+`VRDEX_EVENT_CONNECTORS_ENABLED`, `DISCORD_BOT_TOKEN`, and `SITE_URL`; the relay
+also needs `VRDEX_DISCORD_INTAKE_ENABLED`. Owner: deployment operator (BASIC).
+No secret; recreate it with `npx convex env set`, and roll back by setting it
+to `false`. Pause or disconnect existing connectors first: while it is `false`,
+their queued jobs fail toward the five-failure connector alarm.
+
 Connector OAuth tokens are stored encrypted with AES-256-GCM in the
 `v1:iv:tag:ciphertext` format, keyed by `VRDEX_CONNECTOR_TOKEN_KEY` (secret).
 
@@ -663,7 +674,7 @@ Development/staging Convex env names:
 - `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord credentials for the purpose-scoped community-verification round-trip. These are **not** sign-in credentials — Clerk holds those — but `convex/discordVerification.ts` still requires them
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`
 - `DISCORD_OAUTH_AUTHORIZE_URL`: optional consent-screen override, for pointing the OAuth round-trip at a stub instead of Discord. Defaults to `https://discord.com/oauth2/authorize`. The browser follows it carrying the `state` that authorizes the round-trip, so it must be https unless it is loopback
-- `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment. It is not a real bot token, so the site Discord connect flow does not work on staging; see [Discord intake](#discord-intake). The Discord board connector also uses it from Convex in any deployment where `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` is on
+- `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment. It is not a real bot token, so the site Discord connect flow does not work on staging; see [Discord intake](#discord-intake). The Discord board and scheduled events connectors also use it from Convex in any deployment where `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` or `VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED` is on
 - `VRCHAT_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCLINKING_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching the hosted app environment
@@ -678,7 +689,7 @@ Production Convex auth env names:
 - `CLERK_JWT_ISSUER_DOMAIN=https://<clerk-frontend-api>`: production Clerk Frontend API origin, read by `convex/auth.config.ts`. Must match the issuer of the `convex` JWT template on the production Clerk instance
 - `SITE_URL=https://vrdex.net`: builds the Discord verification callback URL
 - `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: production Discord credentials for the purpose-scoped community-verification round-trip. Still required by `convex/discordVerification.ts`; they are no longer sign-in credentials
-- `DISCORD_BOT_TOKEN` (secret): bot token of the production Discord application, read by `convex/_discordRest.ts` for the Discord board connector and by `convex/profileClaims.ts` for the bot claim path. Needed once `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` is on. Scope: the production Convex environment. Owner: BASIC. Rotate or recreate it by resetting the token in the Discord Developer Portal and setting the new value with `npx convex env set DISCORD_BOT_TOKEN`. Resetting the token revokes the old value for every service that uses it, so update each holder
+- `DISCORD_BOT_TOKEN` (secret): bot token of the production Discord application, read by `convex/_discordRest.ts` for the Discord board and scheduled events connectors and by `convex/profileClaims.ts` for the bot claim path. Needed once `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` or `VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED` is on. Scope: the production Convex environment. Owner: BASIC. Rotate or recreate it by resetting the token in the Discord Developer Portal and setting the new value with `npx convex env set DISCORD_BOT_TOKEN`. Resetting the token revokes the old value for every service that uses it, so update each holder
 
 Retired when Clerk replaced Convex Auth, and safe to delete from every Convex
 deployment once the cutover is verified:
