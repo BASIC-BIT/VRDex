@@ -34,6 +34,7 @@ on:
           - group-telemetry-collector
           - group-telemetry-login-host
           - vrclinking-adapter
+          - discord-gateway
       apply:
         description: Apply the selected stack after a successful plan.
         required: true
@@ -249,6 +250,19 @@ jobs:
             requires_ses_domain: "false"
             requires_profile_assets_enabled: "false"
             requires_upstash: "false"
+          - name: discord-gateway
+            path: infra/terraform/discord-gateway
+            backend: "true"
+            plan: "false"
+            auto_apply: "false"
+            manual_apply: "false"
+            requires_aws: "false"
+            requires_vercel: "false"
+            requires_posthog: "false"
+            requires_posthog_public_key: "false"
+            requires_ses_domain: "false"
+            requires_profile_assets_enabled: "false"
+            requires_upstash: "false"
           # Validate-only, not plan-only. `plan: "false"` makes the plan gate
           # exit before touching remote state, so CI never sees a create or a
           # destroy on this stack — do not read the flags below as a plan.
@@ -333,7 +347,7 @@ jobs:
         run: terraform validate
 
       - name: Test restream permissions without AWS
-        if: steps.selection.outputs.run == 'true' && (matrix.stack.name == 'state-mgmt' || matrix.stack.name == 'restream-worker')
+        if: steps.selection.outputs.run == 'true' && (matrix.stack.name == 'state-mgmt' || matrix.stack.name == 'restream-worker' || matrix.stack.name == 'discord-gateway')
         working-directory: ${{ matrix.stack.path }}
         run: terraform test -no-color
 
