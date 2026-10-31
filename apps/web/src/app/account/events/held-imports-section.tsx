@@ -33,7 +33,7 @@ function dateText(value: string) {
 }
 
 function ChangeValue({ field, value }: { field: HeldChange["field"]; value: HeldChange["before"] }) {
-  if (typeof value === "number") return <ViewerLocalEventDateTime timestamp={value} />;
+  if (typeof value === "number") return <ViewerLocalEventDateTime className="whitespace-nowrap" timestamp={value} />;
   return field === "eventDate" && value !== null ? dateText(value) : value;
 }
 
@@ -98,7 +98,7 @@ export function HeldImportsSection() {
   return <section aria-labelledby="held-imports-heading" className="grid min-w-0 gap-3">
     <h3 className="text-lg font-semibold" id="held-imports-heading">{heading}</h3>
     <TableFrame>
-      <Table className="min-w-[56rem]">
+      <Table className="min-w-[63rem]">
         <TableHead><tr>{columns.map(column => <TableHeaderCell key={column}>{column}</TableHeaderCell>)}</tr></TableHead>
         <tbody className="divide-y divide-border">
           {rows.map(row => row.kind === "flag"
