@@ -92,6 +92,61 @@ async function finishImmediateSchedules(t: ReturnType<typeof convexTest>, iterat
 }
 
 describe("community telemetry control plane", () => {
+  it("closes a provider-confirmed instance immediately without dropping its remaining occupants or duplicating history", async test => {
+    const t = convexTest({ schema, modules });
+    await seedCommunity(t);
+    const collectorAccountId = await registerAccount(t);
+    const integrationId = await t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+      communitySlug: "faceless", vrchatGroupId: "grp_00000000-0000-4000-8000-000000000001", groupVisibility: "public", joinPolicy: "free",
+    });
+    const now = Date.now() + 1000;
+    const [claim] = (await t.mutation(internal.communityTelemetry.claimDueAssignments, { collectorAccountId, workerId: "closure-worker", now })).assignments;
+    assert.ok(claim);
+    const instance = { providerInstanceId: "one", providerLocation: "wrld_example:one", vrchatWorldId: "wrld_example", population: 4 };
+    const poll = { integrationId, collectorAccountId, workerId: "closure-worker", fencingToken: claim.fencingToken, collectorVersion: "test", source: "first_party" as const, groupMemberCount: 50, nextPollAt: now + 60_000, now };
+    await t.mutation(internal.communityTelemetry.ingestAggregatePoll, { ...poll, pollId: "before-connection", observedAt: now - 2000, instances: [instance] });
+    assert.deepEqual(await t.run(ctx => ctx.db.query("instanceSessions").collect()), []);
+    await t.mutation(internal.communityTelemetry.ingestAggregatePoll, { ...poll, pollId: "open", observedAt: now, instances: [instance] });
+    for (const offset of [1000, 2000]) {
+      await t.mutation(internal.communityTelemetry.ingestAggregatePoll, { ...poll, now: now + offset, pollId: `closed-${offset}`, observedAt: now + offset, instances: [{ ...instance, population: offset === 2000 ? 8 : 4, closedAt: now + offset - 500 }] });
+    }
+    const sessions = await t.run(ctx => ctx.db.query("instanceSessions").collect());
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0]!.state, "closed");
+    assert.equal(sessions[0]!.closedAt, now + 500);
+    await grantVisibilityOwner(t);
+    test.mock.method(Date, "now", () => now + 2000);
+    const live = await t.withIdentity(identity).query(api.clubAnalytics.listInstances, {
+      communitySlug: "faceless", kind: "live", paginationOpts: { numItems: 10, cursor: null },
+    });
+    assert.deepEqual(live.page, []);
+    const detail = await t.withIdentity(identity).query(api.clubAnalytics.getInstance, {
+      communitySlug: "faceless", sessionId: sessions[0]!._id,
+    });
+    assert.equal(detail?.liveObservedAt, null);
+    assert.equal(detail?.closedAt, now + 500);
+    const observations = await t.run(ctx => ctx.db.query("communityPopulationObservations").collect());
+    assert.deepEqual(observations.map(row => [row.totalPopulation, row.activeInstanceCount]), [[4, 1], [4, 0], [8, 0]]);
+    const summaryPage = await t.withIdentity(identity).query(api.clubAnalytics.getInstanceSummaryPage, {
+      communitySlug: "faceless", sessionId: sessions[0]!._id, startAt: now, endAt: now + 3000, paginationOpts: { numItems: 100, cursor: null },
+    });
+    assert.equal(Math.max(...summaryPage.page.map(segment => segment.peak ?? 0)), 8);
+    await t.mutation(internal.communityTelemetry.ingestAggregatePoll, { ...poll, pollId: "closed-2000", observedAt: now + 2000, now: now + 30_000, nextPollAt: now + 90_000, instances: [{ ...instance, closedAt: now + 500 }] });
+    const afterDuplicate = await t.run(ctx => ctx.db.get(integrationId));
+    assert.equal(afterDuplicate!.nextPollAt, now + 90_000);
+    assert.equal(afterDuplicate!.lastSuccessfulObservationAt, now + 2000);
+    await t.mutation(internal.communityTelemetry.ingestAggregatePoll, { ...poll, pollId: "older-open", observedAt: now + 1000, instances: [instance] });
+    assert.equal((await t.run(ctx => ctx.db.query("instanceSessions").collect())).length, 1);
+    const alreadyClosed = { ...instance, providerInstanceId: "two", providerLocation: "wrld_example:two", population: 6, closedAt: now - 1000 };
+    await t.mutation(internal.communityTelemetry.ingestAggregatePoll, { ...poll, pollId: "found-closed", observedAt: now + 3000, instances: [alreadyClosed] });
+    const discovered = await t.run(ctx => ctx.db.query("instanceSessions").filter(q => q.eq(q.field("providerInstanceId"), "two")).unique());
+    assert.ok(discovered);
+    const discoveredSummary = await t.withIdentity(identity).query(api.clubAnalytics.getInstanceSummaryPage, {
+      communitySlug: "faceless", sessionId: discovered._id, startAt: now, endAt: now + 4000, paginationOpts: { numItems: 100, cursor: null },
+    });
+    assert.equal(discoveredSummary.page[0]!.peak, 6);
+  });
+
   it("schedules telemetry rollups without scheduling raw-history deletion", () => {
     const crons = (cronsModule as unknown as { default?: typeof cronsModule }).default ?? cronsModule;
     const jobs = JSON.parse(crons.export());

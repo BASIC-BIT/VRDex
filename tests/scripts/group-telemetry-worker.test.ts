@@ -289,18 +289,20 @@ describe("group telemetry provider adapter", () => {
     let now = 1_000;
     const responses = [
       jsonResponse({ id: "grp_example", memberCount: 50, membershipStatus: "member", joinState: "open", privacy: "default" }),
-      jsonResponse([{
+      jsonResponse({ fetchedAt: new Date(1_000).toISOString(), instances: [{
         instanceId: "12345~hidden(legacy-user-id)~region(eu)",
         location: "wrld_example:12345~hidden(legacy-user-id)~region(eu)",
         memberCount: 7,
+        n_users: 7, active: true, closedAt: null, type: "group", ownerId: "grp_example", worldId: "wrld_example",
         world: { id: "wrld_example", name: "Example" },
         users: [{ id: "usr_must_not_escape" }],
-      }]),
-      jsonResponse([]),
+      }] }),
+      jsonResponse({ fetchedAt: new Date(241_000).toISOString(), instances: [] }),
       jsonResponse({ id: "grp_example", memberCount: 51, membershipStatus: "member", joinState: "open", privacy: "default" }),
-      jsonResponse([]),
+      jsonResponse({ fetchedAt: new Date(361_000).toISOString(), instances: [] }),
     ];
     const client = new VrchatClient({
+      userId: "usr_fixture",
       authCookie: "cookie-value",
       twoFactorAuthCookie: "two-factor",
       userAgent: "VRDex/0.1 telemetry@example.com",

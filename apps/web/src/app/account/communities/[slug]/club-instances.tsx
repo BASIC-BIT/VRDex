@@ -74,7 +74,8 @@ export function observedChartPoints(points: SeriesPoint[]): ClubChartPoint[] {
 function useInstancePoints(communitySlug: string, session: InstanceRow) {
   const endAt = Math.max(
     session.openedAt + 1,
-    session.closedAt ?? session.lastObservedAt + 1,
+    session.closedAt ?? 0,
+    session.lastObservedAt + 1,
   );
   const query = usePaginatedQuery(
     api.clubAnalytics.getInstanceSeries,
@@ -109,7 +110,8 @@ function InstanceMetricsRow({
 }) {
   const endAt = Math.max(
     session.openedAt + 1,
-    session.closedAt ?? session.lastObservedAt + 1,
+    session.closedAt ?? 0,
+    session.lastObservedAt + 1,
   );
   const metrics = usePaginatedQuery(
     api.clubAnalytics.getInstanceSummaryPage,

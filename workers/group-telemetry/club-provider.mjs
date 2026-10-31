@@ -220,14 +220,18 @@ export class ClubProvider {
     const { n, offset } = pageOptions(options);
     if (kind === "instances") {
       // This endpoint has no pagination. Bound the response and slice locally.
-      const rows = await this.request(`${this.base}/instances`);
-      if (!Array.isArray(rows) || rows.length > 1000) fail("schema_drift");
-      rows.forEach((row) => {
+      const response = object(await this.request(`/users/${enc(this.expectedUserId)}/instances/groups/${enc(this.groupId)}`));
+      if (!Array.isArray(response.instances) || response.instances.length > 1000) fail("schema_drift");
+      const observedAt = Date.parse(providerInstant(response.fetchedAt));
+      const rows = response.instances.filter((row) => {
         this.scoped(row);
         object(row.world);
+        if (row.ownerId !== this.groupId || row.type !== "group" || typeof row.active !== "boolean") fail("destination_scope");
         if (row.location !== location(this.groupId, row.world.id, row.instanceId)) fail("destination_scope");
+        const closedAt = row.closedAt == null ? null : Date.parse(providerInstant(row.closedAt));
+        return row.active && (closedAt === null || closedAt > observedAt);
       });
-      return { items: rows.slice(offset, offset + n), nextOffset: offset + n < rows.length ? offset + n : null, observedAt: this.clock() };
+      return { items: rows.slice(offset, offset + n), nextOffset: offset + n < rows.length ? offset + n : null, observedAt };
     }
     const paths = { members: "members", search: "members/search", requests: "requests", invites: "invites", roles: "roles", bans: "bans", posts: "posts", audit: "auditLogs" };
     if (!Object.hasOwn(paths, kind)) fail();

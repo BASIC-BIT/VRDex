@@ -64,6 +64,7 @@ const aggregateInstanceValidator = v.object({
   providerLocation: v.string(),
   vrchatWorldId: v.string(),
   population: v.number(),
+  closedAt: v.optional(v.number()),
 });
 
 const WORKER_HEARTBEAT_FRESHNESS_MS = 2 * 60_000;
@@ -1598,6 +1599,7 @@ export const ingestAggregatePoll = internalMutation({
     for (const item of args.instances) {
       if (
         !Number.isSafeInteger(item.population) || item.population < 0 ||
+        (item.closedAt !== undefined && (!Number.isSafeInteger(item.closedAt) || item.closedAt < 0 || item.closedAt > args.observedAt)) ||
         item.providerInstanceId.length < 1 || item.providerInstanceId.length > 500 || /[\u0000-\u001f\u007f]/.test(item.providerInstanceId) ||
         item.providerLocation.length < 1 || item.providerLocation.length > 500 ||
         !item.vrchatWorldId.startsWith("wrld_") || item.vrchatWorldId.length > 100 || /[\u0000-\u001f\u007f]/.test(item.vrchatWorldId) ||
@@ -1614,7 +1616,11 @@ export const ingestAggregatePoll = internalMutation({
       .query("communityPopulationObservations")
       .withIndex("by_idempotencyKey", (q) => q.eq("idempotencyKey", args.pollId))
       .first();
-    if (duplicatePoll) return { duplicate: true };
+    if (duplicatePoll || args.observedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt) ||
+        args.observedAt < (integration.lastSuccessfulObservationAt ?? 0)) {
+      await ctx.db.patch(integration._id, { nextPollAt: args.nextPollAt });
+      return { duplicate: true };
+    }
     const coverageWindowId = await transitionCoverage(
       ctx,
       integration._id,
@@ -1629,14 +1635,14 @@ export const ingestAggregatePoll = internalMutation({
     for (const item of detailedInstances) {
       const current = worlds.get(item.vrchatWorldId) ?? { population: 0, instanceCount: 0 };
       current.population += Math.max(0, Math.floor(item.population));
-      current.instanceCount += 1;
+      current.instanceCount += item.closedAt === undefined ? 1 : 0;
       worlds.set(item.vrchatWorldId, current);
     }
     await ctx.db.insert("communityPopulationObservations", {
       integrationId: integration._id,
       idempotencyKey: args.pollId,
       totalPopulation: args.instances.reduce((total, item) => total + Math.max(0, Math.floor(item.population)), 0),
-      activeInstanceCount: args.instances.length,
+      activeInstanceCount: args.instances.filter(item => item.closedAt === undefined).length,
       worldDistribution: [...worlds.entries()].map(([vrchatWorldId, value]) => ({ vrchatWorldId, ...value })),
       observedAt: args.observedAt,
       source: args.source,
@@ -1686,6 +1692,15 @@ export const ingestAggregatePoll = internalMutation({
             .gte("openedAt", epochStartedAt),
         )
         .first();
+      if (!session && item.closedAt !== undefined) {
+        session = await ctx.db.query("instanceSessions")
+          .withIndex("by_integrationId_providerLocation_state_openedAt", q => q
+            .eq("integrationId", integration._id)
+            .eq("providerLocation", item.providerLocation)
+            .eq("state", "closed")
+            .gte("openedAt", epochStartedAt))
+          .order("desc").first();
+      }
       const world = await ctx.db
         .query("worlds")
         .withIndex("by_vrchatWorldId", (q) => q.eq("vrchatWorldId", item.vrchatWorldId))
@@ -1699,8 +1714,9 @@ export const ingestAggregatePoll = internalMutation({
           vrchatWorldId: item.vrchatWorldId.slice(0, 100),
           ...(world ? { worldId: world._id } : {}),
           source: args.source,
-          state: "open",
+          state: item.closedAt === undefined ? "open" : "closed",
           openedAt: args.observedAt,
+          ...(item.closedAt === undefined ? {} : { closedAt: args.observedAt }),
           lastObservedAt: args.observedAt,
           consecutiveMisses: 0,
           updatedAt: args.observedAt,
@@ -1708,6 +1724,7 @@ export const ingestAggregatePoll = internalMutation({
         session = await ctx.db.get(sessionId);
       } else {
         await ctx.db.patch(session._id, {
+          ...(item.closedAt === undefined ? {} : { state: "closed" as const, closedAt: Math.min(session.closedAt ?? Infinity, Math.max(session.openedAt, item.closedAt)) }),
           providerLocation: item.providerLocation.slice(0, 500),
           ...(!session.worldId && world ? { worldId: world._id } : {}),
           lastObservedAt: args.observedAt,
