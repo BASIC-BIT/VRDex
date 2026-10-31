@@ -5,6 +5,7 @@ import schemaModule from "../../convex/schema";
 import { api, internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { EventIntakePatch } from "../../packages/api-contracts/src/event-intake";
+import { normalizeIntakePublication } from "../../convex/_eventContributionPreflight";
 import { getConnectorDraftForManager, publishIntakeDraft } from "../../convex/_eventIntake";
 import { HELD_IMPORT_LIMIT, heldChanges, heldUpdatePatch, promoteHeldFields } from "../../convex/_eventIntakeHeld";
 
@@ -232,6 +233,12 @@ it("promotes extracted values under staff edits and pins the connector community
   // A staffer re-dated the draft: extracted clocks belong to the old date and are not promoted.
   const redated = promoteHeldFields({ eventDate: "2027-07-21", tentative: { eventDate: "2027-07-20", title: "Kept", start: nine, end: nine, doors: nine, timeTba: false, lineup: [A] } }, "club");
   assert.deepEqual(redated, { eventDate: "2027-07-21", title: "Kept", communitySlug: "club", tentative: null, evidence: null, questions: null });
+});
+
+it("keeps a staffer's Time TBA over extracted clocks", () => {
+  const promoted = promoteHeldFields({ timeTba: true, tentative: { title: "Afterglow Social", eventDate: "2027-07-20", timezone: "UTC", start: nine, end: { time: "23:00" }, doors: { time: "20:00" } } }, "club");
+  assert.deepEqual([promoted.start, promoted.end, promoted.doors, promoted.timeTba], [undefined, undefined, undefined, true]);
+  assert.equal(normalizeIntakePublication(promoted).schedule.scheduleKind, "date_only");
 });
 
 it("builds the update patch through rule 8's key selection", () => {

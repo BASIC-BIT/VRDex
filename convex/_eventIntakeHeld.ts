@@ -24,7 +24,8 @@ export type HeldImportRow = HeldOrigin & (
 export const HELD_IMPORT_LIMIT = 50;
 
 // What was extracted for one date does not carry over once a staffer re-dates the draft.
-const DATE_BOUND_KEYS = new Set(["start", "end", "doors", "timeTba", "lineup"]);
+const CLOCK_KEYS = new Set(["start", "end", "doors"]);
+const DATE_BOUND_KEYS = new Set([...CLOCK_KEYS, "timeTba", "lineup"]);
 const redated = (fields: EventIntakePatch) => Boolean(fields.eventDate) && fields.eventDate !== fields.tentative?.eventDate;
 
 /** A held draft as it would publish: staff values over extracted ones, in the connector's community. */
@@ -32,9 +33,10 @@ export function promoteHeldFields(fields: EventIntakePatch, communitySlug: strin
   const stale = redated(fields);
   const set = (values: object) => Object.fromEntries(Object.entries(values).filter(([, value]) => value !== null && value !== undefined));
   const { tentative, evidence: _evidence, questions: _questions, ...saved } = fields;
-  const extracted = set(tentative ?? {});
+  // A saved Time TBA is a staff decision: publication refuses clocks alongside it.
+  const declined = stale ? DATE_BOUND_KEYS : saved.timeTba === true ? CLOCK_KEYS : new Set<string>();
   const promoted: EventIntakePatch = {
-    ...(stale ? Object.fromEntries(Object.entries(extracted).filter(([key]) => !DATE_BOUND_KEYS.has(key))) : extracted),
+    ...Object.fromEntries(Object.entries(set(tentative ?? {})).filter(([key]) => !declined.has(key))),
     ...set(saved), communitySlug, tentative: null, evidence: null, questions: null,
   };
   // Tentative blocks never carry timeTba; applyEventCandidate derives it the same way.
