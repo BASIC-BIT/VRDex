@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, type MutationCtx } from "./_generated/server";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
+import { messageRow } from "./_discordIntake";
 import { getConnectorDraftForManager, publishIntakeDraft, sanitizeEventIntakePatch, saveIntakeDraft } from "./_eventIntake";
 import { dismissHeldDraft, heldTarget, heldUpdatePatch, promoteHeldFields } from "./_eventIntakeHeld";
 import { eventPathForRecord } from "./_eventPaths";
@@ -11,8 +12,14 @@ import { canUpdateEvent, patchCommunityEventFieldsAsStaffRecord } from "./events
 /** Both publish branches end here: links and sources follow the event, and the exports skipped while the draft was pending run. */
 async function settleHeldDraft(ctx: MutationCtx, draft: Doc<"eventIntakeDrafts">, eventId: Id<"events">, now: number) {
   const { db } = ctx;
-  for (const link of await db.query("eventSyncLinks").withIndex("by_draftId", q => q.eq("draftId", draft._id)).collect()) await db.patch(link._id, { eventId, draftId: undefined, updatedAt: now });
-  for (const source of await db.query("discordIntakeSources").withIndex("by_draftId", q => q.eq("draftId", draft._id)).collect()) await db.patch(source._id, { eventId });
+  const sources = await db.query("discordIntakeSources").withIndex("by_draftId", q => q.eq("draftId", draft._id)).collect();
+  // A live post now feeds the event, so a deletion flag no longer holds. A Google draft has no source row, so its cancelled item keeps the flag.
+  const messages = await Promise.all(sources.map(source => messageRow(db, source.connectorId, source.messageId)));
+  const restored = messages.some(message => message && message.deletedAt === undefined) ? { state: "linked" as const, flagReviewedAt: undefined } : {};
+  for (const link of await db.query("eventSyncLinks").withIndex("by_draftId", q => q.eq("draftId", draft._id)).collect()) {
+    await db.patch(link._id, { eventId, draftId: undefined, updatedAt: now, ...(link.state === "external_deleted" ? restored : {}) });
+  }
+  for (const source of sources) await db.patch(source._id, { eventId });
   await db.patch(draft._id, { resolvedAt: now });
   await enqueueEventSync(db, ctx.scheduler, eventId, "upsert");
 }

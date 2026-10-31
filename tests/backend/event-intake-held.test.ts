@@ -711,6 +711,36 @@ it("Keep clears the deletion flag for that event without touching the link's sta
   });
 });
 
+it("publishing clears a deletion flag only when a live post feeds the draft", async () => {
+  const { t, ids, as, draft, discordSource, googleLink, now } = await fixture();
+  const flagged = (draftId: Id<"eventIntakeDrafts">, externalId: string) => t.run(({ db }) => db.insert("eventSyncLinks", { connectorId: ids.discord, draftId, eventId: ids.event, externalId, state: "external_deleted", flagReviewedAt: now, createdAt: now, updatedAt: now }));
+  const deleted = (messageId: string) => t.run(async ({ db }) => {
+    const message = await db.query("discordIntakeMessages").withIndex("by_connectorId_messageId", q => q.eq("connectorId", ids.discord).eq("messageId", messageId)).unique();
+    await db.patch(message!._id, { deletedAt: now });
+  });
+  const published = async (draftId: Id<"eventIntakeDrafts">, linkId: Id<"eventSyncLinks">) => {
+    await as("staff").mutation(api.eventIntakeHeld.publish, { draftId });
+    const link = (await t.run(({ db }) => db.get(linkId)))!;
+    return [link.state, Boolean(link.flagReviewedAt), link.draftId];
+  };
+
+  // A forced hold: the deleted post flagged the link, and the live one feeds the draft.
+  const mixed = await draft(updateDraft);
+  await discordSource(mixed, { kind: "new" }, "333333333333333331");
+  await discordSource(mixed, { kind: "new" }, "333333333333333332");
+  await deleted("333333333333333331");
+  assert.deepEqual(await published(mixed, await flagged(mixed, "333333333333333331")), ["linked", false, undefined]);
+
+  const gone = await draft(updateDraft);
+  await discordSource(gone, { kind: "new" }, "333333333333333333");
+  await deleted("333333333333333333");
+  assert.deepEqual(await published(gone, await flagged(gone, "333333333333333333")), ["external_deleted", true, undefined]);
+
+  // Ruling P6: a cancelled Google item has no source row and keeps its flag.
+  const cancelled = await draft(updateDraft, { connectorId: ids.google });
+  assert.deepEqual((await published(cancelled, await googleLink({ draftId: cancelled, eventId: ids.event, state: "external_deleted" }))).slice(0, 1), ["external_deleted"]);
+});
+
 it("row Publish agrees with Open over every date, clock, and saved start combination", () => {
   const importDate = "2027-07-20";
   const day = (offset: number) => new Date(Date.parse(`${importDate}T00:00:00Z`) + offset * DAY).toISOString().slice(0, 10);
