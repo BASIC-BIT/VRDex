@@ -75,7 +75,7 @@ Startup throws when `DISCORD_BOT_TOKEN`, `CONVEX_SITE_URL`, or `DISCORD_INTAKE_S
 ECS injects secrets at task start, so a running task keeps its old values until it is replaced. This is how a task picks up a new secret:
 
 ```bash
-aws ecs update-service --cluster vrdex-discord-gateway --service vrdex-discord-gateway --force-new-deployment
+aws ecs update-service --region us-east-1 --cluster vrdex-discord-gateway --service vrdex-discord-gateway --force-new-deployment
 ```
 
 A release does not replace this step: with no image change it leaves the running task alone.
@@ -105,7 +105,7 @@ Future media enqueue integration should add a scoped service credential. Do not 
 | `DISCORD_INTAKE_SECRET` | Convex production | Same value as Secrets Manager | Yes |
 | `DISCORD_APPLICATION_ID` | Convex production | Same value as Secrets Manager. The Integrations page builds the bot invite from it | Yes |
 | `DISCORD_BOT_TOKEN` | Convex production | The gateway application's bot token | Yes |
-| `VRDEX_DISCORD_POSTER_TOKEN` | Web app first, then Convex production | `openssl rand -base64 32`. Web side is Vercel Terraform variable `discord_poster_token` | For posters. Unset on either side, runs continue with the post text |
+| `VRDEX_DISCORD_POSTER_TOKEN` | Web app first, then Convex production | `openssl rand -base64 32`. Web side is Vercel Terraform variable `discord_poster_token`, but see the note below this table before using it | For posters. Unset on either side, runs continue with the post text |
 | `OPENAI_API_KEY` | Convex production | OpenAI project API keys | Yes |
 | `VRDEX_EVENT_INTAKE_AI_ENABLED` | Convex production | `true` | Yes |
 | `VRDEX_EVENT_INTAKE_MODEL` | Convex production | A model name | No, defaults to `gpt-5.6-luna` |
@@ -115,6 +115,12 @@ Future media enqueue integration should add a scoped service credential. Do not 
 | `SITE_URL` | Convex production | `https://vrdex.net`. Runs use it as the poster bridge origin | Yes |
 
 [Convex environments](./convex-environments.md#discord-intake) describes what each Convex value does.
+
+BASIC owns every value here. Rotation for the release settings:
+
+- `AWS_DISCORD_GATEWAY_RELEASE_ROLE_ARN`: not a secret. It changes only if the role is recreated; rerun the `gh variable set` in step 2.
+- `DISCORD_GATEWAY_RELEASE_ENABLED`: not a secret, nothing to rotate. Any value but `true` stops releases.
+- GitHub secret `DISCORD_APPLICATION_ID`: changes only when the gateway moves to another Discord application. Update it with the Secrets Manager and Convex values.
 
 With extraction off or `OPENAI_API_KEY` unset, every run fails with `extraction_unavailable`. After three failed runs in a row the `discord-intake:<connectorId>` ops alert fires. Set the extraction values before binding a channel.
 
@@ -140,7 +146,7 @@ The Terraform workflow passes no value for `discord_poster_token`, so a CI apply
 `internal.discordIntake.sweepStalledRuns` runs every five minutes.
 
 - A run still `running` 15 minutes after it started is closed as `stalled`. Only the sweep closes stalled runs.
-- Its posts are requeued once, and it emails `discord-intake:<connectorId>`, resolved by the connector's next finished run. A retry counts against the connector's 20 runs per day.
+- Its posts are requeued once, and it emails `discord-intake:<connectorId>`, resolved by the connector's next finished run. A retry counts against the connector's daily cap of 20 runs.
 - When posts are not requeued, because the retry also stalled or the connector is paused or off, it emails `discord-intake-dropped:<runId>`. Those posts need a real edit to run again.
 
 All three Convex alerts use the [ops alert path](./convex-environments.md#ops-alerts).
@@ -164,15 +170,22 @@ CI validates and tests this stack and never plans or applies it. Any infrastruct
 
 ```bash
 cd infra/terraform/discord-gateway
-TASK_DEFINITION=$(aws ecs describe-services --cluster vrdex-discord-gateway --services vrdex-discord-gateway --query 'services[0].taskDefinition' --output text | tr -d '\r')
-CONTAINER_IMAGE=$(aws ecs describe-task-definition --task-definition "$TASK_DEFINITION" --query 'taskDefinition.containerDefinitions[0].image' --output text | tr -d '\r')
+TASK_DEFINITION=$(aws ecs describe-services --region us-east-1 --cluster vrdex-discord-gateway --services vrdex-discord-gateway --query 'services[0].taskDefinition' --output text | tr -d '\r')
+CONTAINER_IMAGE=$(aws ecs describe-task-definition --region us-east-1 --task-definition "$TASK_DEFINITION" --query 'taskDefinition.containerDefinitions[0].image' --output text | tr -d '\r')
 CONVEX_SITE_URL=$(gh variable get GROUP_TELEMETRY_CONVEX_SITE_URL)
 terraform apply -var-file=environments/production.tfvars -var "container_image=$CONTAINER_IMAGE" -var "convex_site_url=$CONVEX_SITE_URL"
 ```
 
 ## Bootstrap
 
-BASIC runs this once, from Git Bash at the root of a `main` checkout, with AWS credentials for the production account. Export these first. Path conversion would otherwise rewrite values that start with a slash.
+BASIC runs this once, from Git Bash at the root of a `main` checkout. Before starting:
+
+- Run `pnpm install` in that checkout.
+- Have `CONVEX_DEPLOYMENT_PROD` and `CONVEX_DEPLOY_KEY_PROD` in the main checkout's `.env.local`, which `scripts/cx.ts` reads for the `prod` target.
+- Sign in to `gh`, with access to the repository's secrets and variables. `gh auth status` shows the account.
+- Have Terraform 1.10 or later, and AWS credentials for the production account.
+
+Export these first. Path conversion would otherwise rewrite values that start with a slash.
 
 ```bash
 export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
@@ -184,10 +197,14 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
    - Interactions Endpoint URL empty.
    - A server count under 100. Above 100, message content needs Discord's verification.
 
-2. **Release role.** Add `enable_discord_gateway_release_permissions = true` to the local `terraform.tfvars` of `infra/terraform/state-mgmt`, in the checkout that holds its local state. Apply it, then store the role:
+2. **Release role.** Work in the checkout that holds the local state of `infra/terraform/state-mgmt`, on current `main`. If that stack has no `terraform.tfvars`, copy `terraform.tfvars.example` to it and set `route53_zone_id` to the `vrdex.net` public zone ID: the part after `/hostedzone/` in the first command's output. Add `enable_discord_gateway_release_permissions = true` to that file.
+
+   The plan must show `2 to add, 0 to change, 0 to destroy`: the role and its policy. If it shows anything else, stop and do not approve it.
 
    ```bash
    cd infra/terraform/state-mgmt
+   aws route53 list-hosted-zones-by-name --dns-name vrdex.net --query 'HostedZones[0].Id' --output text
+   terraform init
    terraform apply
    gh variable set AWS_DISCORD_GATEWAY_RELEASE_ROLE_ARN --body "$(terraform output -raw discord_gateway_release_role_arn)"
    cd ../../..
@@ -225,20 +242,29 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
    gh secret set DISCORD_APPLICATION_ID --body "$APPLICATION_ID"
    ```
 
+   Then run the check under "Always verify after writing a secret" in that section for each Convex value written here and in step 7. `CR` must be `0`.
+
 6. **First release.** This pushes the first image and registers commands. There is no service yet, so the workflow reports nothing to roll. `GROUP_TELEMETRY_CONVEX_SITE_URL` must already be set.
 
    ```bash
    gh variable set DISCORD_GATEWAY_RELEASE_ENABLED --body true
    gh workflow run discord-gateway-release.yml --ref main
+   sleep 10
+   RUN_ID=$(gh run list --workflow discord-gateway-release.yml --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId')
+   gh run watch "$RUN_ID" --exit-status
+   aws ecs describe-task-definition --task-definition vrdex-discord-gateway --query 'taskDefinition.containerDefinitions[0].image' --output text
    ```
 
-7. **Set extraction and poster values.** Set these before any channel is bound; see [Values BASIC Provides](#values-basic-provides). Write the poster token to the web app first. `VALUE` is the OpenAI key on the first line and that poster token on the last.
+   Do not move on until the run succeeds and the image ends in `@sha256:` plus 64 hex characters. `:bootstrap-placeholder` means the release did not apply. Once the enable PR in step 8 has merged, a re-dispatched release fails the plan guard, so revert that PR, or read the digest from `aws ecr describe-images --repository-name vrdex-discord-gateway` and join it to `terraform output -raw repository_url` with `@` for step 10.
+
+7. **Set extraction and poster values.** Set these before any channel is bound; see [Values BASIC Provides](#values-basic-provides). Set `OPENAI_KEY` to the OpenAI key and `POSTER_TOKEN` to the output of `openssl rand -base64 32`, and write `POSTER_TOKEN` to the web app first. The first command must print `https://vrdex.net`, the poster bridge origin.
 
    ```bash
-   pnpm cx -- prod env set OPENAI_API_KEY "$VALUE"
+   pnpm --silent cx -- prod env get SITE_URL
+   pnpm cx -- prod env set OPENAI_API_KEY "$OPENAI_KEY"
    pnpm cx -- prod env set VRDEX_EVENT_INTAKE_AI_ENABLED true
    pnpm cx -- prod env set VRDEX_EVENT_CONNECTORS_ENABLED true
-   pnpm cx -- prod env set VRDEX_DISCORD_POSTER_TOKEN "$VALUE"
+   pnpm cx -- prod env set VRDEX_DISCORD_POSTER_TOKEN "$POSTER_TOKEN"
    ```
 
 8. **Enable the service in git.** Open a PR setting `enable_service = true` in `infra/terraform/discord-gateway/environments/production.tfvars` and merge it. A release that runs before step 10 fails at the plan guard, because the plan would create the service and its alarm.
@@ -249,9 +275,9 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
    pnpm cx -- prod env set VRDEX_DISCORD_INTAKE_ENABLED true
    ```
 
-   With the flag on and no gateway yet, `checkHeartbeat` emails one stale alert within five minutes, then one resolved email once heartbeats arrive. That pair is expected and proves the email path. Keep this step and step 10 close together.
+   With the flag on and no gateway yet, `checkHeartbeat` usually emails one stale alert within five minutes, then one resolved email once heartbeats arrive. That pair is expected and proves the email path. If the first heartbeat lands before the next check, no pair arrives at all. Keep this step and step 10 close together.
 
-10. **Create the service.** This also creates the running-task alarm. Run it from an updated `main`, so the merged tfvars apply. The image is the one step 6 released.
+10. **Create the service.** This also creates the running-task alarm, which may send the alarm and OK email pair described under [Alarms](#alarms). Run it from an updated `main`, so the merged tfvars apply. The image is the one step 6 released.
 
     ```bash
     cd infra/terraform/discord-gateway
@@ -272,6 +298,8 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
 ## Rollout
 
 The first binding is BASIC's own community, in `hold` mode, moving to `autopublish` after a week of clean runs.
+
+Prerequisite: `hold` mode needs staff publishing of a held draft to write the event back to its link and source rows. Today that publish leaves them on the draft, so the next edit of that post files a second draft. Do not bind a channel in `hold` until that ships.
 
 ## Local Control Demo
 

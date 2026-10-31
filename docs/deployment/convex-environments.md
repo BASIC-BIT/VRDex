@@ -222,12 +222,14 @@ again at once. Current alarms:
   alert: a successful read says nothing about writes.
 - `discord-intake:` plus the connector ID: a connector's three most recently
   started intake runs all failed, or the five-minute sweep closed one of its
-  runs as `stalled` and requeued its posts. The email names the connector and community IDs and the
+  runs as `stalled` and requeued its posts, a retry that counts against the
+  daily run cap. The email names the connector and community IDs and the
   failure codes or run ID only. The next finished run, or removing or
   disconnecting the connector, resolves it.
 - `discord-intake-dropped:` plus the run ID: the sweep closed a run as `stalled`
   and did not requeue its posts, because the retry also stalled or the connector
-  is paused or off. Those posts need a real edit to run again.
+  is paused or off. Those posts need a real edit to run again. The key is per
+  run, so it does not resolve automatically.
 - `discord-intake-posters`: the poster bridge to the web app failed. See
   [Discord intake](#discord-intake).
 - `product-analytics-delivery`: a product analytics outbox row stops retrying
@@ -291,7 +293,8 @@ app's internal poster bridge, `POST /api/internal/discord-intake/poster`, which
 copies Discord attachments into private poster storage (secret). Only the web
 server holds the bucket role. Scope: the Convex deployment environment and the
 web app (Vercel Terraform variable `discord_poster_token` in
-`infra/terraform/vercel`). Owner: BASIC. Value: at least 32 random bytes,
+`infra/terraform/vercel`; read [the note on it](./discord-gateway.md#values-basic-provides)
+before using it). Owner: BASIC. Value: at least 32 random bytes,
 generated with `openssl rand -base64 32`. Unset on either side, runs store no
 posters and continue with the post text. A run that has posters and stores none
 emails the `discord-intake-posters` ops alert, naming the failure code; the next
