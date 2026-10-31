@@ -57,7 +57,7 @@ function HeldDraft({ onFailure, row }: { onFailure: ReportFailure; row: HeldDraf
       <div className="font-medium" id={titleId}>
         {row.kind === "update" ? <>Update to <Link className="underline" href={row.target.href}>{row.target.title}</Link></> : row.title ?? "Untitled event"}
       </div>
-      {row.kind === "update" ? <ul className="mt-1 grid gap-1 text-xs text-muted">
+      {row.kind === "update" ? <ul className="mt-1 space-y-1 wrap-anywhere text-xs text-muted">
         {row.changes.map(({ field, before, after }) => <li key={field}>{changeLabels[field]}: <ChangeValue field={field} value={before} /> → <ChangeValue field={field} value={after} /></li>)}
       </ul> : null}
     </TableCell>
@@ -89,6 +89,11 @@ function HeldFlag({ onFailure, row }: { onFailure: ReportFailure; row: HeldFlagR
 export function HeldImportsSection() {
   const rows = useQuery(api.eventInventory.listHeldImports, {});
   const [failure, setFailure] = useState<string | null>(null);
+  const [listed, setListed] = useState(rows);
+  if (rows !== listed) {
+    setListed(rows);
+    setFailure(null);
+  }
   if (!rows?.length) return null;
   return <section aria-labelledby="held-imports-heading" className="grid min-w-0 gap-3">
     <h3 className="text-lg font-semibold" id="held-imports-heading">{heading}</h3>

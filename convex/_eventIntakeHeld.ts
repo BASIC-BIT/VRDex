@@ -125,18 +125,25 @@ export async function heldImportRows(db: DatabaseReader, community: Doc<"profile
   for (const connector of await db.query("eventConnectors").withIndex("by_communityProfileId", q => q.eq("communityProfileId", community._id)).take(HELD_IMPORT_LIMIT)) {
     const origin = { community: { slug: community.slug, displayName: community.displayName }, connectorKind: connector.kind, targetName: targetName(connector) };
     for (const { draft, source } of await pendingHeldDrafts(db, connector._id, now)) {
+      // One bad row must not cost every manager the list, which is the only place to act on the others.
+      const parsed = EventIntakePatchSchema.safeParse(draft.fields);
+      if (!parsed.success) continue;
+      const fields = parsed.data;
       const message = source ? await messageRow(db, connector._id, source.messageId) : null;
-      const fields = EventIntakePatchSchema.parse(draft.fields);
       const promoted = promoteHeldFields(fields, community.slug);
       const row = { ...origin, updatedAt: draft.updatedAt, draftId: draft._id, title: promoted.title ?? null, schedule: intakeSchedule(promoted),
         author: message?.authorDisplayName ?? null, sourceUrl: message ? messageUrl(message) : null, openHref: `/events/new?draft=${draft._id}` };
       const target = await heldTarget(db, draft);
       if (!target) { rows.push({ ...row, kind: "new" }); continue; }
       const { event } = target;
-      const [current, patch] = [await correctionFields(db, event), heldUpdatePatch(fields, connector.kind)];
-      const applied = { ...current, ...patch };
-      rows.push({ ...row, kind: "update", schedule: intakeSchedule(applied.timeTba ? { ...applied, start: undefined, end: undefined, doors: undefined } : applied),
-        target: { slug: event.slug!, title: event.title, href: editHref(event.slug!) }, changes: heldChanges(current, patch) });
+      // A target too big to read (correctionFields caps its lineup) still lists, so staff can Open or Dismiss it.
+      let diff: { schedule: InventorySchedule; changes: HeldChange[] } = { schedule: row.schedule, changes: [] };
+      try {
+        const [current, patch] = [await correctionFields(db, event), heldUpdatePatch(fields, connector.kind)];
+        const applied = { ...current, ...patch };
+        diff = { schedule: intakeSchedule(applied.timeTba ? { ...applied, start: undefined, end: undefined, doors: undefined } : applied), changes: heldChanges(current, patch) };
+      } catch { /* The row keeps the draft's own schedule and shows no diff. */ }
+      rows.push({ ...row, ...diff, kind: "update", target: { slug: event.slug!, title: event.title, href: editHref(event.slug!) } });
     }
     const reason = connector.kind === "discord_announcements" ? "source_deleted" : "external_deleted";
     const links = await db.query("eventSyncLinks")

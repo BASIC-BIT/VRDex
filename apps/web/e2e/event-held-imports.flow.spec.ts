@@ -180,8 +180,30 @@ test.describe("Waiting for review @flow @fixture", () => {
     const section = page.getByRole("region", { name: heading });
     const untitled = section.getByRole("row", { name: /Untitled event/ });
     await expect(untitled.getByRole("link", { name: "Source" })).toHaveCount(0);
-    await expect(section.getByRole("row", { name: /Update to Harbor Night/ }).getByRole("listitem")).toHaveText(["Date: Jul 15, 2099 → next week", "Where: Hall →"]);
+    await expect(section.getByRole("row", { name: /Update to Harbor Night/ }).getByRole("listitem")).toHaveText(["Date: Jul 15, 2099 → next week", "Where: Hall →", /^Description: /, /^Source URL: /]);
     await expect(section.getByRole("row", { name: /Lantern Night/ }).getByText("Deleted at the source", { exact: true })).toBeVisible();
+    expect(await section.locator("table").evaluate(table => table.parentElement!.scrollWidth <= table.parentElement!.clientWidth)).toBe(true);
+    expect(await section.getByRole("cell", { name: /Source URL/ }).evaluate(cell => cell.scrollWidth <= cell.clientWidth)).toBe(true);
+  });
+
+  test("a failure notice goes when the rows change", async ({ page }) => {
+    await page.goto("/playwright/event-inventory?held=fail-dismissFlag");
+    const section = page.getByRole("region", { name: heading });
+    await section.getByRole("button", { name: "Keep", exact: true }).click();
+    await expect(section.getByRole("alert")).toHaveText("Unable to keep.");
+    await page.evaluate(() => window.dispatchEvent(new Event("held-drop")));
+    await expect(section.getByRole("row")).toHaveCount(3);
+    await expect(section.getByRole("alert")).toHaveCount(0);
+  });
+
+  test("My events stays up when the section fails, and it comes back", async ({ page }) => {
+    await page.goto("/playwright/event-inventory?held=fail-query");
+    await expect(page.locator('ul[aria-label="My events"]')).toBeVisible();
+    await expect(page.getByRole("link", { name: "Event reports", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: heading })).toHaveCount(0);
+    await expect(page.getByText("Unable to load this page.")).toHaveCount(0);
+    await page.evaluate(() => { window.dispatchEvent(new Event("inventory-recover-shortcuts")); window.dispatchEvent(new Event("focus")); });
+    await expect(page.getByRole("region", { name: heading })).toBeVisible();
   });
 
   test("holds a button while its call runs", async ({ page }) => {

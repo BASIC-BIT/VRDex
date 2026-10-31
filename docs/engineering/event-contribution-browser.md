@@ -427,8 +427,11 @@ noncancelled. Inventory visibility grants no additional export access.
 
 Held imports sit above the inventory in `Waiting for review`, one heading
 constant in `held-imports-section.tsx`, read from
-`eventInventory.listHeldImports` inside the same error boundary as the
-shortcuts. The section renders nothing while loading or when no row is held.
+`eventInventory.listHeldImports` inside its own error boundary, so a failure
+hides the section until the next inventory refresh and leaves My events up. The
+section renders nothing while loading or when no row is held. On the server a
+draft whose fields do not parse is skipped, and a target whose fields cannot be
+read still lists with no diff, so staff can Open or Dismiss it.
 Rows go to viewers with `manage_events` on the connector's community; the
 connector's authority sees them only through that right. Connector drafts never
 appear as creator intake rows and do not count toward the 20-draft quota. A

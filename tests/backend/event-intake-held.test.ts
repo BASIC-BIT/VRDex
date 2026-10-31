@@ -395,6 +395,23 @@ it("dates an update row from the event with its patch applied", async () => {
   assert.deepEqual(drafts.map(draftId => rows.find(row => row.kind === "update" && row.draftId === draftId)).map(row => row?.kind === "update" && row.schedule), cases.map(([, schedule]) => schedule));
 });
 
+it("keeps a row whose target cannot be read, and the rows around it", async () => {
+  const { t, ids, as, draft, discordSource, now } = await fixture();
+  await t.run(async ({ db }) => {
+    for (let position = 0; position <= 80; position++) await db.insert("eventLineupEntries", { eventId: ids.event, clientKey: `act-${position}`, position, performerLabel: `Act ${position}`, updatedAt: now });
+  });
+  const stuck = await draft(updateDraft, { connectorId: ids.google });
+  await t.run(({ db }) => db.insert("eventSyncLinks", { connectorId: ids.google, draftId: stuck, eventId: ids.event, externalId: "g-1", state: "linked", createdAt: now, updatedAt: now }));
+  const neighbour = await draft(newDraft);
+  await discordSource(neighbour);
+  const unreadable = await draft({ title: 5 } as unknown as EventIntakePatch);
+  await discordSource(unreadable, { kind: "new" }, "444444444444444444");
+  const listed = async () => (await as("staff").query(api.eventInventory.listHeldImports, {})).map(row => row.kind !== "flag" && [row.draftId, row.kind, row.kind === "update" ? row.changes : null]);
+  assert.deepEqual((await listed()).sort(), [[stuck, "update", []], [neighbour, "new", null]].sort());
+  await as("staff").mutation(api.eventIntakeHeld.dismiss, { draftId: stuck });
+  assert.deepEqual(await listed(), [[neighbour, "new", null]]);
+});
+
 it("reads the newest run's decision and shows a new row when the target is unusable", async () => {
   const { t, ids, as, draft, discordSource, now } = await fixture();
   const kind = async (draftId: Id<"eventIntakeDrafts">) => (await as("staff").query(api.eventInventory.listHeldImports, {})).find(row => row.kind !== "flag" && row.draftId === draftId)?.kind;

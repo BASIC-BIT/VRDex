@@ -40,7 +40,7 @@ const heldRows: HeldImports = [
 ];
 const sparseHeldRows: HeldImports = [
   { ...heldOrigin, connectorKind: "google_calendar", targetName: "Club calendar", kind: "new", draftId: heldId("held-untitled"), title: null, schedule: incomplete, author: null, sourceUrl: null, openHref: "/events/new?draft=held-untitled", updatedAt: 3 },
-  { ...heldOrigin, kind: "update", draftId: heldId("held-sparse-update"), title: "Harbor Night", schedule: incomplete, author: null, sourceUrl: null, openHref: "/events/new?draft=held-sparse-update", updatedAt: 2, target: harbor, changes: [{ field: "eventDate", before: "2099-07-15", after: "next week" }, { field: "venueLabel", before: "Hall", after: null }] },
+  { ...heldOrigin, kind: "update", draftId: heldId("held-sparse-update"), title: "Harbor Night", schedule: incomplete, author: null, sourceUrl: null, openHref: "/events/new?draft=held-sparse-update", updatedAt: 2, target: harbor, changes: [{ field: "eventDate", before: "2099-07-15", after: "next week" }, { field: "venueLabel", before: "Hall", after: null }, { field: "summary", before: null, after: "Long description ".repeat(30) }, { field: "sourceUrl", before: null, after: `https://example.test/${"a".repeat(400)}` }] },
   { ...heldOrigin, connectorKind: "google_calendar", targetName: "Club calendar", kind: "flag", eventId: eventId("flag-2"), reason: "external_deleted", title: "Lantern Night", href: "/afterglow/events/lantern/edit", updatedAt: 1 },
 ];
 
@@ -52,13 +52,16 @@ function inventoryFixture(contributorOnly: boolean, failShortcuts: boolean, held
   let failed = false;
   let reads = 0;
   let heldImports = !held ? [] : held === "sparse" ? sparseHeldRows : heldRows;
+  let heldUnavailable = held === "fail-query";
   sessionStorage.setItem("inventory-later-reads", "0");
   sessionStorage.setItem("inventory-protected-reads", "0");
   const notify = () => listeners.forEach(listener => listener());
   const release = () => { slowReleased = true; cache.clear(); notify(); };
-  const recoverShortcuts = () => { shortcutsUnavailable = false; notify(); };
+  const recoverShortcuts = () => { shortcutsUnavailable = false; heldUnavailable = false; notify(); };
+  const dropHeld = () => { heldImports = heldImports.slice(0, -1); notify(); };
   window.addEventListener("inventory-release", release);
   window.addEventListener("inventory-recover-shortcuts", recoverShortcuts);
+  window.addEventListener("held-drop", dropHeld);
   const empty: unknown[] = [];
   const viewer = { user: { id: "fixture-viewer", name: "Fixture organizer", emailVerified: true } };
   const communities = contributorOnly ? [] : [{ profileId: "fixture-community", ...community }];
@@ -119,7 +122,10 @@ function inventoryFixture(contributorOnly: boolean, failShortcuts: boolean, held
             return communities;
           }
           if (name === "eventCorrections:getEventReportAccess") return !contributorOnly;
-          if (name === "eventInventory:listHeldImports") return heldImports;
+          if (name === "eventInventory:listHeldImports") {
+            if (heldUnavailable) throw new Error("Fixture held source failed");
+            return heldImports;
+          }
           if (name !== "eventInventory:listPage") return empty;
           if (!cache.has(key)) {
             try { cache.set(key, inventoryPage(args)); }
@@ -134,7 +140,7 @@ function inventoryFixture(contributorOnly: boolean, failShortcuts: boolean, held
       };
     },
   } as unknown as ConvexReactClient;
-  return { client, dispose: () => { window.removeEventListener("inventory-release", release); window.removeEventListener("inventory-recover-shortcuts", recoverShortcuts); } };
+  return { client, dispose: () => { window.removeEventListener("inventory-release", release); window.removeEventListener("inventory-recover-shortcuts", recoverShortcuts); window.removeEventListener("held-drop", dropHeld); } };
 }
 
 function useFixtureAuth(session?: string) {
