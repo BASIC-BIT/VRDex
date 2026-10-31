@@ -147,6 +147,7 @@ async function restartQuietWindow(ctx: MutationCtx, connector: Doc<"eventConnect
   await cancelPendingSchedule(ctx.db, ctx.scheduler, run?.scheduledFunctionId);
   const scheduledFunctionId = await ctx.scheduler.runAfter(quietWindowMs(connector), internal.discordIntakeRun.runPending, { runId });
   await ctx.db.patch(runId, { scheduledFunctionId, triggerMessageIds: triggerMessageIds.includes(messageId) ? triggerMessageIds : [...triggerMessageIds, messageId] });
+  return runId;
 }
 
 const DAY_MS = 86_400_000;
@@ -373,6 +374,33 @@ async function closeFailedRun(ctx: MutationCtx, run: Doc<"discordIntakeRuns">, r
     });
   }
 }
+
+/** Closes running rows past their lease, which claimRun alone reaches only when the author posts again, and requeues their posts once. */
+export const sweepStalledRuns = internalMutation({
+  args: {},
+  returns: v.object({ closed: v.number(), retried: v.number() }),
+  handler: async ctx => {
+    const now = Date.now();
+    const stalled = await ctx.db.query("discordIntakeRuns").withIndex("by_state_startedAt", q => q.eq("state", "running").lte("startedAt", now - RUNNING_LEASE_MS)).take(50);
+    let retried = 0;
+    for (const row of stalled) {
+      await closeFailedRun(ctx, row, "stalled", now);
+      const connector = await ctx.db.get(row.connectorId);
+      await notifyOps(ctx, {
+        key: discordIntakeAlertKey(row.connectorId), subject: "Discord intake run stalled",
+        body: `Discord intake connector ${row.connectorId} (community ${connector?.communityProfileId}) run ${row._id} stalled.`,
+      });
+      // Safe to redo: finishRun writes events and links atomically, so a dead action wrote neither. Once only: a post that kills the action must not burn the daily cap.
+      if (row.stalledRetry || connector?.state !== "active" || connector.direction === "off") continue;
+      let retryId: Id<"discordIntakeRuns"> | undefined;
+      for (const messageId of row.triggerMessageIds) retryId = await restartQuietWindow(ctx, connector, row.authorId, messageId);
+      if (!retryId) continue;
+      await ctx.db.patch(retryId, { stalledRetry: true });
+      retried++;
+    }
+    return { closed: stalled.length, retried };
+  },
+});
 
 /** Reopens a connector the daily run cap paused; any other pause stays. */
 export const resumeConnector = internalMutation({

@@ -1244,8 +1244,11 @@ export default defineSchema({
     )),
     reason: v.optional(v.string()), draftId: v.optional(v.id("eventIntakeDrafts")), eventId: v.optional(v.id("events")),
     startedAt: v.optional(v.number()), finishedAt: v.optional(v.number()), createdAt: v.number(),
+    // Set on a run requeued by the stalled-run sweep, so a post that kills its action is not retried again.
+    stalledRetry: v.optional(v.boolean()),
   }).index("by_connectorId_authorId_state", ["connectorId", "authorId", "state"])
-    .index("by_connectorId_startedAt", ["connectorId", "startedAt"]),
+    .index("by_connectorId_startedAt", ["connectorId", "startedAt"])
+    .index("by_state_startedAt", ["state", "startedAt"]),
   discordIntakeSources: defineTable({
     connectorId: v.id("eventConnectors"), messageId: v.string(), eventId: v.optional(v.id("events")),
     // The sync link's external ID this post resolved to; later runs that include the post reuse it.
