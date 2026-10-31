@@ -89,12 +89,12 @@ function clearOccurrence(local?: EventIntakeLocalTime | null) {
 }
 export type EventSubmitCompletion = { kind: "saved" } | { kind: "published"; eventId: Id<"events">; eventPath: string };
 
-export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish, onSource, initialArtworkSourceId, heading, savedTimezonePreference, newDraft = false, onDone, onGuardChange }: { onDone?: () => void; onGuardChange?: (requestLeave: (navigate: () => void) => boolean) => void; savedTimezonePreference?: string | null; newDraft?: boolean; heading?: ReactNode; initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<EventSubmitCompletion> }) {
+export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, allowDateOnly = correction, onSave, onPublish, onSource, initialArtworkSourceId, heading, savedTimezonePreference, newDraft = false, onDone, onGuardChange }: { onDone?: () => void; onGuardChange?: (requestLeave: (navigate: () => void) => boolean) => void; savedTimezonePreference?: string | null; newDraft?: boolean; heading?: ReactNode; initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; allowDateOnly?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<EventSubmitCompletion> }) {
   const router = useRouter();
   const form = useRef<HTMLFormElement>(null);
   const performers = useEventPerformerEditor();
   const [fields, setFields] = useState(() => initialFields.timeTba ? untimed(initialFields) : initialFields);
-  const requiresStart = !correction || fields.timeTba !== true || Boolean(fields.lineup?.some(row => row.relativeTiming));
+  const requiresStart = !allowDateOnly || fields.timeTba !== true || Boolean(fields.lineup?.some(row => row.relativeTiming));
   const pendingInputs = useEventEditorPending();
   const [persisted, setPersisted] = useState(() => authoredSnapshot(initialFields.timeTba ? untimed(initialFields) : initialFields));
   const pendingRef = useRef(pendingInputs.pending);
@@ -412,6 +412,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
   const loaded = useQuery(api.eventIntake.getEventIntakeDraft, draftId ? { draftId } : "skip");
   const save = useMutation(api.eventIntake.saveEventIntakeDraft);
   const publish = useAction(api.eventIntake.publishEventIntake);
+  const publishHeld = useMutation(api.eventIntakeHeld.publish);
   const saved = useRef<{ draftId: Id<"eventIntakeDrafts">; version: number; fields: string } | null>(null);
   const request = useRef<{ key: string; version: number } | null>(null);
   async function saveFields(fields: EventIntakeFields, initialVersion: number) {
@@ -467,9 +468,16 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
   };
   if (draftId && loaded === undefined) return <>{heading}<p aria-busy="true">Loading draft…</p></>;
   if (draftId && loaded === null) return <>{heading}<Notice>Unavailable</Notice></>;
-  return <EventIntakeFieldsForm heading={heading} savedTimezonePreference={viewer?.user.defaultEventTimezone} newDraft={!draftId} initialFields={loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { if (published.current) await correctPublished(fields); else await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
+  // A connector import with no clock is date-only, the same reading row Publish takes.
+  const connectorFields = loaded?.connectorId ? { ...loaded.fields, timeTba: loaded.fields.timeTba ?? !(loaded.fields.start ?? loaded.fields.tentative?.start) } : undefined;
+  return <EventIntakeFieldsForm heading={heading} savedTimezonePreference={viewer?.user.defaultEventTimezone} newDraft={!draftId} allowDateOnly={Boolean(loaded?.connectorId)} initialFields={connectorFields ?? loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { if (published.current) await correctPublished(fields); else await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
     if (published.current) return correctPublished(fields);
     const current = await saveFields(fields, revision);
+    if (loaded?.connectorId) {
+      // The community's listing, not the viewer's contribution: nothing to correct afterwards.
+      const { eventId, eventPath } = await publishHeld({ draftId: current.draftId, expectedVersion: current.version });
+      return { kind: "published", eventId, eventPath };
+    }
     if (request.current?.version !== current.version) request.current = { version: current.version, key: crypto.randomUUID() };
     const result = await publish({ draftId: current.draftId, expectedVersion: current.version, idempotencyKey: request.current.key });
     const completion = { kind: "published" as const, eventId: result.eventId, eventPath: result.eventPath };

@@ -30,7 +30,8 @@ export const publish = mutation({
     const target = await heldTarget(ctx.db, draft);
     if (target) {
       const { event } = target;
-      const reviewed = expectedVersion === undefined ? fields : { ...fields, tentative: null, evidence: null };
+      // The editor reads a held draft with no start as Time TBA; that alone never clears the event's clock.
+      const reviewed = expectedVersion === undefined ? fields : { ...fields, timeTba: fields.start ? fields.timeTba : null, tentative: null, evidence: null };
       await patchCommunityEventFieldsAsStaffRecord(ctx, { actorUserId: user._id, slug: event.slug!, expectedUpdatedAt: event.updatedAt, patch: heldUpdatePatch(reviewed, connector.kind) });
       await settleHeldDraft(ctx, draft, event._id, now);
       return { outcome: "updated" as const, eventId: event._id, eventPath: await eventPathForRecord(ctx.db, event) };

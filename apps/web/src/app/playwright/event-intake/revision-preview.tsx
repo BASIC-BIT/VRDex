@@ -13,15 +13,19 @@ const useFixtureAuth = () => ({ isLoading: false, isAuthenticated: true, fetchAc
 
 // Exercise the connected forms and reactive queries with a local transport.
 // The matching backend conflict checks have their own Convex tests.
-function revisionFixture(correction: boolean, sourceMode?: string, staff = false) {
+function revisionFixture(correction: boolean, sourceMode?: string, staff = false, held?: string) {
   let fields: EventIntakePatch = { communitySlug: "afterglow", title: "Original title", eventDate: "2027-07-15", timeTba: true, venueLabel: "Original venue" };
   if (correction) fields.lineup = [{ clientKey: "private-person", position: 0, performerLabel: "Private performer" }];
   if (sourceMode) fields = {};
+  const heldImport = { communitySlug: "afterglow", title: "Held night", eventDate: "2027-07-15" };
+  if (held === "held") fields = { ...fields, timeTba: false, timezone: "UTC", start: { time: "20:00", dayOffset: 0 } };
+  if (held === "held-date-only") fields = { tentative: heldImport };
+  if (held === "held-tentative-start") fields = { tentative: { ...heldImport, timezone: "UTC", start: { time: "20:00", dayOffset: 0 } } };
   let version = 1;
   let completion: { sourceId: string; version: number } | undefined;
   let droppedCompletion = false;
   if (sourceMode && typeof sessionStorage !== "undefined") { const stored = sessionStorage.getItem("fixture-source-draft"); if (stored) ({fields, version} = JSON.parse(stored)); }
-  let draft = { artworkSourceId: typeof sessionStorage !== "undefined" ? sessionStorage.getItem("fixture-artwork-source") ?? undefined : undefined, _id: "fixture-draft", version, fields, artworkAssetId: typeof sessionStorage !== "undefined" && sessionStorage.getItem("fixture-artwork") ? "art" : undefined };
+  let draft = { artworkSourceId: typeof sessionStorage !== "undefined" ? sessionStorage.getItem("fixture-artwork-source") ?? undefined : undefined, _id: "fixture-draft", version, fields, artworkAssetId: typeof sessionStorage !== "undefined" && sessionStorage.getItem("fixture-artwork") ? "art" : undefined, ...(held ? { connectorId: "fixture-connector" } : {}) };
   let event = { eventId: "fixture-event", updatedAt: version, fields };
   const listeners = new Set<() => void>();
   let access = { canCorrect: !staff, canSuggest: false, canTakeOver: staff, canRemove: staff };
@@ -50,7 +54,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
     clearAuth() {},
     async query(query: FunctionReference<"query">, args: { query?: string; profileType?: string; entityType?: string; slug?: string }) {
       const name = getFunctionName(query);
-      if (name === "eventCorrections:getOwnContributedEvent") return event;
+      if (name === "eventCorrections:getOwnContributedEvent") { if (held) throw new Error("CONTRIBUTOR_REQUIRED"); return event; }
       if (name === "profiles:lookupPeople") return people.filter(person => person.title.toLowerCase().includes(args.query?.toLowerCase() ?? "")).map(person => ({ slug: person.slug, displayName: person.title, avatarImageUrl: person.imageUrl, profilePath: `/${person.slug}`, roleTags: [], tags: [] }));
       if (name === "profiles:getPublicBySlug") {
         if (args.profileType === "person") {
@@ -118,8 +122,12 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
         return true;
       }
       if (name === "eventCorrections:removeContributedEvent") return true;
-      const expected = name === "eventIntake:saveEventIntakeDraft" ? args.expectedVersion : args.expectedUpdatedAt;
+      const expected = name === "eventIntake:saveEventIntakeDraft" || name === "eventIntakeHeld:publish" ? args.expectedVersion : args.expectedUpdatedAt;
       if (expected !== version) throw new ConvexError({ code: "VERSION_CONFLICT" });
+      if (name === "eventIntakeHeld:publish") {
+        sessionStorage.setItem("fixture-published", JSON.stringify(fields));
+        return { outcome: "published", eventId: "fixture-event", eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions" };
+      }
       if (sessionStorage.getItem("fixture-save-fail") === "true") throw new Error("Fixture save failed");
       const patch = args.patch as EventIntakePatch;
       if (name === "eventCorrections:updateOwnContributedEvent" && Object.keys(patch).some(key => !["title", "eventDate", "timeTba", "timezone", "start", "end", "doors", "venueLabel", "worldSlug", "sourceUrl", "summary", "lineup"].includes(key))) throw new ConvexError({ code: "PATCH_FIELD" });
@@ -180,8 +188,8 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
   return { client, refresh, transport };
 }
 
-export function EventIntakeRevisionPreview({ correction, sourceMode, staff = false, initialCommunitySlug }: { correction: boolean; sourceMode?: string; staff?: boolean; initialCommunitySlug?: string }) {
-  const [fixture] = useState(() => revisionFixture(correction, sourceMode, staff));
+export function EventIntakeRevisionPreview({ correction, sourceMode, staff = false, held, initialCommunitySlug }: { correction: boolean; sourceMode?: string; staff?: boolean; held?: string; initialCommunitySlug?: string }) {
+  const [fixture] = useState(() => revisionFixture(correction, sourceMode, staff, held));
   useEffect(() => {
     if (!sourceMode) return;
     const original = window.fetch;

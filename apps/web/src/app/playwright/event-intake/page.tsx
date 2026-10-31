@@ -7,6 +7,6 @@ export default async function EventIntakeFixturePage({ searchParams }: { searchP
   const { revision, source, community, timezone } = await searchParams;
   if (timezone) return <EventTimezonePreview staff={timezone === "staff"} />;
   if (source) return <EventIntakeRevisionPreview correction={false} sourceMode={source} />;
-  if (revision) return <EventIntakeRevisionPreview correction={revision === "correction" || revision === "staff"} staff={revision === "staff"} initialCommunitySlug={revision === "initial" ? community : undefined} />;
+  if (revision) return <EventIntakeRevisionPreview correction={revision === "correction" || revision === "staff"} staff={revision === "staff"} held={revision.startsWith("held") ? revision : undefined} initialCommunitySlug={revision === "initial" ? community : undefined} />;
   return <EventIntakePreview />;
 }

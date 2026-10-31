@@ -557,6 +557,15 @@ it("editor publish takes only what the staffer saved", async () => {
   });
 });
 
+it("an editor save with no start keeps the event's clock on a proposed update", async () => {
+  const { t, ids, as, draft, googleLink } = await fixture();
+  const draftId = await draft({ title: "Reviewed", eventDate: "2027-07-15", timeTba: true }, { connectorId: ids.google });
+  await googleLink({ draftId, eventId: ids.event });
+  await as("staff").mutation(api.eventIntakeHeld.publish, { draftId, expectedVersion: 1 });
+  const event = (await t.run(({ db }) => db.get(ids.event)))!;
+  assert.deepEqual([event.title, event.scheduleKind, event.startAt], ["Reviewed", "timed", Date.UTC(2027, 6, 15, 20)]);
+});
+
 it("a saved Time TBA clears the event's clock on a proposed update", async () => {
   const { t, ids, as, draft, googleLink } = await fixture();
   const draftId = await draft({ ...updateDraft, timeTba: true }, { connectorId: ids.google });
