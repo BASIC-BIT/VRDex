@@ -1,11 +1,13 @@
 import type { Doc, Id } from "./_generated/dataModel";
-import type { DatabaseReader } from "./_generated/server";
+import type { DatabaseReader, MutationCtx } from "./_generated/server";
 import { messageRow, messageUrl } from "./_discordIntake";
 import { evidenceKey, explicitUpdateKeys } from "./_eventCandidateApply";
 import { canonicalIntakeValue, type ConnectorKind } from "./_eventConnectors";
+import { DISCORD_MESSAGE_URL, EVENT_INTAKE_DRAFT_TTL_MS } from "./_eventIntake";
 import { intakeSchedule, type InventorySchedule } from "./_eventInventory";
 import { eventPathForSlugs } from "./_eventPaths";
 import { getEventBySlug } from "./_eventSlugs";
+import { enqueueEventSync } from "./_eventSync";
 import { correctionFields } from "./eventCorrections";
 import { EventIntakePatchSchema, selectEventLocalTime, type EventIntakeFields, type EventIntakePatch } from "../packages/api-contracts/src/event-intake";
 
@@ -33,14 +35,17 @@ export function promoteHeldFields(fields: EventIntakePatch, communitySlug: strin
   const stale = redated(fields);
   const set = (values: object) => Object.fromEntries(Object.entries(values).filter(([, value]) => value !== null && value !== undefined));
   const { tentative, evidence: _evidence, questions: _questions, ...saved } = fields;
-  // A saved Time TBA is a staff decision: publication refuses clocks alongside it.
-  const declined = stale ? DATE_BOUND_KEYS : saved.timeTba === true ? CLOCK_KEYS : new Set<string>();
+  // Publication refuses clocks alongside Time TBA, whether a staffer saved it or no start means it.
+  const timeTba = saved.timeTba ?? tentative?.timeTba ?? !(saved.start ?? tentative?.start);
+  const declined = stale ? DATE_BOUND_KEYS : timeTba ? CLOCK_KEYS : new Set<string>();
   const promoted: EventIntakePatch = {
     ...Object.fromEntries(Object.entries(set(tentative ?? {})).filter(([key]) => !declined.has(key))),
     ...set(saved), communitySlug, tentative: null, evidence: null, questions: null,
   };
   // Tentative blocks never carry timeTba; applyEventCandidate derives it the same way.
   if (tentative && !stale) promoted.timeTba ??= !promoted.start;
+  // On a Discord draft the top-level URL is the post itself, which publication strips, so an extracted link wins.
+  if (tentative?.sourceUrl && saved.sourceUrl && DISCORD_MESSAGE_URL.test(saved.sourceUrl)) promoted.sourceUrl = tentative.sourceUrl;
   return promoted;
 }
 
@@ -49,7 +54,10 @@ export function heldUpdatePatch(fields: EventIntakePatch, kind: ConnectorKind): 
   const promoted = promoteHeldFields(fields, "");
   const stale = redated(fields);
   const evidence = (fields.evidence ?? []).filter(entry => !stale || !DATE_BOUND_KEYS.has(evidenceKey(entry.fieldPath)));
-  return Object.fromEntries(explicitUpdateKeys(evidence, kind, fields).map(key => [key, promoted[key] ?? null]));
+  const keys = explicitUpdateKeys(evidence, kind, fields);
+  // Promotion's Time TBA is the new-event reading: an end with no start still fits the event's own start.
+  const extracted = keys.includes("start") || fields.timeTba === true ? {} : fields.tentative ?? {};
+  return Object.fromEntries(keys.map(key => [key, promoted[key] ?? extracted[key] ?? null]));
 }
 
 function heldValue(field: HeldChangeField, fields: HeldUpdatePatch, eventDate: EventIntakePatch["eventDate"], timezone: EventIntakePatch["timezone"]): HeldChange["after"] {
@@ -81,6 +89,16 @@ export async function heldTarget(db: DatabaseReader, draft: Doc<"eventIntakeDraf
     if (run?.decision?.kind === "update") event = await getEventBySlug(db, run.decision.slug);
   }
   return event?.slug && event.moderationRemovedAt === undefined && event.communityProfileId === connector.communityProfileId ? { event, links } : null;
+}
+
+/** Takes a draft off review. Its link stops blocking imports and exports, and the draft sweep removes the row after the usual TTL. */
+export async function dismissHeldDraft(ctx: Pick<MutationCtx, "db" | "scheduler">, draft: Doc<"eventIntakeDrafts">, now: number) {
+  const { db } = ctx;
+  await db.patch(draft._id, { dismissedAt: now, resolvedAt: now, expiresAt: now + EVENT_INTAKE_DRAFT_TTL_MS });
+  const links = await db.query("eventSyncLinks").withIndex("by_draftId", q => q.eq("draftId", draft._id)).collect();
+  for (const link of links) await db.patch(link._id, { draftId: undefined, updatedAt: now });
+  // While the draft was pending its exports closed as skipped; nothing else requeues them.
+  for (const eventId of new Set(links.flatMap(link => link.eventId ? [link.eventId] : []))) await enqueueEventSync(db, ctx.scheduler, eventId, "upsert");
 }
 
 const targetName = ({ target }: Doc<"eventConnectors">) => target.channelName ? `#${target.channelName}`

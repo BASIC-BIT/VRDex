@@ -284,7 +284,7 @@ export const advanceList = internalMutation({
       let link = await linkByExternalId(ctx, connector._id, item.id);
       // Missing from a date-filtered list is weak evidence of a delete; being listed is proof it exists.
       if (link?.state === "external_deleted") {
-        await ctx.db.patch(link._id, { state: "linked", updatedAt: Date.now() });
+        await ctx.db.patch(link._id, { state: "linked", flagReviewedAt: undefined, updatedAt: Date.now() });
         link = { ...link, state: "linked" };
       }
       if (purpose === "reconcile") {

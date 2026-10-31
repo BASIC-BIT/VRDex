@@ -5,6 +5,7 @@ import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { ConvexError } from "convex/values";
 import { buildSourceText, pickPosterAttachments } from "../../convex/_discordIntake";
 import { saveIntakeDraft } from "../../convex/_eventIntake";
+import { dismissHeldDraft } from "../../convex/_eventIntakeHeld";
 import { failureReason } from "../../convex/discordIntakeRun";
 import { EVENT_POSTER_MAX_BYTES, resolveEventLocalTime } from "../../packages/api-contracts/src/event-intake";
 import { newClerkUserId } from "./_clerkTestIdentity";
@@ -207,6 +208,31 @@ it("holds the run's own draft with its posters and records sources for every tri
   assert.ok(sources.every(row => row.draftId === result.draftId && row.runId === runId));
   assert.equal(result.draftId, draftId);
   assert.ok((await t.run(ctx => ctx.db.get(draftId)))!.expiresAt > Date.now());
+});
+
+it("files a fresh draft when a dismissed post is edited, after the sweep took the old one", async () => {
+  const { t, connectorId } = await seedDiscordIntake();
+  const run = async () => {
+    const runId = (await pendingRun(t))._id;
+    await t.mutation(internal.discordIntake.claimRun, { runId });
+    const draftId = await t.mutation(internal.discordIntake.saveRunDraft, { runId, sourceText: "Ari: Friday", sourceUrl: "https://discord.com/channels/x" });
+    return t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: candidate({ kind: "new" }) });
+  };
+  await record(t, "create", message(M1));
+  const first = await run();
+  await t.run(async ctx => {
+    await dismissHeldDraft(ctx, (await ctx.db.get(first.draftId!))!, Date.now());
+    await ctx.db.delete(first.draftId!);
+  });
+  await record(t, "update", message(M1, { content: "now 22:00", editedAt: Date.now() }));
+  const second = await run();
+  assert.equal(second.outcome, "draft");
+  assert.notEqual(second.draftId, first.draftId);
+  await t.run(async ctx => {
+    const link = await ctx.db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connectorId).eq("externalId", M1)).unique();
+    assert.equal(link?.draftId, second.draftId);
+    assert.deepEqual((await ctx.db.query("discordIntakeSources").collect()).map(row => row.draftId), [second.draftId]);
+  });
 });
 
 it("records source_deleted and flags the link when every source message is deleted", async () => {

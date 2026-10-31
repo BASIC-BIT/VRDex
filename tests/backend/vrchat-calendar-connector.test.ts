@@ -887,12 +887,13 @@ describe("vrchat calendar import", () => {
     const t = convexTest({ schema, modules });
     const { connectorId, communityProfileId } = await seedVrchatConnector(t, { direction: "bidirectional" });
     const eventId = await seedEvent(t, communityProfileId);
-    const linkId = await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: connectorId!, eventId, externalId: CAL_1, state: "external_deleted", externalUpdatedAt: NOW - 86_400_000, createdAt: NOW - 86_400_000, updatedAt: NOW }));
+    const linkId = await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: connectorId!, eventId, externalId: CAL_1, state: "external_deleted", flagReviewedAt: NOW, externalUpdatedAt: NOW - 86_400_000, createdAt: NOW - 86_400_000, updatedAt: NOW }));
     const job = await runSyncJob(t, { connectorId: connectorId!, kind: "import_poll" });
     // Newer than the event: on a bidirectional connector an older entry correctly loses.
     await workerSettle(t, { status: "succeeded", result: { calendarEvents: [vrchatItem({ title: "Bass Temple Moved", updatedAt: "2026-11-02T11:59:59.000Z" })] } });
     await rerunJob(t, job._id);
-    assert.equal((await t.run((ctx) => ctx.db.get(linkId)))!.state, "linked");
+    const restored = (await t.run((ctx) => ctx.db.get(linkId)))!;
+    assert.deepEqual([restored.state, restored.flagReviewedAt], ["linked", undefined]);
     assert.deepEqual(await importIds(t), [CAL_1]);
     const queued = (await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).find((row) => row.kind === "import_item")!;
     assert.equal((await rerunJob(t, queued._id)).state, "done");

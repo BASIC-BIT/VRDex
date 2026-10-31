@@ -193,6 +193,7 @@ import type * as e2eMedia from "../e2eMedia.js";
 import type * as eventConnectors from "../eventConnectors.js";
 import type * as eventCorrections from "../eventCorrections.js";
 import type * as eventIntake from "../eventIntake.js";
+import type * as eventIntakeHeld from "../eventIntakeHeld.js";
 import type * as eventIntakeSources from "../eventIntakeSources.js";
 import type * as eventInventory from "../eventInventory.js";
 import type * as eventMediaControlMigration from "../eventMediaControlMigration.js";
@@ -449,6 +450,7 @@ declare const fullApi: ApiFromModules<{
   eventConnectors: typeof eventConnectors;
   eventCorrections: typeof eventCorrections;
   eventIntake: typeof eventIntake;
+  eventIntakeHeld: typeof eventIntakeHeld;
   eventIntakeSources: typeof eventIntakeSources;
   eventInventory: typeof eventInventory;
   eventMediaControlMigration: typeof eventMediaControlMigration;

@@ -116,7 +116,7 @@ export const applyImport = internalMutation({
 
     // The organiser restored it, so exports may touch it again.
     if (link?.state === "external_deleted") {
-      await db.patch(link._id, { state: "linked", updatedAt: now });
+      await db.patch(link._id, { state: "linked", flagReviewedAt: undefined, updatedAt: now });
       link = { ...link, state: "linked" };
     }
 

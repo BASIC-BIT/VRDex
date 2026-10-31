@@ -20,7 +20,7 @@ const submitterFor = async (db: DatabaseReader, userId: Id<"users">) => {
 export const EVENT_INTAKE_DRAFT_LIMIT = 20;
 export const EVENT_INTAKE_DRAFT_TTL_MS = 30 * 86_400_000;
 // The connector's source post: staff provenance on the draft, never public metadata.
-const DISCORD_MESSAGE_URL = /^https:\/\/discord\.com\/channels\//;
+export const DISCORD_MESSAGE_URL = /^https:\/\/discord\.com\/channels\//;
 const omitEmpty = (value: unknown): unknown => {
   if (value === null || value === "") return undefined;
   if (Array.isArray(value)) return value.map(omitEmpty);
@@ -138,7 +138,8 @@ export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "schedule
   // Connector drafts publish as the community's listing, only through the held path.
   if (!connectorId && draft.connectorId) throw new Error("DRAFT_ACCESS");
   const connector = connectorId ? await db.get(connectorId) : null;
-  if (connectorId && (draft.connectorId !== connectorId || connector?.state !== "active")) throw new Error("CONNECTOR_DRAFT_MISMATCH");
+  // A staffer's publish outlives the connector; only the connector's own runs need it active.
+  if (connectorId && (draft.connectorId !== connectorId || (actorSurface === "system" && connector?.state !== "active"))) throw new Error("CONNECTOR_DRAFT_MISMATCH");
   if (draft.version !== args.expectedVersion) throw new ConvexError({ code: "VERSION_CONFLICT" });
   if (draft.artworkIntentSourceId) throw new Error("ARTWORK_NOT_READY");
   if (draft.fields.posterSourceId && !draft.artworkAssetId) throw new Error("ARTWORK_NOT_READY");
@@ -206,7 +207,7 @@ export async function publishIntakeDraft(ctx: Pick<MutationCtx, "db" | "schedule
       await db.patch(event._id, { posterImageUrl });
       await reindexEventSearchDocument(db, { ...event, posterImageUrl }, { community, world: checked.world, roleLabels: checked.lineup.flatMap(entry => entry.roleLabel ? [entry.roleLabel] : []) }, now);
     }
-    await db.patch(draft._id, { publishedReceiptId: receipt._id });
+    await db.patch(draft._id, { publishedReceiptId: receipt._id, ...(draft.connectorId ? { resolvedAt: now } : {}) });
   }
   await db.insert("eventIntakePublishRequests", { actorUserId, draftId: draft._id, draftVersion: draft.version, idempotencyKey: args.idempotencyKey, receiptId: receipt._id, createdAt: now, ...(connectorId ? { connectorId } : {}) });
   await enqueueEventSync(db, ctx.scheduler, receipt.eventId, "upsert");

@@ -6,7 +6,7 @@ import { api, internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { EventIntakePatch } from "../../packages/api-contracts/src/event-intake";
 import { normalizeIntakePublication } from "../../convex/_eventContributionPreflight";
-import { getConnectorDraftForManager, publishIntakeDraft } from "../../convex/_eventIntake";
+import { EVENT_INTAKE_DRAFT_TTL_MS, getConnectorDraftForManager, publishIntakeDraft } from "../../convex/_eventIntake";
 import { HELD_IMPORT_LIMIT, heldChanges, heldUpdatePatch, promoteHeldFields } from "../../convex/_eventIntakeHeld";
 
 process.env.CLERK_JWT_ISSUER_DOMAIN = "test";
@@ -26,6 +26,7 @@ async function fixture() {
     "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
     "../../convex/eventInventory.ts": () => import("../../convex/eventInventory"),
     "../../convex/eventIntake.ts": () => import("../../convex/eventIntake"),
+    "../../convex/eventIntakeHeld.ts": () => import("../../convex/eventIntakeHeld"),
     "../../convex/eventIntakeSources.ts": () => import("../../convex/eventIntakeSources"),
     "../../convex/eventCorrections.ts": () => import("../../convex/eventCorrections"),
     "../../convex/events.ts": () => import("../../convex/events"),
@@ -67,7 +68,8 @@ async function fixture() {
     return draftId;
   });
   const upload = (actorUserId: Id<"users">, draftId: Id<"eventIntakeDrafts">, byteLength = 128) => t.mutation(internal.eventIntakeSources.beginPosterUpload, { actorUserId, draftId, contentType: "image/webp", byteLength, sha256 });
-  return { t, ids, as, draft, discordSource, poster, autopublished, upload, now };
+  const googleLink = (values: { draftId?: Id<"eventIntakeDrafts">; eventId?: Id<"events">; state?: "linked" | "external_deleted" }) => t.run(({ db }) => db.insert("eventSyncLinks", { connectorId: ids.google, externalId: "g-1", state: "linked", createdAt: now, updatedAt: now, ...values }));
+  return { t, ids, as, draft, discordSource, poster, autopublished, upload, googleLink, now };
 }
 
 it("lets any manage_events staffer read a connector draft and nobody else", async () => {
@@ -180,6 +182,7 @@ it("publishes a connector draft whose artwork belongs to another actor and has n
   const { version } = await as("second").mutation(api.eventIntake.saveEventIntakeDraft, { draftId, expectedVersion: 1, patch: { ...loaded!.fields, title: "Edited" } });
   const { eventId } = await t.run(ctx => publishIntakeDraft(ctx, ids.second, { draftId, expectedVersion: version, idempotencyKey: "held" }, Date.now(), "browser", { connectorId: ids.discord }));
   assert.equal((await t.run(({ db }) => db.get(eventId)))?.posterImageUrl, `/api/v0/events/${eventId}/artwork/${artworkId}`);
+  assert.ok((await t.run(({ db }) => db.get(draftId)))?.resolvedAt);
 });
 
 it("refuses connector drafts on the personal publish routes", async () => {
@@ -435,4 +438,195 @@ it("shows nothing to staff without manage_events", async () => {
     assert.deepEqual(await as(name).query(api.eventInventory.listHeldImports, {}), []);
     await assert.rejects(as(name).query(api.eventInventory.listHeldImports, { communityProfileId: ids.community }), /access/);
   }
+});
+
+const discordMessageUrl = "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333";
+const exportJobs = (t: Awaited<ReturnType<typeof fixture>>["t"], eventId: Id<"events">) => t.run(async ({ db }) => (await db.query("eventSyncJobs").collect()).filter(job => job.eventId === eventId && job.state === "pending").map(job => job.kind));
+
+it("a second manager publishes a held draft as the community and is the receipt actor", async () => {
+  const { t, ids, as, draft, discordSource, poster } = await fixture();
+  const draftId = await draft({ ...newDraft, tentative: { ...newDraft.tentative, communitySlug: "elsewhere" } });
+  await discordSource(draftId);
+  await discordSource(draftId, { kind: "new" }, "444444444444444444");
+  const { artworkId } = await poster(draftId);
+  await assert.rejects(as("authority").mutation(api.eventIntakeHeld.publish, { draftId }), /Draft not found/);
+  const result = await as("second").mutation(api.eventIntakeHeld.publish, { draftId });
+  assert.equal(result.outcome, "published");
+  await t.run(async ({ db }) => {
+    const event = (await db.get(result.eventId))!;
+    assert.deepEqual([event.communityProfileId, event.title, event.eventDate, event.scheduleKind], [ids.community, "Afterglow Social", "2027-07-20", "date_only"]);
+    assert.equal(event.sourceType, "community");
+    assert.equal(event.posterImageUrl, `/api/v0/events/${result.eventId}/artwork/${artworkId}`);
+    assert.equal(result.eventPath, `/club/events/${event.slug}`);
+    const receipt = await db.query("eventContributionReceipts").withIndex("by_eventId", q => q.eq("eventId", result.eventId)).unique();
+    assert.equal(receipt?.actorUserId, ids.second);
+    assert.ok((await db.get(draftId))?.resolvedAt);
+    const sources = await db.query("discordIntakeSources").withIndex("by_draftId", q => q.eq("draftId", draftId)).collect();
+    assert.deepEqual(sources.map(source => source.eventId), [result.eventId, result.eventId]);
+  });
+  await assert.rejects(as("staff").mutation(api.eventIntakeHeld.publish, { draftId }), /Draft not found/);
+  assert.deepEqual(await as("staff").query(api.eventInventory.listHeldImports, {}), []);
+  assert.equal((await t.run(({ db }) => db.query("events").collect())).length, 2);
+});
+
+it("publishes a poster-only Discord draft through the row", async () => {
+  const { t, as, draft, discordSource, poster } = await fixture();
+  const draftId = await draft(newDraft);
+  await discordSource(draftId);
+  const { artworkId } = await poster(draftId, { inFields: false });
+  const { eventId } = await as("staff").mutation(api.eventIntakeHeld.publish, { draftId });
+  assert.equal((await t.run(({ db }) => db.get(eventId)))?.posterImageUrl, `/api/v0/events/${eventId}/artwork/${artworkId}`);
+});
+
+it("applies only explicit fields of a proposed update and relinks", async () => {
+  const { t, ids, as, draft, googleLink } = await fixture();
+  const draftId = await draft(updateDraft, { connectorId: ids.google });
+  const linkId = await googleLink({ draftId, eventId: ids.event });
+  const result = await as("staff").mutation(api.eventIntakeHeld.publish, { draftId });
+  assert.deepEqual(result, { outcome: "updated", eventId: ids.event, eventPath: "/club/events/harbor" });
+  await t.run(async ({ db }) => {
+    const event = (await db.get(ids.event))!;
+    assert.equal(event.startAt, Date.UTC(2027, 6, 15, 21));
+    assert.equal(event.venueLabel, "Hand-set hall");
+    const link = (await db.get(linkId))!;
+    assert.deepEqual([link.eventId, link.draftId], [ids.event, undefined]);
+    assert.ok((await db.get(draftId))?.resolvedAt);
+    const audit = await db.query("eventAuditEvents").withIndex("by_eventId_createdAt", q => q.eq("eventId", ids.event)).order("desc").first();
+    assert.equal(audit?.actorUserId, ids.staff);
+  });
+});
+
+it("publishing a run-decided update links the event on every source", async () => {
+  const { t, ids, as, draft, discordSource } = await fixture();
+  const draftId = await draft(updateDraft);
+  await discordSource(draftId, { kind: "update", slug: "harbor" });
+  await t.run(({ db }) => db.insert("eventSyncLinks", { connectorId: ids.discord, draftId, externalId: "333333333333333333", state: "linked", createdAt: Date.now(), updatedAt: Date.now() }));
+  await as("staff").mutation(api.eventIntakeHeld.publish, { draftId });
+  await t.run(async ({ db }) => {
+    assert.equal((await db.query("eventSyncLinks").withIndex("by_eventId", q => q.eq("eventId", ids.event)).unique())?.externalId, "333333333333333333");
+    assert.equal((await db.query("discordIntakeSources").withIndex("by_draftId", q => q.eq("draftId", draftId)).unique())?.eventId, ids.event);
+  });
+});
+
+it("a held update that changes nothing still releases the skipped export", async () => {
+  const { t, ids, as, draft, googleLink } = await fixture();
+  await t.run(({ db }) => db.patch(ids.google, { direction: "bidirectional" }));
+  const unchanged = { ...updateDraft, tentative: { ...updateDraft.tentative, start: { time: "20:00", dayOffset: 0 } } };
+  const draftId = await draft(unchanged, { connectorId: ids.google });
+  await googleLink({ draftId, eventId: ids.event });
+  const updatedAt = (await t.run(({ db }) => db.get(ids.event)))!.updatedAt;
+  await as("staff").mutation(api.eventIntakeHeld.publish, { draftId });
+  assert.equal((await t.run(({ db }) => db.get(ids.event)))!.updatedAt, updatedAt);
+  assert.deepEqual(await exportJobs(t, ids.event), ["export_upsert"]);
+});
+
+it("keeps drafts on a paused or removed connector publishable", async () => {
+  const { t, ids, as, draft, googleLink } = await fixture();
+  const [fresh, update] = [await draft(newDraft), await draft(updateDraft, { connectorId: ids.google })];
+  await googleLink({ draftId: update, eventId: ids.event });
+  await t.run(async ({ db }) => { await db.patch(ids.discord, { state: "paused" }); await db.patch(ids.google, { state: "removed" }); });
+  assert.equal((await as("staff").mutation(api.eventIntakeHeld.publish, { draftId: fresh })).outcome, "published");
+  assert.equal((await as("staff").mutation(api.eventIntakeHeld.publish, { draftId: update })).outcome, "updated");
+});
+
+it("rolls everything back when publication refuses the draft", async () => {
+  const { t, ids, as, draft, googleLink } = await fixture();
+  const draftId = await draft({ tentative: { eventDate: "2027-07-20" } }, { connectorId: ids.google });
+  const linkId = await googleLink({ draftId });
+  await assert.rejects(as("staff").mutation(api.eventIntakeHeld.publish, { draftId }), /title/);
+  await t.run(async ({ db }) => {
+    const row = (await db.get(draftId))!;
+    assert.deepEqual([row.version, row.resolvedAt, row.fields.tentative?.eventDate], [1, undefined, "2027-07-20"]);
+    assert.equal((await db.get(linkId))?.draftId, draftId);
+  });
+});
+
+it("editor publish takes only what the staffer saved", async () => {
+  const { t, ids, as, draft, googleLink } = await fixture();
+  const fresh = await draft({ communitySlug: "elsewhere", title: "Reviewed", eventDate: "2027-07-20", timeTba: true, tentative: { title: "Extracted", summary: "Never accepted" }, evidence: [evidence("event.summary")] });
+  const update = await draft({ summary: "Saved", tentative: { start: nine, timezone: "UTC", eventDate: "2027-07-15" }, evidence: [evidence("event.start")] }, { connectorId: ids.google });
+  await googleLink({ draftId: update, eventId: ids.event });
+  await assert.rejects(as("staff").mutation(api.eventIntakeHeld.publish, { draftId: fresh, expectedVersion: 2 }), /VERSION_CONFLICT/);
+  const { eventId } = await as("staff").mutation(api.eventIntakeHeld.publish, { draftId: fresh, expectedVersion: 1 });
+  await as("staff").mutation(api.eventIntakeHeld.publish, { draftId: update, expectedVersion: 1 });
+  await t.run(async ({ db }) => {
+    const event = (await db.get(eventId))!;
+    assert.deepEqual([event.title, event.summary, event.communityProfileId], ["Reviewed", undefined, ids.community]);
+    const patched = (await db.get(ids.event))!;
+    assert.deepEqual([patched.summary, patched.startAt], ["Saved", Date.UTC(2027, 6, 15, 20)]);
+  });
+});
+
+it("a saved Time TBA clears the event's clock on a proposed update", async () => {
+  const { t, ids, as, draft, googleLink } = await fixture();
+  const draftId = await draft({ ...updateDraft, timeTba: true }, { connectorId: ids.google });
+  await googleLink({ draftId, eventId: ids.event });
+  await as("staff").mutation(api.eventIntakeHeld.publish, { draftId });
+  const event = (await t.run(({ db }) => db.get(ids.event)))!;
+  assert.deepEqual([event.scheduleKind, event.startAt, event.eventDate], ["date_only", undefined, "2027-07-15"]);
+});
+
+it("publishes an extracted link over the Discord post's own URL", async () => {
+  const { t, as, draft } = await fixture();
+  assert.equal(promoteHeldFields({ sourceUrl: "https://example.com/saved", tentative: { sourceUrl: "https://example.com/extracted" } }, "club").sourceUrl, "https://example.com/saved");
+  assert.equal(promoteHeldFields({ sourceUrl: discordMessageUrl }, "club").sourceUrl, discordMessageUrl);
+  const draftId = await draft({ ...newDraft, sourceUrl: discordMessageUrl, tentative: { ...newDraft.tentative, sourceUrl: "https://example.com/extracted" } });
+  const { eventId } = await as("staff").mutation(api.eventIntakeHeld.publish, { draftId });
+  assert.equal((await t.run(({ db }) => db.get(eventId)))?.sourceUrl, "https://example.com/extracted");
+});
+
+it("a candidate with an end and no start publishes date-only", async () => {
+  const { t, as, draft } = await fixture();
+  const draftId = await draft({ ...newDraft, tentative: { ...newDraft.tentative, timezone: "UTC", end: { time: "23:00" }, doors: { time: "20:00" } } });
+  const { eventId } = await as("staff").mutation(api.eventIntakeHeld.publish, { draftId });
+  const event = (await t.run(({ db }) => db.get(eventId)))!;
+  assert.deepEqual([event.scheduleKind, event.endAt], ["date_only", undefined]);
+  // A staffer's timeTba: false is a decision the row cannot make for them.
+  assert.equal(promoteHeldFields({ timeTba: false, tentative: { end: { time: "23:00" } } }, "club").end?.time, "23:00");
+});
+
+it("a proposed update keeps an extracted end for the event's own start", () => {
+  const end = { time: "23:00", dayOffset: 0 };
+  assert.deepEqual(heldUpdatePatch({ tentative: { end }, evidence: [evidence("event.end")] }, "google_calendar"), { end });
+  assert.deepEqual(heldUpdatePatch({ timeTba: true, tentative: { end }, evidence: [evidence("event.end")] }, "google_calendar"), { end: null, timeTba: true });
+  assert.deepEqual(heldUpdatePatch({ tentative: { end }, evidence: [evidence("event.end"), evidence("event.start")] }, "google_calendar"), { start: null, end: null, timeTba: true });
+});
+
+it("dismiss hides a held draft, frees its link, and keeps the row for thirty days", async () => {
+  const { t, ids, as, draft, googleLink } = await fixture();
+  await t.run(({ db }) => db.patch(ids.google, { direction: "bidirectional" }));
+  const draftId = await draft(updateDraft, { connectorId: ids.google });
+  const linkId = await googleLink({ draftId, eventId: ids.event });
+  await assert.rejects(as("outsider").mutation(api.eventIntakeHeld.dismiss, { draftId }), /Draft not found/);
+  assert.equal(await as("staff").mutation(api.eventIntakeHeld.dismiss, { draftId }), null);
+  assert.deepEqual(await as("staff").query(api.eventInventory.listHeldImports, {}), []);
+  await assert.rejects(as("staff").mutation(api.eventIntakeHeld.dismiss, { draftId }), /Draft not found/);
+  assert.deepEqual(await exportJobs(t, ids.event), ["export_upsert"]);
+  await t.run(async ({ db }) => {
+    const row = (await db.get(draftId))!;
+    assert.ok(row.dismissedAt);
+    assert.equal(row.resolvedAt, row.dismissedAt);
+    assert.equal(row.expiresAt, row.dismissedAt! + EVENT_INTAKE_DRAFT_TTL_MS);
+    const link = (await db.get(linkId))!;
+    assert.deepEqual([link.draftId, link.eventId, link.updatedAt], [undefined, ids.event, row.dismissedAt]);
+    await db.patch(draftId, { expiresAt: Date.now() - 1 });
+  });
+  await t.mutation(internal.eventIntake.expireDrafts, {});
+  assert.equal(await t.run(({ db }) => db.get(draftId)), null);
+});
+
+it("Keep clears the deletion flag for that event without touching the link's state", async () => {
+  const { t, ids, as, googleLink } = await fixture();
+  const google = await googleLink({ eventId: ids.event, state: "external_deleted" });
+  const discord = await t.run(({ db }) => db.insert("eventSyncLinks", { connectorId: ids.discord, eventId: ids.event, externalId: "333333333333333333", state: "external_deleted", createdAt: Date.now(), updatedAt: Date.now() }));
+  await assert.rejects(as("outsider").mutation(api.eventIntakeHeld.dismissFlag, { eventId: ids.event }), /access/);
+  assert.equal((await as("staff").query(api.eventInventory.listHeldImports, {})).filter(row => row.kind === "flag").length, 2);
+  assert.equal(await as("staff").mutation(api.eventIntakeHeld.dismissFlag, { eventId: ids.event }), null);
+  assert.deepEqual((await as("staff").query(api.eventInventory.listHeldImports, {})).filter(row => row.kind === "flag"), []);
+  await t.run(async ({ db }) => {
+    for (const id of [google, discord]) {
+      const link = (await db.get(id))!;
+      assert.deepEqual([link.state, Boolean(link.flagReviewedAt)], ["external_deleted", true]);
+    }
+  });
 });
