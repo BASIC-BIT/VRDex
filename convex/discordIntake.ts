@@ -11,7 +11,7 @@ import {
   readableTextChannels, resolveDiscordUserId, sanitizeRunEvidence, type DiscordChannel,
 } from "./_discordIntake";
 import { discordRequest } from "./_discordRest";
-import { applyEventCandidate } from "./_eventCandidateApply";
+import { applyEventCandidate, evidenceKey } from "./_eventCandidateApply";
 import {
   connectorDirection, connectorKind, connectorMode, connectorState, connectorsEnabled, pendingLinkDraft, requireConnectorAuthority, userAuthSubject, userHasCommunityPermission,
 } from "./_eventConnectors";
@@ -24,9 +24,10 @@ import { cancelPendingSchedule, discordIntakeAlertKey, removeConnector } from ".
 import { notifyOps, resolveOps } from "./_opsAlerts";
 import { manageableDiscordGuilds } from "./discordVerification";
 import { correctionFields } from "./eventCorrections";
-import { EventIntakeCandidateSchema, EventIntakePatchSchema, type EventIntakeCandidate, type EventIntakeFields } from "../packages/api-contracts/src/event-intake";
+import { EventIntakeCandidateSchema, EventIntakePatchSchema, type EventIntakeCandidate, type EventIntakeFields, type EventIntakePatch } from "../packages/api-contracts/src/event-intake";
 
 const MAX_CONTENT = 12_000;
+const EVIDENCE_LIMIT = 40;
 const DISCORD_KINDS = ["discord_announcements", "discord_board", "discord_scheduled_events"] as const;
 
 /** Discord connectors for the gateway: a channel's or a guild's live ones, or with no filter every active one. */
@@ -263,10 +264,27 @@ export const saveRunDraft = internalMutation({
 });
 
 /**
- * An edit of a held post lands in the held draft: the candidate replaces its tentative block, top-level fields staff set stay,
- * and posters the run stored move across, with its artwork when the held draft has none.
+ * A run that did not re-read every post behind a draft adds to its import. Lineup replaces whole, with its evidence, because a partial
+ * one must not pass on the held entries. Explicit entries go first so the cap cannot drop them; held ones beat a new inferred entry.
  */
-async function refreshHeldDraft(ctx: MutationCtx, connector: Doc<"eventConnectors">, candidate: EventIntakeCandidate, workingDraftId: Id<"eventIntakeDrafts">, heldDraftId: Id<"eventIntakeDrafts">) {
+function mergeHeldImport(held: EventIntakePatch, patch: EventIntakePatch): EventIntakePatch {
+  const { timezone, ...facts } = patch.tentative ?? {};
+  const fresh = patch.evidence ?? [];
+  const stated = new Set(fresh.filter(entry => entry.assessment === "explicit").map(entry => entry.fieldPath));
+  const evidence = [...fresh, ...(held.evidence ?? []).filter(entry => !stated.has(entry.fieldPath) && !(facts.lineup && evidenceKey(entry.fieldPath) === "lineup"))];
+  return {
+    ...patch,
+    // candidatePatch writes a null timezone for a time with no zone, which must not erase the held one.
+    tentative: { ...held.tentative, ...facts, ...(timezone ? { timezone } : {}) },
+    evidence: [...evidence.filter(entry => entry.assessment === "explicit"), ...evidence.filter(entry => entry.assessment !== "explicit")].slice(0, EVIDENCE_LIMIT),
+  };
+}
+
+/**
+ * An edit of a held post lands in the held draft: the candidate replaces its tentative block, or merges into it when another post also
+ * fed the draft, top-level fields staff set stay, and posters the run stored move across, with its artwork when the held draft has none.
+ */
+async function refreshHeldDraft(ctx: MutationCtx, connector: Doc<"eventConnectors">, candidate: EventIntakeCandidate, triggerMessageIds: string[], workingDraftId: Id<"eventIntakeDrafts">, heldDraftId: Id<"eventIntakeDrafts">) {
   const held = (await ctx.db.get(heldDraftId))!;
   const working = await ctx.db.get(workingDraftId);
   // Poster ownership follows the actor, so a draft from a previous authority cannot take this run's posters.
@@ -278,7 +296,8 @@ async function refreshHeldDraft(ctx: MutationCtx, connector: Doc<"eventConnector
       await ctx.db.patch(heldDraftId, { artworkAssetId: working.artworkAssetId });
     }
   }
-  const patch = candidatePatch(candidate);
+  const fed = await ctx.db.query("discordIntakeSources").withIndex("by_draftId", q => q.eq("draftId", heldDraftId)).collect();
+  const patch = fed.some(row => !triggerMessageIds.includes(row.messageId)) ? mergeHeldImport(EventIntakePatchSchema.parse(held.fields), candidatePatch(candidate)) : candidatePatch(candidate);
   const communitySlug = (await ctx.db.get(connector.communityProfileId))!.slug;
   await saveIntakeDraft(ctx.db, held.actorUserId, { draftId: heldDraftId, expectedVersion: held.version, patch: { ...patch, tentative: { ...patch.tentative, communitySlug } } }, Date.now(), { connectorDriven: true, connectorId: connector._id });
 }
@@ -318,7 +337,7 @@ export const finishRun = internalMutation({
       expectedUpdatedAt: args.expectedUpdatedAt, idempotencyKey: args.runId, forceHold,
     });
     if (result.outcome === "skipped_pending_draft" && result.draftId) {
-      await refreshHeldDraft(ctx, connector, candidate, args.draftId, result.draftId);
+      await refreshHeldDraft(ctx, connector, candidate, run.triggerMessageIds, args.draftId, result.draftId);
       result = { ...result, outcome: "draft" };
     }
     if (result.eventId || result.draftId) {

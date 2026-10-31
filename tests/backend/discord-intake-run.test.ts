@@ -893,10 +893,10 @@ const heldRows = async (t: T, communityProfileId: Id<"profiles">) => {
   });
   return t.withIdentity({ subject, issuer: "test", tokenIdentifier: `test|${subject}`, emailVerified: true }).query(api.eventInventory.listHeldImports, { communityProfileId });
 };
-const finish = async (t: T, decision: unknown, overrides: Record<string, unknown> = {}) => {
+const finish = async (t: T, decision: unknown, overrides: Record<string, unknown> = {}, rest: Record<string, unknown> = {}, expectedUpdatedAt?: number) => {
   const { runId, draftId } = await startRun(t);
   const base = candidate(decision);
-  const result = await t.mutation(internal.discordIntake.finishRun, { runId, draftId, candidate: { ...base, event: { ...base.event, ...overrides } } });
+  const result = await t.mutation(internal.discordIntake.finishRun, { runId, draftId, expectedUpdatedAt, candidate: { ...base, ...rest, event: { ...base.event, ...overrides } } });
   return { ...result, runId, workingDraftId: draftId };
 };
 
@@ -1121,4 +1121,116 @@ it("never patches the linked event from a draft slug whose draft expired", async
   const result = await finish(t, { kind: "update", slug: `draft:${expired}` });
   assert.equal(result.outcome, "draft");
   assert.deepEqual(await t.run(ctx => ctx.db.get(eventId)), before);
+});
+
+const performer = (performerLabel: string) => ({ performerLabel, personSlug: null, roleLabel: null, start: null, end: null, startDate: null, endDate: null });
+const THIN = { start: null, end: null, timezone: null, venueLabel: null, summary: null };
+const explicit = (fieldPath: string, excerpt: string) => ({ fieldPath, origin: "text", excerpt, assessment: "explicit" });
+const changedFields = async (t: T, communityProfileId: Id<"profiles">) => {
+  const [row] = await heldRows(t, communityProfileId);
+  return row.kind === "update" ? row.changes.map(change => change.field) : [];
+};
+
+it("a thin flyer adds to a held draft and loses nothing the first post stated", async () => {
+  const { t, communityProfileId } = await seedDiscordIntake();
+  await record(t, "create", message(M1, { content: "Night at Ari, 22:00, Other Room, with DJ One" }));
+  const first = await finish(t, { kind: "new" }, { summary: "First post summary" }, {
+    lineup: [performer("DJ One")], evidence: [explicit("event.venueLabel", "Other Room"), explicit("event.start", "22:00")], questions: [{ fieldPath: "event.end", reason: "held_question", alternatives: [] }],
+  });
+  await record(t, "create", message(M2, { content: "flyer, starts 23:00" }));
+  await finish(t, { kind: "update", slug: `draft:${first.draftId}` }, { ...THIN, title: "Flyer Title", start: "23:00" }, {
+    evidence: [explicit("event.title", "flyer"), explicit("event.start", "starts 23:00")], questions: [{ fieldPath: "event.doors", reason: "flyer_question", alternatives: [] }],
+  });
+  const { fields } = await getDraft(t, first.draftId!);
+  assert.equal(fields.tentative?.title, "Flyer Title");
+  assert.deepEqual(fields.tentative?.start, { time: "23:00" });
+  assert.equal(fields.tentative?.venueLabel, "Other Room");
+  assert.equal(fields.tentative?.summary, "First post summary");
+  assert.equal(fields.tentative?.eventDate, EVENT_DATE);
+  // The candidate's explicit null timezone must not erase the zone the draft already has.
+  assert.equal(fields.tentative?.timezone, "Europe/London");
+  assert.deepEqual(fields.tentative?.lineup?.map(row => row.performerLabel), ["DJ One"]);
+  assert.equal(fields.tentative?.communitySlug, "night-club");
+  assert.deepEqual(fields.evidence?.map(row => [row.fieldPath, row.excerpt]), [["event.title", "flyer"], ["event.start", "starts 23:00"], ["event.venueLabel", "Other Room"]]);
+  assert.ok(fields.questions?.some(question => question.startsWith("event.doors: flyer_question")));
+  assert.ok(!fields.questions?.some(question => question.startsWith("event.end: held_question")));
+  const [row] = await heldRows(t, communityProfileId);
+  assert.equal(row.kind === "new" && row.title, "Flyer Title");
+});
+
+it("a flyer and then its edit keep a proposed update's explicit start", async () => {
+  const { t, connectorId, communityProfileId } = await seedDiscordIntake();
+  const eventId = await seedEvent(t, communityProfileId, { slug: "night-at-ari" });
+  await linkEvent(t, connectorId, eventId, M1);
+  await seedPost(t, connectorId, M1, "Night at Ari");
+  await record(t, "update", message(M1, { createdAt: Date.now() - 10_000, content: "now 22:00", editedAt: Date.now() }));
+  const proposed = await finish(t, { kind: "update", slug: "night-at-ari" });
+  assert.ok((await changedFields(t, communityProfileId)).includes("start"));
+  // The model copies the time from get_event; the excerpt is not in the flyer, so its evidence comes back inferred.
+  await record(t, "create", message(M2, { content: "flyer" }));
+  await finish(t, { kind: "update", slug: `draft:${proposed.draftId}` });
+  assert.ok((await changedFields(t, communityProfileId)).includes("start"));
+  await record(t, "update", message(M2, { content: "flyer v2", editedAt: Date.now() }));
+  const edit = await finish(t, { kind: "new" }, THIN, { evidence: [] });
+  assert.equal(edit.draftId, proposed.draftId);
+  assert.ok((await changedFields(t, communityProfileId)).includes("start"));
+  assert.deepEqual((await getDraft(t, proposed.draftId!)).fields.tentative?.start, { time: "22:00" });
+});
+
+it("a flyer's lineup replaces the held one with its evidence, so an unread partial lineup cannot reach the event", async () => {
+  const { t, connectorId, communityProfileId } = await seedDiscordIntake();
+  const eventId = await seedEvent(t, communityProfileId, { slug: "night-at-ari" });
+  await linkEvent(t, connectorId, eventId, M1);
+  await seedPost(t, connectorId, M1, "Night at Ari");
+  await record(t, "update", message(M1, { createdAt: Date.now() - 10_000, content: "now 22:00 with DJ One", editedAt: Date.now() }));
+  const proposed = await finish(t, { kind: "update", slug: "night-at-ari" }, {}, {
+    lineup: [performer("DJ One")], evidence: [explicit("event.start", "now 22:00"), explicit("lineup.0.performerLabel", "DJ One")],
+  }, (await t.run(ctx => ctx.db.get(eventId)))!.updatedAt);
+  assert.ok((await changedFields(t, communityProfileId)).includes("lineup"));
+  // A flyer with no lineup leaves it alone.
+  await record(t, "create", message(M2, { content: "flyer" }));
+  await finish(t, { kind: "update", slug: `draft:${proposed.draftId}` }, THIN, { evidence: [] });
+  assert.ok((await changedFields(t, communityProfileId)).includes("lineup"));
+  // One that skipped get_event has its lineup evidence downgraded, and the held evidence must not vouch for it.
+  await record(t, "create", message(M3, { content: "flyer with DJ Two" }));
+  await finish(t, { kind: "update", slug: `draft:${proposed.draftId}` }, THIN, { lineup: [performer("DJ Two")], evidence: [explicit("lineup.0.performerLabel", "DJ Two")] });
+  const fields = await changedFields(t, communityProfileId);
+  assert.ok(fields.includes("start"));
+  assert.ok(!fields.includes("lineup"));
+});
+
+it("keeps explicit evidence when a merge reaches the evidence cap", async () => {
+  const { t } = await seedDiscordIntake();
+  await record(t, "create", message(M1, { content: "Other Room" }));
+  const first = await finish(t, { kind: "new" }, {}, { evidence: [explicit("event.venueLabel", "Other Room")] });
+  await record(t, "create", message(M2, { content: "flyer" }));
+  const inferred = Array.from({ length: 40 }, (_, index) => ({ fieldPath: `event.note${index}`, origin: "text", excerpt: null, assessment: "inferred" }));
+  await finish(t, { kind: "update", slug: `draft:${first.draftId}` }, THIN, { evidence: inferred });
+  const { evidence } = (await getDraft(t, first.draftId!)).fields;
+  assert.equal(evidence?.length, 40);
+  assert.equal(evidence?.[0].fieldPath, "event.venueLabel");
+});
+
+it("still lets an edit of the only post behind a draft shrink it", async () => {
+  const { t } = await seedDiscordIntake();
+  await record(t, "create", message(M1, { content: "Other Room" }));
+  const first = await finish(t, { kind: "new" }, { summary: "First post summary" }, { lineup: [performer("DJ One")], evidence: [explicit("event.venueLabel", "Other Room")] });
+  await record(t, "update", message(M1, { content: "cut down", editedAt: Date.now() }));
+  await finish(t, { kind: "new" }, { venueLabel: null, summary: null }, { evidence: [] });
+  const { fields } = await getDraft(t, first.draftId!);
+  assert.equal(fields.tentative?.venueLabel, undefined);
+  assert.equal(fields.tentative?.summary, undefined);
+  assert.equal(fields.tentative?.lineup, undefined);
+  assert.deepEqual(fields.evidence, []);
+});
+
+it("replaces a draft when a run re-reads every post behind it", async () => {
+  const { t } = await seedDiscordIntake();
+  await record(t, "create", message(M1));
+  await record(t, "create", message(M2));
+  const first = await finish(t, { kind: "new" }, { summary: "First post summary" });
+  await record(t, "update", message(M1, { content: "one", editedAt: Date.now() }));
+  await record(t, "update", message(M2, { content: "two", editedAt: Date.now() }));
+  await finish(t, { kind: "new" }, { summary: null });
+  assert.equal((await getDraft(t, first.draftId!)).fields.tentative?.summary, undefined);
 });
