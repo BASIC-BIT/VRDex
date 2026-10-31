@@ -191,11 +191,11 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
 export function EventIntakeRevisionPreview({ correction, sourceMode, staff = false, held, initialCommunitySlug }: { correction: boolean; sourceMode?: string; staff?: boolean; held?: string; initialCommunitySlug?: string }) {
   const [fixture] = useState(() => revisionFixture(correction, sourceMode, staff, held));
   useEffect(() => {
-    if (!sourceMode) return;
+    if (!sourceMode && !held) return;
     const original = window.fetch;
     window.fetch = (input, init) => ["/api/event-intake", `${location.origin}/fixture-upload`].includes(String(input)) ? fixture.transport(input, init) : original(input, init);
     return () => { window.fetch = original; };
-  }, [fixture, sourceMode]);
+  }, [fixture, sourceMode, held]);
   const [refreshed, setRefreshed] = useState(false);
   return <ConvexProviderWithAuth client={fixture.client} useAuth={useFixtureAuth}>
     <main className="mx-auto w-full max-w-6xl p-5">

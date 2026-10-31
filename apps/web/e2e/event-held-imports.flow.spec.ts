@@ -41,6 +41,21 @@ test("an imported start stays a choice the staffer makes @flow @fixture", async 
   expect(JSON.parse((await stored(page, "fixture-published"))!)).toMatchObject({ timeTba: false, start: { time: "20:00" } });
 });
 
+test("a poster change keeps a connector draft's import @flow @fixture", async ({ page }) => {
+  const savedImport = async () => JSON.parse((await stored(page, "event-intake-revision-submission"))!).patch.tentative;
+  const poster = page.getByAltText("Source poster", { exact: true });
+  await page.goto("/playwright/event-intake?revision=held-date-only");
+  await page.getByRole("button", { name: "Import poster or text", exact: true }).click();
+  await page.getByLabel("Poster", { exact: true }).setInputFiles("public/test-media/event-poster.png");
+  await expect(poster).toBeVisible();
+  expect(await savedImport()).toMatchObject({ title: "Held night" });
+  await page.getByRole("button", { name: "Remove poster", exact: true }).click();
+  await expect(poster).toHaveCount(0);
+  expect(await savedImport()).toMatchObject({ title: "Held night" });
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Accept Event title", exact: true })).toBeVisible();
+});
+
 test("a personal draft still needs a start @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?revision=draft");
   await review(page);

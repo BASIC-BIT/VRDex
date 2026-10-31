@@ -427,6 +427,8 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
   const sourceAction: IntakeSourceAction = async (action, fields, revision, file, onStaged) => {
     if (action === "read") return websiteIntakeCommand("poster_read", { posterAssetId: fields.posterSourceId }).then(result => ({ preview: result.dataUrl }));
     if (published.current) throw new ConvexError({ code: "PATCH_FIELD" });
+    // On a connector draft the import is the only copy of the source, so it outlives a poster change.
+    const sourceReset = loaded?.connectorId ? {} : { tentative: null, questions: null, evidence: null };
     const targetSourceId = fields.posterSourceId;
     let next: EventIntakeFields = { ...fields };
     if (action === "upload") {
@@ -436,7 +438,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
       const current = await saveFields(next, revision);
       onStaged?.(next);
       const upload = EventPosterUploadSchema.parse(await websiteIntakeCommand("poster_upload_begin", { draftId: current.draftId, ...declaration }));
-      next = { ...next, posterSourceId: upload.posterAssetId, posterDeclaration: declaration, tentative: null, questions: null, evidence: null };
+      next = { ...next, posterSourceId: upload.posterAssetId, posterDeclaration: declaration, ...sourceReset };
       const staged = await saveFields(next, revision);
       onStaged?.(next);
       const body = new FormData();
@@ -449,7 +451,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
       return { fields: next, ...(completed.artworkAssetId ? { artworkSourceId: upload.posterAssetId } : {}) };
     }
     if (action === "remove") {
-      next = { ...next, posterSourceId: null, posterDeclaration: null, tentative: null, questions: null, evidence: null };
+      next = { ...next, posterSourceId: null, posterDeclaration: null, ...sourceReset };
     }
     // Replay completion against its saved version before persisting later local edits.
     const current = action === "retry" && saved.current ? saved.current : await saveFields(next, revision);
