@@ -346,7 +346,7 @@ jobs:
         working-directory: ${{ matrix.stack.path }}
         run: terraform validate
 
-      - name: Test restream permissions without AWS
+      - name: Test without AWS
         if: steps.selection.outputs.run == 'true' && (matrix.stack.name == 'state-mgmt' || matrix.stack.name == 'restream-worker' || matrix.stack.name == 'discord-gateway')
         working-directory: ${{ matrix.stack.path }}
         run: terraform test -no-color

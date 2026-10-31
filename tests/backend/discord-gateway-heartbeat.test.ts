@@ -19,7 +19,7 @@ afterEach(() => {
   else process.env.VRDEX_DISCORD_INTAKE_ENABLED = previousFlag;
 });
 
-const seedHeartbeat = (t: T, receivedAt: number) => t.run(ctx => ctx.db.insert("discordGatewayHeartbeats", { instanceId: crypto.randomUUID(), at: receivedAt, receivedAt }));
+const seedHeartbeat = (t: T, receivedAt: number) => t.run(ctx => ctx.db.insert("discordGatewayHeartbeats", { instanceId: crypto.randomUUID(), at: 0, receivedAt }));
 const opsAlerts = (t: T) => t.run(ctx => ctx.db.query("opsAlerts").collect());
 
 it("alerts when the newest heartbeat is older than 300 s", async () => {
