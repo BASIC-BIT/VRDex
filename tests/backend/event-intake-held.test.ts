@@ -459,6 +459,17 @@ it("lists staff-attention rows from deleted links, one per event and reason", as
   ].sort());
 });
 
+it("lists a flag behind a full read of deleted links with no event", async () => {
+  const { t, ids, as, now } = await fixture();
+  await t.run(async ({ db }) => {
+    const link = (externalId: string, values: { eventId?: Id<"events"> }) => db.insert("eventSyncLinks", { connectorId: ids.google, externalId, state: "external_deleted", createdAt: now, updatedAt: now, ...values });
+    for (let night = 0; night < HELD_IMPORT_LIMIT; night++) await link(`night-${night}`, {});
+    await link("g-1", { eventId: ids.event });
+  });
+  const rows = await as("staff").query(api.eventInventory.listHeldImports, {});
+  assert.deepEqual(rows.map(row => row.kind === "flag" && row.eventId), [ids.event]);
+});
+
 it("sorts newest first and caps the list", async () => {
   const { t, ids, as, draft, now } = await fixture();
   for (let n = 0; n <= HELD_IMPORT_LIMIT; n++) {

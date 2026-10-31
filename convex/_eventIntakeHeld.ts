@@ -153,7 +153,9 @@ export async function heldImportRows(db: DatabaseReader, community: Doc<"profile
     }
     const reason = connector.kind === "discord_announcements" ? "source_deleted" : "external_deleted";
     const links = await db.query("eventSyncLinks")
-      .withIndex("by_connectorId_state_flagReviewedAt", q => q.eq("connectorId", connector._id).eq("state", "external_deleted").eq("flagReviewedAt", undefined)).take(HELD_IMPORT_LIMIT);
+      .withIndex("by_connectorId_state_flagReviewedAt", q => q.eq("connectorId", connector._id).eq("state", "external_deleted").eq("flagReviewedAt", undefined))
+      // A cancelled series leaves a link per held night with no event; they must not use up the read.
+      .filter(q => q.neq(q.field("eventId"), undefined)).take(HELD_IMPORT_LIMIT);
     for (const link of links) {
       const event = link.eventId ? await db.get(link.eventId) : null;
       if (!event?.slug || event.moderationRemovedAt !== undefined || flagged.has(`${event._id}:${reason}`)) continue;
