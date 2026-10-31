@@ -6,3 +6,4 @@
 !packages/*/package.json
 !apps/discord-gateway/**
 **/node_modules
+**/.env*
