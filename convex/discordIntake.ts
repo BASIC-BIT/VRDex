@@ -291,8 +291,7 @@ function mergeHeldImport(held: EventIntakePatch, patch: EventIntakePatch): Event
 async function refreshHeldDraft(ctx: MutationCtx, connector: Doc<"eventConnectors">, candidate: EventIntakeCandidate, triggerMessageIds: string[], workingDraftId: Id<"eventIntakeDrafts">, heldDraftId: Id<"eventIntakeDrafts">) {
   const held = (await ctx.db.get(heldDraftId))!;
   const working = await ctx.db.get(workingDraftId);
-  // Poster ownership follows the actor, so a draft from a previous authority cannot take this run's posters.
-  if (working && held.actorUserId === working.actorUserId) {
+  if (working) {
     const sources = await ctx.db.query("eventPosterSources").withIndex("by_draft_state", q => q.eq("draftId", workingDraftId).eq("state", "ready")).take(21);
     for (const source of sources) await ctx.db.patch(source._id, { draftId: heldDraftId });
     if (working.artworkAssetId && !held.artworkAssetId && !held.artworkIntentSourceId && held.fields.posterSourceId === undefined) {

@@ -732,6 +732,21 @@ it("writes an edit of a held post into the pending draft, keeping staff's fields
   assert.ok((await t.run(ctx => ctx.db.query("discordIntakeSources").collect())).every(row => row.draftId === first.draftId));
 });
 
+it("moves a late post's poster onto a held draft from a previous authority", async () => {
+  const { t, authorityUserId } = await seedDiscordIntake();
+  await record(t, "create", message(M1));
+  const first = await startRun(t);
+  await t.mutation(internal.discordIntake.finishRun, { runId: first.runId, draftId: first.draftId, candidate: candidate({ kind: "new" }) });
+  await t.run(async ctx => ctx.db.patch(first.draftId, { actorUserId: await ctx.db.insert("users", { clerkUserId: newClerkUserId() }) }));
+
+  await record(t, "update", message(M1, { content: "now 22:00", editedAt: Date.now() }));
+  const second = await startRun(t);
+  const now = Date.now();
+  const sourceId = await t.run(ctx => ctx.db.insert("eventPosterSources", { purpose: "event_poster", actorUserId: authorityUserId, draftId: second.draftId, contentType: "image/png", byteLength: 10, sha256: "a".repeat(64), reservedBytes: 20, state: "ready", uploadedAt: now, lastActivityAt: now, expiresAt: now + 86_400_000, uploadExpiresAt: now + 86_400_000 }));
+  await t.mutation(internal.discordIntake.finishRun, { runId: second.runId, draftId: second.draftId, candidate: candidate({ kind: "new" }) });
+  assert.equal((await t.run(ctx => ctx.db.get(sourceId)))!.draftId, first.draftId);
+});
+
 it("expires the working draft an update never used and keeps it on the run", async () => {
   const { t, connectorId, communityProfileId } = await seedDiscordIntake({ mode: "autopublish" });
   const eventId = await seedEvent(t, communityProfileId, { slug: "night-at-ari" });
