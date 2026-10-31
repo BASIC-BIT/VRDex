@@ -74,15 +74,20 @@ function fit(value: string, max: number): string {
   return trimmed.length > max ? `${cutUnits(trimmed, max - 1).trimEnd()}…` : trimmed;
 }
 
+// The text, clipped so the URL always fits as the last line.
+function describe(text: string, url: string): string {
+  const urlLine = `\n\n${url}`;
+  const clipped = fit(text, DESCRIPTION_MAX - urlLine.length);
+  return clipped ? `${clipped}${urlLine}` : url;
+}
+
 export function toScheduledEventBody(source: ScheduledEventSource & { startAt: number }, image?: string): DiscordScheduledEventBody {
-  const urlLine = `\n\n${source.url}`;
-  const summary = fit(source.summary ?? "", DESCRIPTION_MAX - urlLine.length);
   return {
     name: fit(source.title, NAME_MAX), privacy_level: 2, entity_type: 3, channel_id: null,
     entity_metadata: { location: fit(source.worldNames.join(", ") || source.venueLabel || source.url, LOCATION_MAX) },
     scheduled_start_time: new Date(source.startAt).toISOString(),
     scheduled_end_time: new Date(source.endAt ?? source.startAt + SCHEDULED_EVENT_END_FALLBACK_MS).toISOString(),
-    description: summary ? `${summary}${urlLine}` : source.url,
+    description: describe(source.summary ?? "", source.url),
     ...(image ? { image } : {}),
   };
 }
@@ -94,6 +99,17 @@ const sameText = (inbound: string | null | undefined, written: string | undefine
 function withoutUrlLine(description: string | null | undefined, url: string): string | null | undefined {
   const lines = description?.trimEnd().split("\n") ?? [];
   return lines[lines.length - 1]?.trim() === url ? lines.slice(0, -1).join("\n") : description;
+}
+
+/**
+ * The PATCH for a live Discord event. VRDex's summary cap must not cost an organiser their description: where the live text
+ * reads back as this summary it stays, and only a missing URL line is added. Its echo reads back the same way, so it hashes equal.
+ */
+export function patchKeepingDescription(body: DiscordScheduledEventBody, live: string | null, source: Pick<ScheduledEventSource, "summary" | "url">): Omit<DiscordScheduledEventBody, "description"> & { description?: string } {
+  const plain = withoutUrlLine(live, source.url);
+  if (read(plain, SUMMARY_MAX) !== read(source.summary, SUMMARY_MAX)) return body;
+  const { description: _description, ...kept } = body;
+  return plain === live ? { ...kept, description: describe(live ?? "", source.url) } : kept;
 }
 
 /**
@@ -145,14 +161,14 @@ function recursOn(rule: DiscordRecurrenceRule, at: number, first: number): boole
 }
 
 // ponytail: UTC stepping drifts an hour across DST for zones Discord shows locally; plan 11 replaces expansion with series import.
-export function scheduledEventOccurrences(item: DiscordScheduledEvent, now: number): Array<{ externalId: string; externalSeriesId?: string; startAt: number; endAt: number | null }> {
+export function scheduledEventOccurrences(item: DiscordScheduledEvent, now: number, horizonMs = IMPORT_HORIZON_MS): Array<{ externalId: string; externalSeriesId?: string; startAt: number; endAt: number | null }> {
   const itemStart = Date.parse(item.scheduled_start_time);
   const duration = item.scheduled_end_time ? Date.parse(item.scheduled_end_time) - itemStart : null;
   const endOf = (startAt: number) => duration === null ? null : startAt + duration;
   const rule = item.recurrence_rule;
   if (!rule) return [{ externalId: item.id, startAt: itemStart, endAt: endOf(itemStart) }];
   const first = Date.parse(rule.start);
-  const horizon = now + IMPORT_HORIZON_MS;
+  const horizon = now + horizonMs;
   const last = Math.min(horizon, rule.end ? Date.parse(rule.end) : horizon);
   const nights: ReturnType<typeof scheduledEventOccurrences> = [];
   let seen = 0;

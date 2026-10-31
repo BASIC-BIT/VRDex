@@ -28,14 +28,14 @@ const iso = (ms: number) => new Date(ms).toISOString();
 
 type Call = { method: string; path: string; body?: Record<string, unknown> };
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]); // base64 iVBORw==
-function fakeDiscord(test: TestContext, respond: (call: Call) => Response | undefined = () => undefined, artwork = () => new Response(PNG, { headers: { "content-type": "image/png" } })) {
+function fakeDiscord(test: TestContext, respond: (call: Call) => Response | undefined | Promise<Response | undefined> = () => undefined, artwork = () => new Response(PNG, { headers: { "content-type": "image/png" } })) {
   const calls: Call[] = [];
   test.mock.method(globalThis, "fetch", async (input: string | URL, init: RequestInit = {}) => {
     const url = new URL(String(input));
     if (url.hostname === "media.example.test") return artwork();
     const call: Call = { method: init.method ?? "GET", path: url.pathname.replace("/api/v10", ""), ...(init.body ? { body: JSON.parse(String(init.body)) } : {}) };
     calls.push(call);
-    return respond(call) ?? (call.method === "DELETE" ? new Response(null, { status: 204 })
+    return (await respond(call)) ?? (call.method === "DELETE" ? new Response(null, { status: 204 })
       : call.method === "GET" && call.path.endsWith("/scheduled-events") ? Response.json([])
       : call.method === "GET" ? Response.json({ id: call.path.split("/").at(-1), status: 1 })
       : Response.json({ ...call.body, id: call.method === "POST" ? "900000000000000001" : call.path.split("/").at(-1) }));
@@ -228,9 +228,8 @@ it("links a same-night Discord event instead of creating a duplicate", async (te
 
 it("never adopts a series, a finished event, an invalid item, another night, or one already linked", async (test) => {
   let start = 0;
-  const rule = { start: iso(0), end: null, frequency: 2, interval: 1, by_weekday: [0], by_n_weekday: null, by_month: null, by_month_day: null, by_year_day: null, count: null };
   const calls = fakeDiscord(test, (call) => (call.method === "GET" && call.path === PATH ? Response.json([
-    discordEvent(start, { id: "333333333333333331", recurrence_rule: rule }), discordEvent(start, { id: "333333333333333332", status: 3 }), discordEvent(start, { id: "333333333333333333", status: 4 }),
+    discordEvent(start, { id: "333333333333333331", recurrence_rule: weekly(start + DAY) }), discordEvent(start, { id: "333333333333333332", status: 3 }), discordEvent(start, { id: "333333333333333333", status: 4 }),
     discordEvent(start, { id: "not-a-snowflake" }), discordEvent(start + 2 * DAY, { id: "333333333333333334" }), discordEvent(start, { id: OTHER }),
   ]) : undefined));
   const t = convexTest({ schema, modules });
@@ -238,6 +237,159 @@ it("never adopts a series, a finished event, an invalid item, another night, or 
   start = s.now + 2 * DAY;
   await upsert(t, s);
   assert.deepEqual(said(calls), [`GET ${PATH}`, `POST ${PATH}`]);
+});
+
+// The handler as the runner calls it, for a job that claimed before a reconcile wrote the link.
+const exportWith = async (t: ReturnType<typeof convexTest>, s: { connectorId: Id<"eventConnectors">; eventIds: Id<"events">[] }, index = 0) => {
+  const { discordScheduledEventsHandler } = await import("../../convex/eventSyncKinds/discordScheduledEvents");
+  const [connector, event] = await t.run(async (ctx) => [await ctx.db.get(s.connectorId), await ctx.db.get(s.eventIds[index])] as const);
+  const ctx = { runQuery: (ref: never, args: never) => t.query(ref, args), runMutation: (ref: never, args: never) => t.mutation(ref, args) };
+  return discordScheduledEventsHandler.exportUpsert!(ctx as never, connector!, event!, null, null as never);
+};
+
+it("patches a link a reconcile wrote after the claim instead of creating a duplicate", async (test) => {
+  const t = convexTest({ schema, modules });
+  let s!: Awaited<ReturnType<typeof seed>>;
+  const calls = fakeDiscord(test, async (call) => {
+    if (call.method !== "GET" || call.path !== PATH) return undefined;
+    await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: s.connectorId, eventId: s.eventIds[0], externalId: LIVE, state: "linked", createdAt: s.now, updatedAt: s.now }));
+    return Response.json([discordEvent(s.now + 2 * DAY)]);
+  });
+  s = await seed(t, [{}]);
+  assert.equal((await upsert(t, s))?.state, "done");
+  assert.deepEqual(said(calls), [`GET ${PATH}`, `GET ${PATH}/${LIVE}`, `PATCH ${PATH}/${LIVE}`]);
+  assert.deepEqual((await all(t, "eventSyncLinks")).map((link) => link.externalId), [LIVE]);
+});
+
+it("keeps a night of a series or a Discord-deleted link a reconcile wrote after the claim", async (test) => {
+  let start = 0;
+  const calls = fakeDiscord(test, (call) => (call.method === "GET" && call.path === PATH ? Response.json([discordEvent(start)]) : undefined));
+  const t = convexTest({ schema, modules });
+  const night = `${OTHER}:2026-12-01`;
+  const s = await seed(t, [{ link: night }, { link: LIVE, linkState: "external_deleted" }]);
+  start = s.now + 2 * DAY;
+  await patchLink(t, s.eventIds[0], { externalSeriesId: OTHER });
+  assert.deepEqual(await exportWith(t, s, 0), { externalId: night });
+  assert.deepEqual(await exportWith(t, s, 1), { externalId: LIVE });
+  assert.deepEqual(said(calls), [`GET ${PATH}`, `GET ${PATH}`]);
+});
+
+it("an export with nothing to write never overwrites a link a reconcile wrote after the claim", async (test) => {
+  const calls = fakeDiscord(test);
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ scheduleKind: "date_only", startAt: Date.now() + 2 * DAY, endAt: undefined, link: LIVE }, { startAt: Date.now() - HOUR, link: OTHER }]);
+  assert.deepEqual(await exportWith(t, s, 0), { externalId: LIVE });
+  assert.deepEqual(await exportWith(t, s, 1), { externalId: OTHER });
+  assert.deepEqual(calls, []);
+});
+
+it("adopts a held draft's Discord event when the event has no link", async (test) => {
+  let start = 0;
+  const calls = fakeDiscord(test, (call) => (call.method === "GET" && call.path === PATH ? Response.json([discordEvent(start)]) : undefined));
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{}]);
+  start = s.now + 2 * DAY;
+  await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: s.connectorId, externalId: LIVE, state: "linked", createdAt: s.now, updatedAt: s.now }));
+  assert.equal((await upsert(t, s))?.state, "done");
+  assert.deepEqual(said(calls), [`GET ${PATH}`, `PATCH ${PATH}/${LIVE}`]);
+  assert.deepEqual((await all(t, "eventSyncLinks")).map((link) => [link.externalId, link.eventId]), [[LIVE, s.eventIds[0]]]);
+});
+
+it("a none: link and a held draft's row never end up sharing one Discord ID", async (test) => {
+  let start = 0;
+  const calls = fakeDiscord(test, (call) => (call.method === "GET" && call.path === PATH ? Response.json([discordEvent(start)]) : undefined));
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: "none:held" }]);
+  start = s.now + 2 * DAY;
+  await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: s.connectorId, externalId: LIVE, state: "linked", createdAt: s.now, updatedAt: s.now }));
+  assert.equal((await upsert(t, s))?.state, "done");
+  assert.deepEqual(said(calls), [`GET ${PATH}`, `POST ${PATH}`]);
+  const ids = (await all(t, "eventSyncLinks")).map((link) => link.externalId);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.equal((await importJob(t, s.connectorId, "update", discordEvent(start, { description: "Later." })))?.state, "done");
+});
+
+it("leaves a night of a same-titled series to the reconcile, past the import window", async (test) => {
+  let series: unknown;
+  const calls = fakeDiscord(test, (call) => (call.method === "GET" && call.path === PATH ? Response.json([series]) : undefined));
+  const t = convexTest({ schema, modules });
+  const start = Date.now() + 75 * DAY;
+  const s = await seed(t, [{ startAt: start }]);
+  series = discordEvent(start, { id: OTHER, name: " afterglow HARBOR sessions ", recurrence_rule: weekly(start) });
+  assert.equal((await upsert(t, s))?.state, "done");
+  assert.deepEqual(said(calls), [`GET ${PATH}`]);
+  assert.equal((await linkOf(t, s.eventIds[0]))?.externalId, `none:${s.eventIds[0]}`);
+  const later = Date.now() + 20 * DAY;
+  test.mock.method(Date, "now", () => later);
+  assert.deepEqual(await applyReconcile(t, s.connectorId, [series]), { linked: 1, imports: 0 });
+  const link = await linkOf(t, s.eventIds[0]);
+  assert.deepEqual([link?.externalId, link?.externalSeriesId], [`${OTHER}:${iso(start).slice(0, 10)}`, OTHER]);
+});
+
+it("patches a link a reconcile wrote after the claim rather than answering none: for a series night", async (test) => {
+  let start = 0;
+  const calls = fakeDiscord(test, (call) => (call.method === "GET" && call.path === PATH ? Response.json([discordEvent(start, { id: OTHER, recurrence_rule: weekly(start) })]) : undefined));
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE }]);
+  start = s.now + 2 * DAY;
+  assert.deepEqual(await exportWith(t, s), { externalId: LIVE });
+  assert.deepEqual(said(calls), [`GET ${PATH}`, `GET ${PATH}/${LIVE}`, `PATCH ${PATH}/${LIVE}`]);
+});
+
+it("matches a copy on the event's local night across UTC midnight", async (test) => {
+  const day = Date.parse(iso(Date.now() + 5 * DAY).slice(0, 10) + "T00:00:00.000Z");
+  const calls = fakeDiscord(test, (call) => (call.method === "GET" && call.path === PATH ? Response.json([discordEvent(day + 25.5 * HOUR)]) : undefined));
+  const t = convexTest({ schema, modules });
+  // 23:00 UTC is mid-afternoon in Los Angeles, so 01:30 UTC the next day is the same local night.
+  const s = await seed(t, [{ startAt: day + 23 * HOUR, eventDate: iso(day).slice(0, 10), timezone: "America/Los_Angeles" }]);
+  assert.equal((await upsert(t, s))?.state, "done");
+  assert.deepEqual(said(calls), [`GET ${PATH}`, `PATCH ${PATH}/${LIVE}`]);
+});
+
+const URL_LINE = "https://vrdex.test/afterglow-social/events/night-0";
+const LONG = "Bring your own lantern, the harbor is dark. ".repeat(23).trim();
+const SHORTENED = LONG.slice(0, 240).trim();
+const liveWith = (fields: Record<string, unknown>) => (call: Call) => (call.method === "GET" && call.path !== PATH ? Response.json({ id: call.path.split("/").at(-1), status: 1, ...fields }) : undefined);
+
+it("a long Discord description survives a PATCH of an unchanged summary, and its echo files nothing", async (test) => {
+  const description = `${LONG}\n\n${URL_LINE}`;
+  const calls = fakeDiscord(test, liveWith({ description }));
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE, summary: SHORTENED }]);
+  await upsert(t, s);
+  const patch = calls.find((call) => call.method === "PATCH")!;
+  assert.equal(Object.hasOwn(patch.body!, "description"), false);
+  assert.equal(patch.body!.name, "Afterglow Harbor Sessions");
+  await importJob(t, s.connectorId, "update", discordEvent(s.now + 2 * DAY, { description }));
+  assert.deepEqual(await all(t, "eventIntakeDrafts"), []);
+});
+
+it("adds the URL line to a long Discord description that lacks one, within Discord's limit", async (test) => {
+  const calls = fakeDiscord(test, liveWith({ description: LONG }));
+  const t = convexTest({ schema, modules });
+  await upsert(t, await seed(t, [{ link: LIVE, summary: SHORTENED }]));
+  const description = calls.find((call) => call.method === "PATCH")!.body!.description as string;
+  assert.equal(description.length, 1000);
+  assert.ok(description.startsWith(LONG.slice(0, 900)));
+  assert.ok(description.endsWith(`…\n\n${URL_LINE}`));
+});
+
+it("a changed summary replaces the long Discord description", async (test) => {
+  const calls = fakeDiscord(test, liveWith({ description: `${LONG}\n\n${URL_LINE}` }));
+  const t = convexTest({ schema, modules });
+  await upsert(t, await seed(t, [{ link: LIVE, summary: "Rewritten in VRDex." }]));
+  assert.equal(calls.find((call) => call.method === "PATCH")!.body!.description, `Rewritten in VRDex.\n\n${URL_LINE}`);
+});
+
+it("never writes to a linked one-off that became a series on Discord", async (test) => {
+  const calls = fakeDiscord(test, liveWith({ recurrence_rule: weekly(Date.now()) }));
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE }, { link: OTHER, eventStatus: "cancelled" }]);
+  assert.equal((await upsert(t, s, 0))?.state, "done");
+  assert.equal((await upsert(t, s, 1))?.state, "done");
+  assert.equal((await linkOf(t, s.eventIds[0]))?.externalId, LIVE);
+  assert.equal((await linkOf(t, s.eventIds[1]))?.externalId, OTHER);
+  assert.deepEqual(calls.filter((call) => call.method !== "GET"), []);
 });
 
 it("a cancelled VRDex event cancels the Discord event", async (test) => {
@@ -388,6 +540,14 @@ it("files nothing for an update that matches the event before the export hash la
   assert.equal(link?.lastExportedHash, undefined);
   assert.equal(link?.externalUpdatedAt, receivedAt);
   assert.ok(link?.lastImportedAt);
+});
+
+it("files nothing for a night that has begun on a link with no event", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, []);
+  await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId: s.connectorId, externalId: OTHER, state: "linked", createdAt: s.now, updatedAt: s.now }));
+  await importJob(t, s.connectorId, "update", discordEvent(s.now - HOUR, { id: OTHER, status: 2 }));
+  assert.deepEqual(await all(t, "eventIntakeDrafts"), []);
 });
 
 it("files a held draft and a link for a new Discord event", async () => {
@@ -549,7 +709,7 @@ it("bidirectional keeps a newer VRDex edit and applies a newer Discord one", asy
   assert.equal((await all(t, "eventIntakeDrafts")).length, 1);
 });
 
-it("leaves a link alone while its held draft is pending, so the later edit is not lost", async () => {
+it("leaves a link alone while its held draft is pending", async () => {
   const t = convexTest({ schema, modules });
   const s = await seed(t, []);
   await importJob(t, s.connectorId, "create", discordEvent(s.now + DAY, { id: OTHER, name: "Harbor Sunrise" }), 100);
@@ -653,7 +813,96 @@ for (const connector of [{ direction: "import", mode: "hold" }, { direction: "im
   });
 }
 
-it("a relayed series update still walks every night", async () => {
+for (const connector of [{ direction: "import", mode: "hold" }, { direction: "import", mode: "autopublish" }, { direction: "bidirectional", mode: "hold" }, { direction: "bidirectional", mode: "autopublish" }] as const) {
+  it(`a status-only series packet leaves an edited night alone (${connector.direction}, ${connector.mode})`, async () => {
+    const t = convexTest({ schema, modules });
+    const start = Date.now() + 2 * DAY;
+    const s = await seed(t, [{ startAt: start }], connector);
+    const series = (overrides = {}) => discordEvent(start, { id: OTHER, description: EVENT_LINE, recurrence_rule: { ...weekly(start), count: 1 }, ...overrides });
+    await importJob(t, s.connectorId, "create", series());
+    assert.ok((await linkOf(t, s.eventIds[0]))?.lastImportedHash);
+    const updatedAt = Date.now() - 1;
+    await t.run((ctx) => ctx.db.patch(s.eventIds[0], { title: "Edited in VRDex", sortTitle: "edited in vrdex", updatedAt }));
+    const receivedAt = Date.now() + 1;
+    assert.equal((await importJob(t, s.connectorId, "update", series({ status: 2 }), receivedAt))?.state, "done");
+    const event = await t.run((ctx) => ctx.db.get(s.eventIds[0]));
+    assert.deepEqual([event?.title, event?.updatedAt], ["Edited in VRDex", updatedAt]);
+    assert.deepEqual(await all(t, "eventIntakeDrafts"), []);
+    assert.equal((await linkOf(t, s.eventIds[0]))?.externalUpdatedAt, receivedAt);
+  });
+}
+
+it("a real series edit on Discord still overwrites an edited night, and the walk stores what it read", async () => {
+  const t = convexTest({ schema, modules });
+  const start = Date.now() + 2 * DAY;
+  const s = await seed(t, [{ startAt: start }], { direction: "import", mode: "autopublish" });
+  const series = (overrides = {}) => discordEvent(start, { id: OTHER, description: EVENT_LINE, recurrence_rule: { ...weekly(start), count: 1 }, ...overrides });
+  await importJob(t, s.connectorId, "create", series());
+  const stored = (await linkOf(t, s.eventIds[0]))?.lastImportedHash;
+  await t.run((ctx) => ctx.db.patch(s.eventIds[0], { title: "Edited in VRDex", sortTitle: "edited in vrdex" }));
+  await importJob(t, s.connectorId, "update", series({ name: "Harbor Sessions Live" }), Date.now() + 1);
+  assert.equal((await t.run((ctx) => ctx.db.get(s.eventIds[0])))?.title, "Harbor Sessions Live");
+  assert.notEqual((await linkOf(t, s.eventIds[0]))?.lastImportedHash, stored);
+});
+
+it("a night held for review keeps its stored hash, so the edit it skipped still counts as a change", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, []);
+  const start = s.now + DAY;
+  const series = (name: string) => discordEvent(start, { id: OTHER, name, recurrence_rule: { ...weekly(start), count: 1 } });
+  await importJob(t, s.connectorId, "create", series("Harbor Sunrise"), 100);
+  const [{ lastImportedHash }] = await all(t, "eventSyncLinks");
+  assert.ok(lastImportedHash);
+  await importJob(t, s.connectorId, "update", series("Harbor Sunset"), 200);
+  assert.equal((await all(t, "eventSyncLinks"))[0].lastImportedHash, lastImportedHash);
+});
+
+it("a one-off stores no night hash", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, []);
+  await importJob(t, s.connectorId, "create", discordEvent(s.now + DAY, { id: OTHER, name: "Harbor Sunrise" }));
+  assert.equal((await all(t, "eventSyncLinks"))[0].lastImportedHash, undefined);
+});
+
+it("flags the old nights of a moved series and leaves past nights and every event alone", async () => {
+  const t = convexTest({ schema, modules });
+  const start = Date.now() + 2 * DAY;
+  const moved = start + DAY;
+  const dated = (at: number) => `${OTHER}:${iso(at).slice(0, 10)}`;
+  const s = await seed(t, [{ startAt: start }]);
+  const series = (at: number) => discordEvent(at, { id: OTHER, description: EVENT_LINE, recurrence_rule: weekly(at) });
+  const longerId = `${OTHER}0:${iso(start).slice(0, 10)}`;
+  await t.run(async (ctx) => {
+    for (const externalId of [dated(s.now - 7 * DAY), dated(s.now), longerId]) await ctx.db.insert("eventSyncLinks", { connectorId: s.connectorId, externalId, state: "linked", createdAt: s.now, updatedAt: s.now });
+  });
+  const receivedAt = Date.now();
+  await importJob(t, s.connectorId, "create", series(start), receivedAt);
+  const before = await t.run((ctx) => ctx.db.get(s.eventIds[0]));
+  const oldNights = (await all(t, "eventSyncLinks")).map((link) => link.externalId).filter((id) => id >= dated(start) && id.startsWith(`${OTHER}:`));
+  assert.ok(oldNights.length > 1);
+  await importJob(t, s.connectorId, "update", series(moved), receivedAt + 1);
+  const states = Object.fromEntries((await all(t, "eventSyncLinks")).map((link) => [link.externalId, link.state]));
+  for (const night of oldNights) assert.equal(states[night], "external_deleted", night);
+  assert.deepEqual([states[dated(s.now - 7 * DAY)], states[dated(s.now)], states[longerId]], ["linked", "linked", "linked"]);
+  assert.equal(states[dated(moved)], "linked");
+  assert.deepEqual(await t.run((ctx) => ctx.db.get(s.eventIds[0])), before);
+  // Relay jobs are not serialised: the older packet running last must not flag the nights that replaced it.
+  await importJob(t, s.connectorId, "update", series(start), receivedAt);
+  assert.equal((await all(t, "eventSyncLinks")).find((link) => link.externalId === dated(moved))?.state, "linked");
+});
+
+it("a reconcile's job for a series flags nothing", async () => {
+  const t = convexTest({ schema, modules });
+  const start = Date.now() + 2 * DAY;
+  const night = `${OTHER}:${iso(start + DAY).slice(0, 10)}`;
+  const s = await seed(t, [{ startAt: start + DAY, link: night }]);
+  await patchLink(t, s.eventIds[0], { externalSeriesId: OTHER });
+  const series = discordEvent(start, { id: OTHER, recurrence_rule: { ...weekly(start), count: 1 } });
+  await runJob(t, { connectorId: s.connectorId, kind: "import_item", payload: { action: "create", event: series, receivedAt: Date.now(), externalIds: [`${OTHER}:${iso(start).slice(0, 10)}`] } });
+  assert.equal((await linkOf(t, s.eventIds[0]))?.state, "linked");
+});
+
+it("the first relayed walk of a series, with no stored hash, files every night", async () => {
   const t = convexTest({ schema, modules });
   const start = Date.now() + 2 * DAY;
   const night = `${OTHER}:${iso(start).slice(0, 10)}`;

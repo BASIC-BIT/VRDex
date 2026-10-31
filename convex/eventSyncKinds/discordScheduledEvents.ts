@@ -4,7 +4,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { action, internalMutation, internalQuery, query, type ActionCtx, type DatabaseReader, type DatabaseWriter } from "../_generated/server";
 import { requireActiveBrowserSessionSubject } from "../_browserSessionAuthority";
 import { discordRequest } from "../_discordRest";
-import { DISCORD_IMAGE_MAX_BYTES, parseScheduledEvent, RECONCILE_HORIZON_MS, scheduledEventCandidateFields, scheduledEventOccurrences, scheduledEventToFields, toScheduledEventBody, type DiscordScheduledEvent, type DiscordScheduledEventBody, type ScheduledEventSource } from "../_discordScheduledEventMap";
+import { DISCORD_IMAGE_MAX_BYTES, parseScheduledEvent, patchKeepingDescription, RECONCILE_HORIZON_MS, scheduledEventCandidateFields, scheduledEventOccurrences, scheduledEventToFields, toScheduledEventBody, type DiscordScheduledEvent, type DiscordScheduledEventBody, type ScheduledEventSource } from "../_discordScheduledEventMap";
 import { applyEventCandidate, candidateFromConnectorFields } from "../_eventCandidateApply";
 import { carriedFieldsHash, DISCORD_ID, discordScheduledEventsEnabled, requireConnectorAuthority, sha256Hex } from "../_eventConnectors";
 import { eventDateForInstant, readEventSchedule } from "../_eventSchedule";
@@ -95,6 +95,22 @@ const linkByExternalId = (db: DatabaseReader, connectorId: Id<"eventConnectors">
 const linkForEvent = async (db: DatabaseReader, connectorId: Id<"eventConnectors">, eventId: Id<"events">) =>
   (await db.query("eventSyncLinks").withIndex("by_eventId", q => q.eq("eventId", eventId)).take(100)).find(link => link.connectorId === connectorId) ?? null;
 
+// What the rows say after the guild list: a reconcile can link this event after the claim, and completeJob writes the export's answer over that row.
+// ponytail: a link written between this read and completeJob is still overwritten; completeJob comparing the row with its claim would close that.
+export const getExportLinks = internalQuery({
+  args: { connectorId: v.id("eventConnectors"), eventId: v.id("events"), externalIds: v.array(v.string()) },
+  handler: async (ctx, { connectorId, eventId, externalIds }): Promise<{ current: Doc<"eventSyncLinks"> | null; taken: string[] }> => {
+    const current = await linkForEvent(ctx.db, connectorId, eventId);
+    const taken: string[] = [];
+    for (const externalId of externalIds) {
+      const row = await linkByExternalId(ctx.db, connectorId, externalId);
+      // completeJob adopts a held draft's row only for an event with no row of its own; otherwise two rows share the ID and linkByExternalId throws on it from then on.
+      if (row && (row.eventId ? row.eventId !== eventId : current)) taken.push(externalId);
+    }
+    return { current, taken };
+  },
+});
+
 // A syncable community event on the item's local night, in the event's own zone, with the same title.
 // Any link but a `none:` one means the event is taken: by another Discord event, a night of a series, or a copy staff were flagged about.
 export async function findTitleDateMatch(db: DatabaseReader, connector: Connector, title: string, startAt: number): Promise<Doc<"events"> | null> {
@@ -149,26 +165,37 @@ export const applyScheduledEventImport = internalMutation({
     }
     if (item.status === 3) return;
 
-    for (const occurrence of scheduledEventOccurrences(item, now)) {
+    // Discord's cancel and delete are terminal, so nothing restores those links. Relay jobs are not serialised, so an older one can run last.
+    const settled = (link: Doc<"eventSyncLinks">) => link.state !== "linked" || (link.externalUpdatedAt !== undefined && link.externalUpdatedAt >= receivedAt);
+    const occurrences = scheduledEventOccurrences(item, now);
+    // ponytail: every night runs in this one mutation and each match reads up to 150 events; split the walk into a job per night if a daily series outgrows a mutation.
+    for (const occurrence of occurrences) {
       const { externalId, externalSeriesId, startAt, endAt } = occurrence;
       // A reconcile's receipt time is always newer than a VRDex edit, so a linked night it reached would lose that edit with no Discord change behind it.
       if (externalIds && !externalIds.includes(externalId)) continue;
       let link = await linkByExternalId(db, connector._id, externalId);
-      // Discord's cancel and delete are terminal, so nothing restores those links. Relay jobs are not serialised, so an older one can run last.
-      if (link && (link.state !== "linked" || (link.externalUpdatedAt !== undefined && link.externalUpdatedAt >= receivedAt))) continue;
-      if (!link && startAt <= now) continue;
+      if (link && settled(link)) continue;
+      if (!link?.eventId && startAt <= now) continue;
       link ??= await linkTitleDateMatch(db, connector, item.name, occurrence);
       const event = link?.eventId ? await db.get(link.eventId) : null;
       const source = event && await loadScheduledEventSource(db, event);
       if (link?.eventId && !source) continue;
 
-      const fields = scheduledEventToFields({ ...item, scheduled_start_time: iso(startAt), scheduled_end_time: endAt === null ? null : iso(endAt) }, source);
+      const night = { ...item, scheduled_start_time: iso(startAt), scheduled_end_time: endAt === null ? null : iso(endAt) };
+      // Any packet for a series walks every night, a status change included. A night Discord states as it did last time has no edit to carry, and a VRDex edit would read as one.
+      const nightHash = externalSeriesId ? carriedFieldsHash(KIND, scheduledEventToFields(night, null)) : undefined;
+      if (link && nightHash && link.lastImportedHash === nightHash) {
+        await db.patch(link._id, seen);
+        continue;
+      }
+      const fields = scheduledEventToFields(night, source);
       // A span past the intake's day range can never import, and would only burn the job's attempts.
       if ([fields.start, fields.end].some(time => time && !EventIntakeLocalTimeSchema.safeParse(time).success)) continue;
       const hash = carriedFieldsHash(KIND, fields);
       // The gateway pushes our PATCH back, possibly before completeJob has written lastExportedHash, so compare with the event itself. Google polls and never hit this.
+      // ponytail: correctionFields throws on an 81-row lineup or a time past the day range, and that fails the whole walk through its attempts; skip the night in a try/catch if it ever fires.
       if (link && event && hash === carriedFieldsHash(KIND, await correctionFields(db, event))) {
-        await db.patch(link._id, seen);
+        await db.patch(link._id, { ...seen, lastImportedHash: nightHash });
         continue;
       }
 
@@ -178,10 +205,19 @@ export const applyScheduledEventImport = internalMutation({
         // Hashed: publishing caps a key at 128 characters, and this one spells out a 64-character hash.
         idempotencyKey: sha256Hex(`${KIND}:${connector._id}:${externalId}:${hash}`),
       });
-      // A pending draft leaves the link alone so this edit is not lost.
+      // ponytail: a second Discord edit while a held draft is pending is dropped, because Discord pushes and nothing re-reads it; saving into the pending draft is the upgrade.
       if (outcome === "skipped_pending_draft") continue;
       const after = await linkByExternalId(db, connector._id, externalId);
-      if (after) await db.patch(after._id, { ...(externalSeriesId ? { externalSeriesId } : {}), lastImportedAt: now, updatedAt: now });
+      if (after) await db.patch(after._id, { ...(externalSeriesId ? { externalSeriesId } : {}), lastImportedHash: nightHash, lastImportedAt: now, updatedAt: now });
+    }
+
+    // A moved or shortened series leaves its old nights public, so staff get the same flag as a delete. Only a relayed job has walked the whole rule.
+    if (externalIds || !item.recurrence_rule) return;
+    const nights = new Set(occurrences.map(occurrence => occurrence.externalId));
+    const today = iso(now).slice(0, 10);
+    const links = await db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", connector._id).gte("externalId", `${item.id}:`).lt("externalId", `${item.id};`)).collect();
+    for (const link of links) {
+      if (!settled(link) && link.externalId.slice(item.id.length + 1) > today && !nights.has(link.externalId)) await db.patch(link._id, { ...seen, state: "external_deleted" });
     }
   },
 });
@@ -269,14 +305,13 @@ async function send(ctx: ActionCtx, connector: Connector, method: "GET" | "POST"
   throw new Error(`discord_${response.status}`);
 }
 
-// The Discord event's status, or null when it is gone.
-async function liveStatus(ctx: ActionCtx, connector: Connector, path: string): Promise<unknown> {
+// The Discord event, or null when it is gone.
+async function liveEvent(ctx: ActionCtx, connector: Connector, path: string): Promise<Record<string, unknown> | null> {
   const response = await send(ctx, connector, "GET", path, undefined, true);
-  return response && (await readObject(response)).status;
+  return response && await readObject(response);
 }
 
 const removeLive = (ctx: ActionCtx, connector: Connector, path: string) => send(ctx, connector, "DELETE", path, undefined, true);
-const utcDate = (at: string) => new Date(at).toISOString().slice(0, 10);
 
 async function listGuildEvents(ctx: ActionCtx, connector: Connector, path: string): Promise<unknown[]> {
   const rows: unknown = await (await send(ctx, connector, "GET", path))!.json().catch(() => null);
@@ -284,55 +319,68 @@ async function listGuildEvents(ctx: ActionCtx, connector: Connector, path: strin
   return rows;
 }
 
-// A copy made by hand on the same UTC date. Series and finished events are never adopted: a one-off must not rewrite them.
-async function findUnlinkedCopy(ctx: ActionCtx, connector: Connector, path: string, body: DiscordScheduledEventBody): Promise<string | undefined> {
+// The event's link as it stands, a copy made by hand on the same local night, and whether a same-titled series already has that night.
+// Nights read in the event's own zone, as an import does. Series and finished events are never adopted: a one-off must not rewrite them.
+async function matchOnGuild(ctx: ActionCtx, connector: Connector, path: string, eventId: Id<"events">, body: DiscordScheduledEventBody, timezone: string) {
   const rows = await listGuildEvents(ctx, connector, path);
-  const date = utcDate(body.scheduled_start_time);
+  const night = (at: number) => eventDateForInstant(at, timezone);
+  const date = night(Date.parse(body.scheduled_start_time));
   const name = body.name.toLowerCase();
-  const candidates = rows.flatMap(row => parseScheduledEvent(row) ?? [])
-    .filter(item => !item.recurrence_rule && item.status <= 2 && utcDate(item.scheduled_start_time) === date && item.name.trim().toLowerCase() === name);
-  if (candidates.length === 0) return undefined;
-  const linked = await ctx.runQuery(internal.googleCalendarConnector.linkedExternalIds, { connectorId: connector._id, externalIds: candidates.map(item => item.id) });
-  return candidates.find(item => !linked.includes(item.id))?.id;
+  const now = Date.now();
+  const named = rows.flatMap(row => parseScheduledEvent(row) ?? []).filter(item => item.status <= 2 && item.name.trim().toLowerCase() === name);
+  const copies = named.filter(item => !item.recurrence_rule && night(Date.parse(item.scheduled_start_time)) === date);
+  const { current, taken } = await ctx.runQuery(internal.eventSyncKinds.discordScheduledEvents.getExportLinks, { connectorId: connector._id, eventId, externalIds: copies.map(item => item.id) });
+  // ponytail: an event past the 90-day horizon sees no series night, so it still POSTs and the night imports beside it; extend the horizon to the event's start if such events appear.
+  const onSeries = named.some(item => item.recurrence_rule && scheduledEventOccurrences(item, now, RECONCILE_HORIZON_MS).some(occurrence => night(occurrence.startAt) === date));
+  return { current, copy: copies.find(item => !taken.includes(item.id)), onSeries };
 }
+
+// An imported occurrence's ID is not a Discord event (until plan 11), and what Discord deleted is staff's call in My events.
+const untouchable = (link: Doc<"eventSyncLinks"> | null): link is Doc<"eventSyncLinks"> => link !== null && (link.externalSeriesId !== undefined || link.state === "external_deleted");
 
 export const discordScheduledEventsHandler: SyncKindHandler = {
   async exportUpsert(ctx, connector, event, link): Promise<{ externalId: string }> {
     const path = `/guilds/${scheduledEventsGuildId(connector)}/scheduled-events`;
-    // An imported occurrence's ID is not a Discord event (until plan 11), and what Discord deleted is staff's call in My events.
-    if (link && (link.externalSeriesId !== undefined || link.state === "external_deleted")) return { externalId: link.externalId };
+    if (untouchable(link)) return { externalId: link.externalId };
     const source = await ctx.runQuery(internal.eventSyncKinds.discordScheduledEvents.getExportState, { eventId: event._id });
     const liveId = liveExternalId(link);
     const livePath = `${path}/${liveId}`;
     const none = { externalId: `none:${event._id}` };
-    const kept = liveId ? { externalId: liveId } : none;
+    // A none: answer overwrites the row, so a job that claimed no live link looks again before giving it.
+    const kept = async () => {
+      if (liveId) return { externalId: liveId };
+      const { current } = await ctx.runQuery(internal.eventSyncKinds.discordScheduledEvents.getExportLinks, { connectorId: connector._id, eventId: event._id, externalIds: [] });
+      return current && (untouchable(current) || liveExternalId(current)) ? { externalId: current.externalId } : none;
+    };
     if (!source) {
-      if (liveId) await removeLive(ctx, connector, livePath);
+      if (!liveId) return kept();
+      await removeLive(ctx, connector, livePath);
       return none;
     }
     if (source.status === "cancelled") {
-      // Discord cannot cancel a started event, and a missing one needs nothing, so only status 1 is patched.
-      if (liveId && await liveStatus(ctx, connector, livePath) === 1) await send(ctx, connector, "PATCH", livePath, { status: 4 });
-      return kept;
+      const live = liveId ? await liveEvent(ctx, connector, livePath) : null;
+      // Discord cannot cancel a started event, and a missing one needs nothing, so only status 1 is patched. Cancelling a series would end every night.
+      if (live?.status === 1 && !live.recurrence_rule) await send(ctx, connector, "PATCH", livePath, { status: 4 });
+      return kept();
     }
     const { startAt } = source;
     // Discord refuses past starts.
-    if (startAt === undefined || startAt <= Date.now()) return kept;
+    if (startAt === undefined || startAt <= Date.now()) return kept();
     // ponytail: the cover is re-fetched and re-sent on every PATCH; store the artwork URL on the link if Discord's rate limits ever bite.
     const body = toScheduledEventBody({ ...source, startAt }, source.artworkImageUrl && await artworkDataUri(source.artworkImageUrl));
-    if (liveId) {
-      const status = await liveStatus(ctx, connector, livePath);
-      if (status !== null && status !== 3 && status !== 4) {
-        await send(ctx, connector, "PATCH", livePath, body);
-        return kept;
-      }
-    } else {
-      const copy = await findUnlinkedCopy(ctx, connector, path, body);
-      if (copy) {
-        await send(ctx, connector, "PATCH", `${path}/${copy}`, body);
-        return { externalId: copy };
-      }
+    const match = liveId ? null : await matchOnGuild(ctx, connector, path, event._id, body, source.timezone ?? "UTC");
+    const current = match?.current ?? null;
+    if (untouchable(current)) return { externalId: current.externalId };
+    const linkedId = liveId ?? liveExternalId(current);
+    const targetId = linkedId ?? match?.copy?.id;
+    const live: Record<string, unknown> | null | undefined = linkedId ? await liveEvent(ctx, connector, `${path}/${linkedId}`) : match?.copy;
+    if (targetId && live && live.status !== 3 && live.status !== 4) {
+      // ponytail: a one-off turned into a series on Discord stays as it is; this is plan 11's case, which brings series export.
+      if (!live.recurrence_rule) await send(ctx, connector, "PATCH", `${path}/${targetId}`, patchKeepingDescription(body, typeof live.description === "string" ? live.description : null, source));
+      return { externalId: targetId };
     }
+    // Reconcile's none: adoption claims the night once it enters the window. Patching or posting here would put a one-off over a series.
+    if (match?.onSeries) return none;
     const { id } = await readObject((await send(ctx, connector, "POST", path, body))!);
     if (typeof id !== "string" || !DISCORD_ID.test(id)) throw new Error("discord_bad_response");
     return { externalId: id };

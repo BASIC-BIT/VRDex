@@ -1217,6 +1217,8 @@ export default defineSchema({
     lastImportedAt: v.optional(v.number()), externalUpdatedAt: v.optional(v.number()), state: syncLinkState, createdAt: v.number(), updatedAt: v.number(),
     // vrchat_calendar: the poster URL last exported, so an unchanged poster is not re-sent.
     externalArtworkUrl: v.optional(v.string()),
+    // discord_scheduled_events: a series night as Discord last stated it, so a packet that changes nothing about the night leaves a VRDex edit alone.
+    lastImportedHash: v.optional(v.string()),
   }).index("by_connectorId_externalId", ["connectorId", "externalId"])
     .index("by_eventId", ["eventId"]),
   eventSyncJobs: defineTable({
