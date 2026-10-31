@@ -1,0 +1,148 @@
+name: Discord Gateway Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - apps/discord-gateway/**
+      - .github/workflows/discord-gateway-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build and roll immutable gateway
+    if: vars.DISCORD_GATEWAY_RELEASE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: discord-gateway-release
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: us-east-1
+      ECR_REPOSITORY: vrdex-discord-gateway
+      ECS_CLUSTER: vrdex-discord-gateway
+      AWS_ROLE_ARN: ${{ vars.AWS_DISCORD_GATEWAY_RELEASE_ROLE_ARN }}
+      TF_VAR_convex_site_url: ${{ vars.GROUP_TELEMETRY_CONVEX_SITE_URL }}
+
+    steps:
+      - name: Fail closed on missing release configuration
+        run: |
+          set -euo pipefail
+          [ -n "$AWS_ROLE_ARN" ] || { echo "::error::AWS_DISCORD_GATEWAY_RELEASE_ROLE_ARN is not set."; exit 1; }
+          [ -n "$TF_VAR_convex_site_url" ] || { echo "::error::GROUP_TELEMETRY_CONVEX_SITE_URL is not set."; exit 1; }
+
+      - name: Checkout full history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Pin release to a main commit
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor HEAD origin/main || { echo "::error::Gateway releases must use a commit reachable from main."; exit 1; }
+          release_sha="$(git rev-parse HEAD)"
+          echo "RELEASE_SHA=$release_sha" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=git-$release_sha" >> "$GITHUB_ENV"
+
+      - name: Configure scoped AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+
+      - name: Initialize gateway remote state
+        run: terraform -chdir=infra/terraform/discord-gateway init
+
+      - name: Resolve repository and immutable image
+        run: |
+          set -euo pipefail
+          repository_url="$(terraform -chdir=infra/terraform/discord-gateway output -raw repository_url)"
+          [ -n "$repository_url" ] || { echo "::error::Gateway repository URL is absent from remote state."; exit 1; }
+          existing_digest="$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids "imageTag=$IMAGE_TAG" --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true)"
+          if [[ "$existing_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Reusing the immutable image already published for $RELEASE_SHA."
+            digest="$existing_digest"
+          else
+            aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "${repository_url%%/*}"
+            docker build --platform linux/amd64 --label "org.opencontainers.image.revision=$RELEASE_SHA" --tag "$repository_url:$IMAGE_TAG" --file apps/discord-gateway/Dockerfile .
+            docker push "$repository_url:$IMAGE_TAG"
+            digest="$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids "imageTag=$IMAGE_TAG" --query 'imageDetails[0].imageDigest' --output text)"
+          fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::ECR did not return an immutable image digest."; exit 1; }
+          echo "IMAGE_URI=$repository_url@$digest" >> "$GITHUB_ENV"
+
+      - name: Create saved production plan
+        working-directory: infra/terraform/discord-gateway
+        run: |
+          set -euo pipefail
+          TF_VAR_container_image="$IMAGE_URI" terraform plan -out=gateway.tfplan -var-file=environments/production.tfvars
+          terraform show -json gateway.tfplan > plan.json
+
+      - name: Refuse anything but an image roll
+        working-directory: infra/terraform/discord-gateway
+        run: |
+          jq -e '[(.resource_changes // [])[] | select(.change.actions != ["no-op"]) | .address] - ["aws_ecs_task_definition.gateway","aws_ecs_service.gateway[0]"] | length == 0' plan.json || {
+            echo "::error::Release plans may change only the gateway task definition and service; apply infrastructure changes manually."
+            exit 1
+          }
+
+      - name: Apply the inspected saved plan
+        working-directory: infra/terraform/discord-gateway
+        run: terraform apply -auto-approve gateway.tfplan
+
+      - name: Wait for the rollout
+        working-directory: infra/terraform/discord-gateway
+        run: |
+          set -euo pipefail
+          service_name="$(terraform output -raw service_name)"
+          if [ -z "$service_name" ]; then
+            echo "Service is disabled; nothing to roll."
+            exit 0
+          fi
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$service_name"
+          # With the deployment circuit breaker on, ECS marks the PRIMARY
+          # rollout COMPLETED a few minutes after the service is stable.
+          deadline=$((SECONDS + 600))
+          until [ "$SECONDS" -ge "$deadline" ]; do
+            rollout="$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$service_name" --query 'services[0].deployments[?status==`PRIMARY`]|[0].rolloutState' --output text || echo unknown)"
+            case "$rollout" in
+              COMPLETED) break ;;
+              FAILED) echo "::error::Gateway PRIMARY deployment failed."; exit 1 ;;
+            esac
+            sleep 15
+          done
+          [ "$rollout" = "COMPLETED" ] || { echo "::error::Gateway PRIMARY rollout did not complete within ten minutes (last state: $rollout)."; exit 1; }
+          # A circuit breaker rollback also ends in a COMPLETED PRIMARY, on the old task definition.
+          running="$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$service_name" --query 'services[0].taskDefinition' --output text)"
+          [ "$running" = "$(terraform output -raw task_definition_arn)" ] || { echo "::error::Gateway rolled back to $running."; exit 1; }
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install gateway dependencies
+        run: pnpm install --frozen-lockfile --filter @vrdex/discord-gateway...
+
+      - name: Register slash commands
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_APPLICATION_ID: ${{ secrets.DISCORD_APPLICATION_ID }}
+        run: pnpm --filter @vrdex/discord-gateway register-commands
