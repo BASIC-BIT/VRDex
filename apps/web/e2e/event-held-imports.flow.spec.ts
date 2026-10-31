@@ -29,6 +29,15 @@ test("a date-only connector draft publishes from the editor @flow @fixture", asy
   await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);
 });
 
+test("a draft saved with a start and then cleared opens date-only @flow @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake?revision=held-cleared-start");
+  await expect(page.getByLabel("Date", { exact: true })).toHaveValue("2027-07-15");
+  await review(page);
+  await publish(page);
+  await expect.poll(() => stored(page, "event-intake-review-command")).toBe("eventIntakeHeld:publish");
+  expect(JSON.parse((await stored(page, "fixture-published"))!).timeTba).not.toBe(true);
+});
+
 test("an imported start stays a choice the staffer makes @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?revision=held-tentative-start");
   await accept(page, "Community", "Event title", "Date");

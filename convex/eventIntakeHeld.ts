@@ -27,16 +27,15 @@ export const publish = mutation({
     const { draft, connector, community } = await getConnectorDraftForManager(ctx.db, user._id, draftId, now);
     if (expectedVersion !== undefined && expectedVersion !== draft.version) throw new ConvexError({ code: "VERSION_CONFLICT" });
     const fields = sanitizeEventIntakePatch(draft.fields);
+    const reviewed = expectedVersion === undefined ? fields : { ...fields, tentative: null, evidence: null };
     const target = await heldTarget(ctx.db, draft);
     if (target) {
       const { event } = target;
-      const reviewed = expectedVersion === undefined ? fields : { ...fields, tentative: null, evidence: null };
       await patchCommunityEventFieldsAsStaffRecord(ctx, { actorUserId: user._id, slug: event.slug!, expectedUpdatedAt: event.updatedAt, patch: heldUpdatePatch(reviewed, connector.kind) });
       await settleHeldDraft(ctx, draft, event._id, now);
       return { outcome: "updated" as const, eventId: event._id, eventPath: await eventPathForRecord(ctx.db, event) };
     }
-    const patch = expectedVersion === undefined ? promoteHeldFields(fields, community.slug) : { communitySlug: community.slug, timeTba: fields.timeTba ?? !fields.start };
-    const saved = await saveIntakeDraft(ctx.db, user._id, { draftId, expectedVersion: draft.version, patch }, now);
+    const saved = await saveIntakeDraft(ctx.db, user._id, { draftId, expectedVersion: draft.version, patch: promoteHeldFields(reviewed, community.slug) }, now);
     const { eventId, eventPath } = await publishIntakeDraft(ctx, user._id, { draftId, expectedVersion: saved.version, idempotencyKey: `held:${draftId}:${saved.version}` }, now, "browser", { connectorId: connector._id });
     await settleHeldDraft(ctx, draft, eventId, now);
     return { outcome: "published" as const, eventId, eventPath };

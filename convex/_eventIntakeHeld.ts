@@ -36,21 +36,23 @@ export function promoteHeldFields(fields: EventIntakePatch, communitySlug: strin
   const set = (values: object) => Object.fromEntries(Object.entries(values).filter(([, value]) => value !== null && value !== undefined));
   const { tentative, evidence: _evidence, questions: _questions, ...saved } = fields;
   // Publication refuses clocks alongside Time TBA, whether a staffer saved it or no start means it.
-  const timeTba = saved.timeTba ?? tentative?.timeTba ?? !(saved.start ?? tentative?.start);
+  const timeTba = saved.timeTba || tentative?.timeTba || !(saved.start ?? tentative?.start);
   const declined = stale ? DATE_BOUND_KEYS : timeTba ? CLOCK_KEYS : new Set<string>();
   const promoted: EventIntakePatch = {
     ...Object.fromEntries(Object.entries(set(tentative ?? {})).filter(([key]) => !declined.has(key))),
     ...set(saved), communitySlug, tentative: null, evidence: null, questions: null,
   };
-  // Tentative blocks never carry timeTba; applyEventCandidate derives it the same way.
-  if (tentative && !stale) promoted.timeTba ??= !promoted.start;
+  // No start means Time TBA, as in applyEventCandidate, whatever an earlier save left behind.
+  promoted.timeTba = promoted.start ? promoted.timeTba ?? false : true;
   // On a Discord draft the top-level URL is the post itself, which publication strips, so an extracted link wins.
   if (tentative?.sourceUrl && saved.sourceUrl && DISCORD_MESSAGE_URL.test(saved.sourceUrl)) promoted.sourceUrl = tentative.sourceUrl;
   return promoted;
 }
 
 /** Rule 8 over a held draft: extracted values on explicit evidence, plus whatever a staffer saved. */
-export function heldUpdatePatch(fields: EventIntakePatch, kind: ConnectorKind): HeldUpdatePatch {
+export function heldUpdatePatch(held: EventIntakePatch, kind: ConnectorKind): HeldUpdatePatch {
+  // A false left behind with no start says nothing about the event's clock.
+  const fields = held.timeTba === false && !held.start ? { ...held, timeTba: undefined } : held;
   const promoted = promoteHeldFields(fields, "");
   const stale = redated(fields);
   const evidence = (fields.evidence ?? []).filter(entry => !stale || !DATE_BOUND_KEYS.has(evidenceKey(entry.fieldPath)));

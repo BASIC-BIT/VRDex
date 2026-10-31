@@ -421,7 +421,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
     if (saved.current?.fields === serialized) return saved.current;
     const current = saved.current ?? (loaded ? { draftId: loaded._id, version: initialVersion } : null);
     // Time TBA on a connector draft with no start is the form's reading, not a staff decision: publication derives it again.
-    const derivedTimeTba = loaded?.connectorId && loaded.fields.timeTba == null && !fields.start;
+    const derivedTimeTba = loaded?.connectorId && !loaded.fields.timeTba && !fields.start;
     const result = await save({ ...(current ? { draftId: current.draftId, expectedVersion: current.version } : {}), patch: derivedTimeTba ? { ...fields, timeTba: undefined } : fields });
     saved.current = { ...result, fields: serialized };
     window.history.replaceState(window.history.state, "", `/events/new?draft=${result.draftId}`);
@@ -475,7 +475,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
   // A published held draft reads as null for any manager but its actor; the form still has a redirect to run.
   if (draftId && loaded === null && !publishingHeld) return <>{heading}<Notice>Unavailable</Notice></>;
   // A connector import with no clock is date-only, the same reading row Publish takes.
-  const connectorFields = loaded?.connectorId ? { ...loaded.fields, timeTba: loaded.fields.timeTba ?? !(loaded.fields.start ?? loaded.fields.tentative?.start) } : undefined;
+  const connectorFields = loaded?.connectorId ? { ...loaded.fields, timeTba: loaded.fields.timeTba || !(loaded.fields.start ?? loaded.fields.tentative?.start) } : undefined;
   return <EventIntakeFieldsForm heading={heading} savedTimezonePreference={viewer?.user.defaultEventTimezone} newDraft={!draftId} connectorDraft={Boolean(loaded?.connectorId)} initialFields={connectorFields ?? loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { if (published.current) await correctPublished(fields); else await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
     if (published.current) return correctPublished(fields);
     const current = await saveFields(fields, revision);

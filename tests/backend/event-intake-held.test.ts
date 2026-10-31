@@ -230,12 +230,12 @@ it("promotes extracted values under staff edits and pins the connector community
   // A held tentative never carries timeTba: it follows from the promoted start.
   assert.equal(promoteHeldFields({ tentative: { eventDate: "2027-07-20" } }, "club").timeTba, true);
   assert.equal(promoteHeldFields({ tentative: { eventDate: "2027-07-20", start: nine } }, "club").timeTba, false);
-  assert.equal(promoteHeldFields({ timeTba: false, tentative: { eventDate: "2027-07-20" } }, "club").timeTba, false);
+  assert.equal(promoteHeldFields({ timeTba: false, tentative: { eventDate: "2027-07-20" } }, "club").timeTba, true);
   assert.equal(promoteHeldFields(publishable, "club").timeTba, true);
-  assert.equal(promoteHeldFields({ title: "Saved", eventDate: "2027-07-20" }, "club").timeTba, undefined);
+  assert.equal(promoteHeldFields({ title: "Saved", eventDate: "2027-07-20" }, "club").timeTba, true);
   // A staffer re-dated the draft: extracted clocks belong to the old date and are not promoted.
   const redated = promoteHeldFields({ eventDate: "2027-07-21", tentative: { eventDate: "2027-07-20", title: "Kept", start: nine, end: nine, doors: nine, timeTba: false, lineup: [A] } }, "club");
-  assert.deepEqual(redated, { eventDate: "2027-07-21", title: "Kept", communitySlug: "club", tentative: null, evidence: null, questions: null });
+  assert.deepEqual(redated, { eventDate: "2027-07-21", title: "Kept", communitySlug: "club", timeTba: true, tentative: null, evidence: null, questions: null });
 });
 
 it("keeps a staffer's Time TBA over extracted clocks", () => {
@@ -557,13 +557,25 @@ it("editor publish takes only what the staffer saved", async () => {
   });
 });
 
-for (const expectedVersion of [1, undefined]) it(`a saved draft with no Time TBA keeps the event's clock (${expectedVersion ? "editor" : "row"} publish)`, async () => {
+for (const [name, expectedVersion, saved] of [["editor", 1, {}], ["row", undefined, {}], ["row, leftover false", undefined, { timeTba: false }]] as const) it(`a saved draft with no start keeps the event's clock (${name})`, async () => {
   const { t, ids, as, draft, googleLink } = await fixture();
-  const draftId = await draft({ title: "Reviewed", eventDate: "2027-07-15", tentative: { title: "Extracted" }, evidence: [evidence("event.title")] }, { connectorId: ids.google });
+  const draftId = await draft({ ...saved, title: "Reviewed", eventDate: "2027-07-15", tentative: { title: "Extracted" }, evidence: [evidence("event.title")] }, { connectorId: ids.google });
   await googleLink({ draftId, eventId: ids.event });
   await as("staff").mutation(api.eventIntakeHeld.publish, { draftId, expectedVersion });
   const event = (await t.run(({ db }) => db.get(ids.event)))!;
   assert.deepEqual([event.title, event.scheduleKind, event.startAt], ["Reviewed", "timed", Date.UTC(2027, 6, 15, 20)]);
+});
+
+for (const [name, saved] of [
+  ["accepted date", { communitySlug: "club", title: "Held", eventDate: "2027-07-20", tentative: { communitySlug: "club" } }],
+  ["re-dated", { title: "Held", eventDate: "2027-07-20", tentative: { eventDate: "2027-07-13", timezone: "UTC", start: nine } }],
+  ["no import", { title: "Held", eventDate: "2027-07-20" }],
+  ["cleared start", { title: "Held", eventDate: "2027-07-20", timeTba: false }],
+] as const) it(`row Publish after an editor save goes date-only (${name})`, async () => {
+  const { t, as, draft } = await fixture();
+  const { eventId } = await as("staff").mutation(api.eventIntakeHeld.publish, { draftId: await draft(saved) });
+  const event = (await t.run(({ db }) => db.get(eventId)))!;
+  assert.deepEqual([event.scheduleKind, event.eventDate, event.startAt], ["date_only", "2027-07-20", undefined]);
 });
 
 it("editor publish reads a new item's missing Time TBA from its saved start", async () => {
@@ -601,8 +613,9 @@ it("a candidate with an end and no start publishes date-only", async () => {
   const { eventId } = await as("staff").mutation(api.eventIntakeHeld.publish, { draftId });
   const event = (await t.run(({ db }) => db.get(eventId)))!;
   assert.deepEqual([event.scheduleKind, event.endAt], ["date_only", undefined]);
-  // A staffer's timeTba: false is a decision the row cannot make for them.
-  assert.equal(promoteHeldFields({ timeTba: false, tentative: { end: { time: "23:00" } } }, "club").end?.time, "23:00");
+  // A false left behind with no start is still date-only, so the extracted end goes too.
+  const cleared = promoteHeldFields({ timeTba: false, tentative: { end: { time: "23:00" } } }, "club");
+  assert.deepEqual([cleared.end, cleared.timeTba], [undefined, true]);
 });
 
 it("a proposed update keeps an extracted end for the event's own start", () => {
