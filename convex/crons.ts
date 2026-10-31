@@ -132,6 +132,7 @@ crons.interval("admit queued group observations", { minutes: 1 }, makeFunctionRe
 
 crons.interval("retire expired playback grants", { minutes: 1 }, internal.mediaRelayPlayback.cleanupGrants, {});
 crons.interval("recover event sync jobs", { minutes: 5 }, internal.eventSync.recoverExpiredJobs, {});
+crons.interval("check discord gateway heartbeat", { minutes: 5 }, internal.discordIntake.checkHeartbeat, {});
 crons.daily("refresh discord event boards", { hourUTC: 6, minuteUTC: 15 }, internal.eventSyncKinds.discordBoard.enqueueBoardRefreshes, {});
 
 // Inert unless VRDEX_RECURRING_EVENTS_ENABLED; a failed series emails ops.

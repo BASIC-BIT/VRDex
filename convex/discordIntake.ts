@@ -65,6 +65,28 @@ export const recordHeartbeat = internalMutation({
   },
 });
 
+/** How long the gateway can go without a received heartbeat before ops is alerted. */
+export const DISCORD_GATEWAY_HEARTBEAT_STALE_MS = 300_000;
+const HEARTBEAT_ALERT_KEY = "discord_gateway_heartbeat_stale";
+
+/** Alerts ops while the newest heartbeat, by Convex receipt time, is stale or missing; a fresh one resolves the alert. */
+export const checkHeartbeat = internalMutation({
+  args: {},
+  returns: v.union(v.object({ checked: v.literal(false) }), v.object({ checked: v.literal(true), stale: v.boolean(), newestAt: v.union(v.number(), v.null()) })),
+  handler: async ctx => {
+    if (!discordIntakeEnabled()) return { checked: false as const };
+    const newest = await ctx.db.query("discordGatewayHeartbeats").withIndex("by_receivedAt").order("desc").first();
+    const newestAt = newest?.receivedAt ?? null;
+    const stale = newestAt === null || Date.now() - newestAt > DISCORD_GATEWAY_HEARTBEAT_STALE_MS;
+    if (stale) await notifyOps(ctx, {
+      key: HEARTBEAT_ALERT_KEY, subject: "Discord gateway heartbeat is stale",
+      body: `Newest heartbeat: ${newestAt === null ? "never" : new Date(newestAt).toISOString()}. Threshold: ${DISCORD_GATEWAY_HEARTBEAT_STALE_MS / 1000} s. Check ECS service vrdex-discord-gateway and log group /aws/ecs/vrdex-discord-gateway.`,
+    });
+    else await resolveOps(ctx, HEARTBEAT_ALERT_KEY);
+    return { checked: true as const, stale, newestAt };
+  },
+});
+
 type StoredAttachments = Doc<"discordIntakeMessages">["attachments"];
 // Discord re-signs CDN links in the query string, so the link without it identifies an attachment.
 const attachmentKey = ({ url, contentType, byteLength }: StoredAttachments[number]) => `${url.split("?")[0]}|${contentType}|${byteLength}`;
