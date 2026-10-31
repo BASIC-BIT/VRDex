@@ -170,8 +170,9 @@ The client lives in the `vrdex-production` Google Cloud project, under the
 `basicbit.net` organization and the `basic@basicbit.net` identity. It is
 `VRDex Calendar Connector`, separate from the project's existing
 `VRDex Production` client, and was created on 2026-10-30. Its ID and secret are
-set on both Convex deployments and in GitHub. Enabling the flag and
-verification are not done.
+set on both Convex deployments, in GitHub, and on Vercel through the `vercel`
+stack. The flag is on for both Convex deployments as of 2026-10-30. Google
+verification is not done, and nothing has run against real Google yet.
 
 The project's consent screen is External and already published, so no test users
 are needed and Testing's seven-day refresh token expiry does not apply. Until
