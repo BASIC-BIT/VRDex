@@ -13,6 +13,7 @@ VRDex keeps small infrastructure stacks separate so credentials, blast radius, a
 - `web-domains/`: Vercel web project-domain bindings and Route 53 DNS for `vrdex.net` and `www.vrdex.net`.
 - `restream-worker/`: validation-only hosted restream worker benchmark foundation for ECR, ECS/Fargate, logs, roles, secret references, and the disabled kill switch.
 - `group-telemetry-collector/`: account-scoped collector fleet with one-secret isolation, bounded compute, startup gate, release metadata, logs, operational alarms, an optional tagged cost budget, and a fail-closed automatic image-only release lane.
+- `discord-gateway/`: the Discord gateway's ECS service, image repository, secrets, and running-task alarm. CI validates and tests it only; see `docs/deployment/discord-gateway.md`.
 - `vrclinking-adapter/`: the VRCLinking proof adapter as a Lambda behind a public Function URL, with an execution role that can read every delegated community credential under the `vrdex/vrclinking/` name prefix. The only stack here that is deployed and serving production traffic without CI planning it — see its README for the deploy, rotation, and secret-ownership runbook.
 
 Each non-bootstrap stack uses the shared S3 state bucket `vrdex-terraform-state` with a stack-specific state key and S3 native locking. `state-mgmt/` intentionally uses local state because it manages that bucket. Do not commit `terraform.tfvars`, local state, plans, or provider directories.
@@ -51,6 +52,8 @@ remote-state migration, initial manual infrastructure apply, and deploy-time
 verification are documented in
 `infra/terraform/group-telemetry-collector/README.md`.
 
+The Discord gateway uses `.github/workflows/discord-gateway-release.yml` for image rolls; its bootstrap is in `docs/deployment/discord-gateway.md`.
+
 `state-mgmt/` is validation-only in CI because it intentionally uses local bootstrap state and owns the GitHub Actions AWS role used by the provider-backed stacks. Apply it manually when changing the shared state bucket or Terraform CI role, then store `terraform output -raw github_actions_terraform_role_arn` in GitHub variable `AWS_TERRAFORM_ROLE_ARN`.
 
 The `profile-assets` apply path checks whether a preexisting Vercel OIDC
@@ -71,6 +74,7 @@ The stack count is intentional, but should stay small:
 - keep `profile-assets/` separate because it owns an AWS S3 bucket, AWS IAM OIDC role, and the Vercel env vars that expose that role to the web runtime
 - keep `restream-worker/` validation-only until the local `1080p60` media proof and a human-approved AWS benchmark window exist
 - keep `group-telemetry-collector/` validation-only until the real single-account VRChat provider proof has a documented go or adjust disposition and VRChat explicitly approves durable service-account sessions
+- keep `discord-gateway/` separate because it holds the Discord bot's secrets and has its own release role
 - combine future stacks only when they share provider credentials, state ownership, and apply cadence without widening secret exposure
 
 `rate-limit-redis/` is intentionally plan/manual-apply in CI. Creating or
