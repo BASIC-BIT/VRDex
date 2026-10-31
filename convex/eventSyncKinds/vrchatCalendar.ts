@@ -2,6 +2,7 @@ import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import type { VrchatCalendarItem } from "../_clubOperations";
+import { cutUnits } from "../_eventConnectors";
 import { eventDateForInstant, eventLocalTime } from "../_eventSchedule";
 import type { EventIntakeFields } from "../../packages/api-contracts/src/event-intake";
 import { AwaitingClubOperation, type SyncKindHandler } from "./types";
@@ -12,12 +13,6 @@ const SUMMARY_MAX = 240;
 const MAX_END_DAY_OFFSET = 7; // EventIntakeLocalTimeSchema's dayOffset ceiling
 
 export type CalendarWrite = { title: string; description: string; startsAt: string; endsAt: string; imageUrl?: string; accessType: "group" };
-
-// Counts UTF-16 units as VRChat and validatePayload do; never splits a surrogate pair.
-function cutUnits(text: string, max: number): string {
-  const cut = text.slice(0, max);
-  return cut.length < text.length && /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
-}
 
 export function truncateTitle(title: string): string {
   return title.length <= VRCHAT_TITLE_MAX ? title : cutUnits(title, VRCHAT_TITLE_MAX - 1) + "…";

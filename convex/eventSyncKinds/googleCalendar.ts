@@ -1,11 +1,11 @@
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
-import { eventDateForInstant } from "../_eventSchedule";
+import { eventDateForInstant, eventLocalTimeLenient } from "../_eventSchedule";
 import {
   deleteEvent, ensureWatch, getEvent, GoogleApiError, googleTarget, insertEvent, listEvents, patchEvent, requireGoogleCalendarEnabled, withGoogleToken,
   type GoogleCalendarEvent, type GoogleEventBody, type GoogleEventDateTime,
 } from "../_googleCalendar";
-import { EventIntakeLocalTimeSchema, resolveEventLocalTime, type EventIntakeFields, type EventIntakeLocalTime } from "../../packages/api-contracts/src/event-intake";
+import { EventIntakeLocalTimeSchema, type EventIntakeFields } from "../../packages/api-contracts/src/event-intake";
 import type { SyncKindHandler } from "./types";
 
 const DAY_MS = 86_400_000;
@@ -87,23 +87,6 @@ function patchKeepingGoogle(full: Record<keyof GoogleEventBody, unknown>, item: 
   return patch;
 }
 
-// Mirrors correctionFields, occurrence included, so a fall-back-hour echo hashes the same as the export.
-function localTime(instant: number, eventDate: string, timezone: string): EventIntakeLocalTime {
-  const dayOffset = (Date.parse(eventDateForInstant(instant, timezone)) - Date.parse(eventDate)) / DAY_MS;
-  const value: EventIntakeLocalTime = {
-    time: new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(instant),
-    ...(dayOffset ? { dayOffset } : {}),
-  };
-  let choices: number[] = [];
-  try {
-    choices = resolveEventLocalTime(eventDate, value, timezone);
-  } catch {
-    // An offset zone or an out-of-range dayOffset; Task 4's validation decides what to do with it.
-  }
-  if (choices.length > 1) value.occurrence = choices[0] === instant ? "earlier" : "later";
-  return value;
-}
-
 // The item's local date in the given zone; all-day items carry their own date.
 const itemDate = (item: GoogleCalendarEvent, timezone: string) =>
   item.start?.date ?? (item.start?.dateTime ? eventDateForInstant(Date.parse(item.start.dateTime), timezone) : null);
@@ -119,8 +102,8 @@ export function fieldsFromGoogleEvent(item: GoogleCalendarEvent, calendarTimeZon
   const timezone = item.start!.timeZone ?? calendarTimeZone;
   const eventDate = eventDateForInstant(startAt, timezone);
   const endAt = item.end?.dateTime ? Date.parse(item.end.dateTime) : NaN;
-  const end = !Number.isNaN(endAt) && endAt !== startAt ? localTime(endAt, eventDate, timezone) : null;
-  return { ...fields, eventDate, timeTba: false, timezone, start: localTime(startAt, eventDate, timezone), end };
+  const end = !Number.isNaN(endAt) && endAt !== startAt ? eventLocalTimeLenient(endAt, eventDate, timezone) : null;
+  return { ...fields, eventDate, timeTba: false, timezone, start: eventLocalTimeLenient(startAt, eventDate, timezone), end };
 }
 
 export const isPrivateItem = (item: GoogleCalendarEvent) => item.visibility === "private" || item.visibility === "confidential";
