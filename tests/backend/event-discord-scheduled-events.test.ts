@@ -623,7 +623,44 @@ it("reconcile queues a series once, however many nights are unmatched, and links
   assert.deepEqual(await applyReconcile(t, s.connectorId, [series]), { linked: 1, imports: 1 });
   const link = await linkOf(t, s.eventIds[0]);
   assert.deepEqual([link?.externalId, link?.externalSeriesId], [`${OTHER}:${iso(start).slice(0, 10)}`, OTHER]);
-  assert.equal((await pendingOf(t, "import_item")).length, 1);
+  const imports = await pendingOf(t, "import_item");
+  assert.equal(imports.length, 1);
+  assert.equal(imports[0].payload.externalIds.length, 8);
+  assert.ok(!imports[0].payload.externalIds.includes(link?.externalId));
+});
+
+for (const connector of [{ direction: "import", mode: "hold" }, { direction: "import", mode: "autopublish" }, { direction: "bidirectional", mode: "hold" }, { direction: "bidirectional", mode: "autopublish" }] as const) {
+  it(`an edited linked night keeps its edit after a reconcile imports a sibling night (${connector.direction}, ${connector.mode})`, async () => {
+    const t = convexTest({ schema, modules });
+    const start = Date.now() + 2 * DAY;
+    const night = `${OTHER}:${iso(start).slice(0, 10)}`;
+    const s = await seed(t, [{ startAt: start, link: night, title: "Edited in VRDex", sortTitle: "edited in vrdex" }], connector);
+    await patchLink(t, s.eventIds[0], { externalSeriesId: OTHER });
+    const series = discordEvent(start, { id: OTHER, recurrence_rule: { ...weekly(start), count: 2 } });
+    assert.deepEqual(await applyReconcile(t, s.connectorId, [series]), { linked: 0, imports: 1 });
+    const [job] = await pendingOf(t, "import_item");
+    await t.action(internal.eventSync.runJob, { jobId: job._id });
+    assert.deepEqual([(await t.run((ctx) => ctx.db.get(job._id)))?.lastError], [undefined]);
+
+    const event = await t.run((ctx) => ctx.db.get(s.eventIds[0]));
+    assert.deepEqual([event?.title, event?.updatedAt], ["Edited in VRDex", 1]);
+    const link = await linkOf(t, s.eventIds[0]);
+    assert.deepEqual([link?.draftId, link?.lastImportedAt], [undefined, undefined]);
+    const sibling = (await all(t, "eventSyncLinks")).filter((row) => row.externalId !== night);
+    assert.equal(sibling.length, 1);
+    assert.ok(connector.mode === "hold" ? sibling[0].draftId : sibling[0].eventId);
+    if (connector.mode === "hold") assert.equal((await all(t, "eventIntakeDrafts")).length, 1);
+  });
+}
+
+it("a relayed series update still walks every night", async () => {
+  const t = convexTest({ schema, modules });
+  const start = Date.now() + 2 * DAY;
+  const night = `${OTHER}:${iso(start).slice(0, 10)}`;
+  const s = await seed(t, [{ startAt: start, link: night, title: "Edited in VRDex", sortTitle: "edited in vrdex" }], { direction: "import" });
+  await patchLink(t, s.eventIds[0], { externalSeriesId: OTHER });
+  await importJob(t, s.connectorId, "update", discordEvent(start, { id: OTHER, recurrence_rule: { ...weekly(start), count: 2 } }));
+  assert.equal((await all(t, "eventIntakeDrafts")).length, 2);
 });
 
 it("reconcile leaves linked, finished, foreign, distant, and unreadable items alone", async () => {

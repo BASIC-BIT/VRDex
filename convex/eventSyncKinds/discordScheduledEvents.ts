@@ -5,7 +5,7 @@ import { internalMutation, internalQuery, type ActionCtx, type DatabaseReader, t
 import { discordRequest } from "../_discordRest";
 import { DISCORD_IMAGE_MAX_BYTES, parseScheduledEvent, RECONCILE_HORIZON_MS, scheduledEventCandidateFields, scheduledEventOccurrences, scheduledEventToFields, toScheduledEventBody, type DiscordScheduledEvent, type DiscordScheduledEventBody, type ScheduledEventSource } from "../_discordScheduledEventMap";
 import { applyEventCandidate, candidateFromConnectorFields } from "../_eventCandidateApply";
-import { carriedFieldsHash, DISCORD_ID, discordScheduledEventsEnabled } from "../_eventConnectors";
+import { carriedFieldsHash, DISCORD_ID, discordScheduledEventsEnabled, sha256Hex } from "../_eventConnectors";
 import { eventDateForInstant, readEventSchedule } from "../_eventSchedule";
 import { enqueueSyncJob, eventIsSyncable } from "../_eventSync";
 import { correctionFields } from "../eventCorrections";
@@ -14,7 +14,8 @@ import { liveMessageId as liveExternalId, pause, publicEventProjection, readObje
 import type { SyncKindHandler } from "./types";
 
 type Connector = Doc<"eventConnectors">;
-export type ScheduledEventJobPayload = { action: "create" | "update" | "delete"; event: DiscordScheduledEvent; receivedAt: number };
+// `externalIds` limits a reconcile's job to the nights it could not place. A relayed job has none and walks every night.
+export type ScheduledEventJobPayload = { action: "create" | "update" | "delete"; event: DiscordScheduledEvent; receivedAt: number; externalIds?: string[] };
 
 const ARTWORK_TYPES = new Set(["image/png", "image/jpeg", "image/gif"]);
 const BASE64_CHUNK = 0x8000; // String.fromCharCode's spread overflows the stack on a whole image.
@@ -92,7 +93,7 @@ export const applyScheduledEventImport = internalMutation({
   args: { connectorId: v.id("eventConnectors"), payload: v.any() },
   handler: async (ctx, { connectorId, payload }): Promise<void> => {
     const { db } = ctx;
-    const { action, event: raw, receivedAt } = payload as ScheduledEventJobPayload;
+    const { action, event: raw, receivedAt, externalIds } = payload as ScheduledEventJobPayload;
     const connector = await db.get(connectorId);
     const item = parseScheduledEvent(raw);
     if (!connector || !importing(connector) || !item || item.guild_id !== connector.target.guildId) return;
@@ -115,6 +116,8 @@ export const applyScheduledEventImport = internalMutation({
 
     for (const occurrence of scheduledEventOccurrences(item, now)) {
       const { externalId, externalSeriesId, startAt, endAt } = occurrence;
+      // A reconcile's receipt time is always newer than a VRDex edit, so a linked night it reached would lose that edit with no Discord change behind it.
+      if (externalIds && !externalIds.includes(externalId)) continue;
       let link = await linkByExternalId(db, connector._id, externalId);
       // Discord's cancel and delete are terminal, so nothing restores those links. Relay jobs are not serialised, so an older one can run last.
       if (link && (link.state !== "linked" || (link.externalUpdatedAt !== undefined && link.externalUpdatedAt >= receivedAt))) continue;
@@ -137,7 +140,8 @@ export const applyScheduledEventImport = internalMutation({
       const { outcome } = await applyEventCandidate(ctx, {
         connector, candidate: candidateFromConnectorFields(KIND, scheduledEventCandidateFields(fields), event?.slug ? { kind: "update", slug: event.slug } : { kind: "new" }),
         actorUserId: connector.authorityUserId, link: link ?? undefined, externalId, externalUpdatedAt: receivedAt, expectedUpdatedAt: event?.updatedAt,
-        idempotencyKey: `${KIND}:${connector._id}:${externalId}:${hash}`,
+        // Hashed: publishing caps a key at 128 characters, and this one spells out a 64-character hash.
+        idempotencyKey: sha256Hex(`${KIND}:${connector._id}:${externalId}:${hash}`),
       });
       // A pending draft leaves the link alone so this edit is not lost.
       if (outcome === "skipped_pending_draft") continue;
@@ -161,14 +165,14 @@ export const applyReconcile = internalMutation({
     for (const raw of items) {
       const item = parseScheduledEvent(raw);
       if (!item || item.guild_id !== connector.target.guildId || item.status > 2) continue;
-      let unmatched = false;
+      const unmatched: string[] = [];
       for (const occurrence of scheduledEventOccurrences(item, now)) {
         if (occurrence.startAt < now || occurrence.startAt > now + RECONCILE_HORIZON_MS || await linkByExternalId(db, connectorId, occurrence.externalId)) continue;
         if (await linkTitleDateMatch(db, connector, item.name, occurrence)) counts.linked++;
-        else unmatched = true;
+        else unmatched.push(occurrence.externalId);
       }
-      if (!unmatched || !importing(connector)) continue;
-      const job: ScheduledEventJobPayload = { action: "create", event: item, receivedAt };
+      if (unmatched.length === 0 || !importing(connector)) continue;
+      const job: ScheduledEventJobPayload = { action: "create", event: item, receivedAt, externalIds: unmatched };
       await enqueueSyncJob(db, ctx.scheduler, { connectorId, kind: "import_item", payload: job });
       counts.imports++;
     }
