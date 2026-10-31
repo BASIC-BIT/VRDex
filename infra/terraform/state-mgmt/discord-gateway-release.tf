@@ -70,9 +70,7 @@ resource "aws_iam_role_policy" "discord_gateway_release" {
         Resource = local.state_bucket_arn
       },
       {
-        # Several of these could be resource-scoped. The list stays on * for
-        # simplicity because every action is read-only. No GetSecretValue: the
-        # stack has no secret versions.
+        # Read-only calls left on *. IAM and secret reads are scoped below.
         Sid    = "RefreshGatewayStack"
         Effect = "Allow"
         Action = [
@@ -90,14 +88,29 @@ resource "aws_iam_role_policy" "discord_gateway_release" {
           "logs:ListTagsForResource",
           "cloudwatch:DescribeAlarms",
           "cloudwatch:ListTagsForResource",
-          "secretsmanager:DescribeSecret",
-          "secretsmanager:GetResourcePolicy",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "ReadGatewayRoles"
+        Effect = "Allow"
+        Action = [
           "iam:GetRole",
           "iam:GetRolePolicy",
           "iam:ListRolePolicies",
           "iam:ListAttachedRolePolicies",
         ]
-        Resource = "*"
+        Resource = [
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/vrdex-discord-gateway-execution",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/vrdex-discord-gateway-task",
+        ]
+      },
+      {
+        # No GetSecretValue: the stack has no secret versions.
+        Sid      = "ReadGatewaySecretMetadata"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:DescribeSecret", "secretsmanager:GetResourcePolicy"]
+        Resource = "arn:aws:secretsmanager:us-east-1:${data.aws_caller_identity.current.account_id}:secret:vrdex/discord-gateway/*"
       },
       {
         Sid      = "RegisterGatewayTaskDefinitions"

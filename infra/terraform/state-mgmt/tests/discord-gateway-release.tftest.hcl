@@ -76,4 +76,22 @@ run "enabled_release_role" {
     condition     = one([for s in jsondecode(aws_iam_role_policy.discord_gateway_release[0].policy).Statement : s if s.Sid == "NotifyGatewayReleaseFailure"]).Resource == "arn:aws:sns:us-east-1:079358094174:vrdex-group-telemetry-alerts"
     error_message = "Release failure notices may publish only to the alerts topic."
   }
+
+  assert {
+    condition = one([for s in jsondecode(aws_iam_role_policy.discord_gateway_release[0].policy).Statement : s if s.Sid == "ReadGatewayRoles"]).Resource == [
+      "arn:aws:iam::079358094174:role/vrdex-discord-gateway-execution",
+      "arn:aws:iam::079358094174:role/vrdex-discord-gateway-task",
+    ]
+    error_message = "Role reads must be scoped to the two gateway roles."
+  }
+
+  assert {
+    condition     = alltrue([for action in one([for s in jsondecode(aws_iam_role_policy.discord_gateway_release[0].policy).Statement : s if s.Sid == "RefreshGatewayStack"]).Action : !startswith(action, "iam:")])
+    error_message = "RefreshGatewayStack sits on * and must not hold IAM reads."
+  }
+
+  assert {
+    condition     = one([for s in jsondecode(aws_iam_role_policy.discord_gateway_release[0].policy).Statement : s if s.Sid == "ReadGatewaySecretMetadata"]).Resource == "arn:aws:secretsmanager:us-east-1:079358094174:secret:vrdex/discord-gateway/*"
+    error_message = "Secret metadata reads must be scoped to the gateway's secrets."
+  }
 }
