@@ -591,3 +591,117 @@ it("marks a night matched from a series even when nothing differs, so an export 
   assert.ok(links.every((link) => link.externalSeriesId === OTHER));
   assert.equal((await all(t, "eventIntakeDrafts")).length, links.length - 1);
 });
+
+const applyReconcile = (t: ReturnType<typeof convexTest>, connectorId: Id<"eventConnectors">, items: unknown[]) =>
+  t.mutation(internal.eventSyncKinds.discordScheduledEvents.applyReconcile, { connectorId, items, receivedAt: Date.now() });
+const pendingOf = async (t: ReturnType<typeof convexTest>, kind: Doc<"eventSyncJobs">["kind"]) => (await all(t, "eventSyncJobs")).filter((job) => job.kind === kind && job.state === "pending");
+
+it("reconcile links matching Discord events without creating anything", async (test) => {
+  let s!: Awaited<ReturnType<typeof seed>>;
+  const calls = fakeDiscord(test, (call) => (call.method === "GET" && call.path === PATH ? Response.json([
+    discordEvent(s.now + 2 * DAY, { name: "AFTERGLOW HARBOR SESSIONS" }),
+    discordEvent(s.now + 3 * DAY, { id: OTHER, name: "Harbor Sunrise" }),
+    discordEvent(s.now - DAY, { id: "555555555555555555", name: "Last Week", status: 2 }),
+  ]) : undefined));
+  const t = convexTest({ schema, modules });
+  s = await seed(t, [{}, { title: "Second Night", sortTitle: "second night", startAt: Date.now() + 5 * DAY }]);
+  assert.equal((await runJob(t, { connectorId: s.connectorId, kind: "reconcile" }))?.state, "done");
+  assert.deepEqual(said(calls), [`GET ${PATH}`]);
+  assert.equal((await linkOf(t, s.eventIds[0]))?.externalId, LIVE);
+  const imports = await pendingOf(t, "import_item");
+  assert.deepEqual(imports.map((job) => [job.payload.action, job.payload.event.id]), [["create", OTHER]]);
+  // The runner queues these before the reconcile links anything, and the upsert's own list-and-match prevents duplicates.
+  assert.deepEqual(new Set((await pendingOf(t, "export_upsert")).map((job) => job.eventId)), new Set(s.eventIds));
+  assert.deepEqual(await all(t, "eventIntakeDrafts"), []);
+});
+
+it("reconcile queues a series once, however many nights are unmatched, and links the matched night", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{}]);
+  const start = s.now + 2 * DAY;
+  const series = discordEvent(start, { id: OTHER, recurrence_rule: weekly(start) });
+  assert.deepEqual(await applyReconcile(t, s.connectorId, [series]), { linked: 1, imports: 1 });
+  const link = await linkOf(t, s.eventIds[0]);
+  assert.deepEqual([link?.externalId, link?.externalSeriesId], [`${OTHER}:${iso(start).slice(0, 10)}`, OTHER]);
+  assert.equal((await pendingOf(t, "import_item")).length, 1);
+});
+
+it("reconcile leaves linked, finished, foreign, distant, and unreadable items alone", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE, linkState: "external_deleted" }, { startAt: Date.now() + 3 * DAY }, { startAt: Date.now() + 4 * DAY }, { startAt: Date.now() + 91 * DAY }]);
+  const summary = await applyReconcile(t, s.connectorId, [
+    discordEvent(s.now + 2 * DAY, { description: "Changed." }),
+    discordEvent(s.now + 3 * DAY, { id: OTHER, status: 3 }),
+    discordEvent(s.now + 4 * DAY, { id: OTHER, status: 4 }),
+    discordEvent(s.now + 2 * DAY, { id: OTHER, guild_id: "999999999999999999" }),
+    discordEvent(s.now + 91 * DAY, { id: OTHER }),
+    { id: "not-a-snowflake" },
+  ]);
+  assert.deepEqual(summary, { linked: 0, imports: 0 });
+  assert.equal((await all(t, "eventSyncLinks")).length, 1);
+  assert.deepEqual(await pendingOf(t, "import_item"), []);
+  assert.equal((await linkOf(t, s.eventIds[0]))?.state, "external_deleted");
+});
+
+it("reconcile takes a one-off near the end of the 90 day window", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, []);
+  assert.deepEqual(await applyReconcile(t, s.connectorId, [discordEvent(s.now + 89 * DAY, { id: OTHER })]), { linked: 0, imports: 1 });
+});
+
+it("an exporting connector links on reconcile but never imports, and a stopped one does nothing", async () => {
+  const t = convexTest({ schema, modules });
+  const items = (now: number) => [discordEvent(now + 2 * DAY), discordEvent(now + 3 * DAY, { id: OTHER, name: "Harbor Sunrise" })];
+  const exporting = await seed(t, [{}], { direction: "export" });
+  assert.deepEqual(await applyReconcile(t, exporting.connectorId, items(exporting.now)), { linked: 1, imports: 0 });
+  for (const stopped of [{ direction: "off" }, { state: "paused" }] as const) {
+    const s = await seed(t, [{}], stopped);
+    assert.deepEqual(await applyReconcile(t, s.connectorId, items(s.now)), { linked: 0, imports: 0 });
+  }
+});
+
+it("reconcile pauses on a 403, and fails with a short code on a bad list or a disabled flag", async (test) => {
+  const responses = [new Response(null, { status: 403 }), Response.json({ message: "nope" }), new Response(null, { status: 500 })];
+  const calls = fakeDiscord(test, () => responses.shift());
+  const t = convexTest({ schema, modules });
+  const run = async () => (await runJob(t, { connectorId: (await seed(t, [])).connectorId, kind: "reconcile" }))?.lastError;
+  assert.equal(await run(), "discord_forbidden");
+  const [connector] = (await t.run((ctx) => ctx.db.query("eventConnectors").collect()));
+  assert.deepEqual([connector.state, connector.lastError], ["paused", "discord_forbidden"]);
+  assert.equal(await run(), "discord_bad_response");
+  assert.equal(await run(), "discord_500");
+  assert.equal(calls.length, 3);
+  delete process.env.VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED;
+  assert.match(await run() ?? "", /CONNECTOR_KIND_DISABLED/);
+  assert.equal(calls.length, 3);
+});
+
+it("enqueues one daily reconcile per active connector", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, []);
+  await t.run(async (ctx) => {
+    const { _id, _creationTime, ...copy } = (await ctx.db.get(s.connectorId))!;
+    await ctx.db.insert("eventConnectors", { ...copy, direction: "export", target: { guildId: "999999999999999999" } });
+    await ctx.db.insert("eventConnectors", { ...copy, state: "paused" });
+    await ctx.db.insert("eventConnectors", { ...copy, direction: "off" });
+    await ctx.db.insert("eventConnectors", { ...copy, kind: "discord_board", target: { guildId: GUILD, channelId: "123456789012345678" } });
+  });
+  assert.equal(await t.mutation(internal.eventSyncKinds.discordScheduledEvents.enqueueReconciles, {}), 2);
+  assert.equal(await t.mutation(internal.eventSyncKinds.discordScheduledEvents.enqueueReconciles, {}), 0);
+});
+
+it("sees a pending reconcile behind a burst of import jobs, and enqueues nothing with the flag off", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, []);
+  const enqueue = () => t.mutation(internal.eventSyncKinds.discordScheduledEvents.enqueueReconciles, {});
+  await t.run(async (ctx) => {
+    const job = { connectorId: s.connectorId, payload: null, dueAt: 0, attempts: 0, state: "pending", createdAt: 0, updatedAt: 0 } as const;
+    for (let index = 0; index < 25; index++) await ctx.db.insert("eventSyncJobs", { ...job, kind: "import_item" });
+    await ctx.db.insert("eventSyncJobs", { ...job, kind: "reconcile" });
+  });
+  assert.equal(await enqueue(), 0);
+  await t.run(async (ctx) => { for (const job of await ctx.db.query("eventSyncJobs").collect()) await ctx.db.delete(job._id); });
+  delete process.env.VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED;
+  assert.equal(await enqueue(), 0);
+  assert.deepEqual(await all(t, "eventSyncJobs"), []);
+});

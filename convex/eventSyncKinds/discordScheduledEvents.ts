@@ -3,7 +3,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type ActionCtx, type DatabaseReader, type DatabaseWriter } from "../_generated/server";
 import { discordRequest } from "../_discordRest";
-import { DISCORD_IMAGE_MAX_BYTES, parseScheduledEvent, scheduledEventCandidateFields, scheduledEventOccurrences, scheduledEventToFields, toScheduledEventBody, type DiscordScheduledEvent, type DiscordScheduledEventBody, type ScheduledEventSource } from "../_discordScheduledEventMap";
+import { DISCORD_IMAGE_MAX_BYTES, parseScheduledEvent, RECONCILE_HORIZON_MS, scheduledEventCandidateFields, scheduledEventOccurrences, scheduledEventToFields, toScheduledEventBody, type DiscordScheduledEvent, type DiscordScheduledEventBody, type ScheduledEventSource } from "../_discordScheduledEventMap";
 import { applyEventCandidate, candidateFromConnectorFields } from "../_eventCandidateApply";
 import { carriedFieldsHash, DISCORD_ID, discordScheduledEventsEnabled } from "../_eventConnectors";
 import { eventDateForInstant, readEventSchedule } from "../_eventSchedule";
@@ -147,6 +147,55 @@ export const applyScheduledEventImport = internalMutation({
   },
 });
 
+// Links matches without applying them and queues the rest for import, one job per item. The runner already queued exports for unlinked events.
+// ponytail: a link missing from the list stays as it is, so a delete made while the gateway was down goes unflagged; compare the list with the window's links if that matters.
+export const applyReconcile = internalMutation({
+  args: { connectorId: v.id("eventConnectors"), items: v.array(v.any()), receivedAt: v.number() },
+  returns: v.object({ linked: v.number(), imports: v.number() }),
+  handler: async (ctx, { connectorId, items, receivedAt }) => {
+    const { db } = ctx;
+    const counts = { linked: 0, imports: 0 };
+    const connector = await db.get(connectorId);
+    if (connector?.state !== "active" || connector.direction === "off") return counts;
+    const now = Date.now();
+    for (const raw of items) {
+      const item = parseScheduledEvent(raw);
+      if (!item || item.guild_id !== connector.target.guildId || item.status > 2) continue;
+      let unmatched = false;
+      for (const occurrence of scheduledEventOccurrences(item, now)) {
+        if (occurrence.startAt < now || occurrence.startAt > now + RECONCILE_HORIZON_MS || await linkByExternalId(db, connectorId, occurrence.externalId)) continue;
+        if (await linkTitleDateMatch(db, connector, item.name, occurrence)) counts.linked++;
+        else unmatched = true;
+      }
+      if (!unmatched || !importing(connector)) continue;
+      const job: ScheduledEventJobPayload = { action: "create", event: item, receivedAt };
+      await enqueueSyncJob(db, ctx.scheduler, { connectorId, kind: "import_item", payload: job });
+      counts.imports++;
+    }
+    return counts;
+  },
+});
+
+/** The daily cron: one reconcile per active connector, which the runner retries and alarms on. */
+export const enqueueReconciles = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    if (!discordScheduledEventsEnabled()) return 0;
+    let enqueued = 0;
+    // ponytail: one mutation walks every connector of this kind; paginate if they reach the thousands.
+    for await (const connector of ctx.db.query("eventConnectors").withIndex("by_kind_target_guildId", q => q.eq("kind", KIND))) {
+      if (connector.state !== "active" || connector.direction === "off") continue;
+      // Collected, not taken: import jobs share this range and arrive in bursts, so a capped read could miss the reconcile.
+      const pending = await ctx.db.query("eventSyncJobs").withIndex("by_connectorId_eventId_state", q => q.eq("connectorId", connector._id).eq("eventId", undefined).eq("state", "pending")).collect();
+      if (pending.some(job => job.kind === "reconcile")) continue;
+      await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: connector._id, kind: "reconcile" });
+      enqueued++;
+    }
+    return enqueued;
+  },
+});
+
 /** The artwork as a data URI; on any failure the export goes out without a cover. */
 export async function artworkDataUri(url: string): Promise<string | undefined> {
   try {
@@ -190,10 +239,15 @@ async function liveStatus(ctx: ActionCtx, connector: Connector, path: string): P
 const removeLive = (ctx: ActionCtx, connector: Connector, path: string) => send(ctx, connector, "DELETE", path, undefined, true);
 const utcDate = (at: string) => new Date(at).toISOString().slice(0, 10);
 
-// A copy made by hand on the same UTC date. Series and finished events are never adopted: a one-off must not rewrite them.
-async function findUnlinkedCopy(ctx: ActionCtx, connector: Connector, path: string, body: DiscordScheduledEventBody): Promise<string | undefined> {
+async function listGuildEvents(ctx: ActionCtx, connector: Connector, path: string): Promise<unknown[]> {
   const rows: unknown = await (await send(ctx, connector, "GET", path))!.json().catch(() => null);
   if (!Array.isArray(rows)) throw new Error("discord_bad_response");
+  return rows;
+}
+
+// A copy made by hand on the same UTC date. Series and finished events are never adopted: a one-off must not rewrite them.
+async function findUnlinkedCopy(ctx: ActionCtx, connector: Connector, path: string, body: DiscordScheduledEventBody): Promise<string | undefined> {
+  const rows = await listGuildEvents(ctx, connector, path);
   const date = utcDate(body.scheduled_start_time);
   const name = body.name.toLowerCase();
   const candidates = rows.flatMap(row => parseScheduledEvent(row) ?? [])
@@ -252,5 +306,9 @@ export const discordScheduledEventsHandler: SyncKindHandler = {
   async importItem(ctx, connector, payload): Promise<void> {
     scheduledEventsGuildId(connector);
     await ctx.runMutation(internal.eventSyncKinds.discordScheduledEvents.applyScheduledEventImport, { connectorId: connector._id, payload });
+  },
+  async reconcile(ctx, connector): Promise<void> {
+    const items = await listGuildEvents(ctx, connector, `/guilds/${scheduledEventsGuildId(connector)}/scheduled-events`);
+    await ctx.runMutation(internal.eventSyncKinds.discordScheduledEvents.applyReconcile, { connectorId: connector._id, items, receivedAt: Date.now() });
   },
 };
