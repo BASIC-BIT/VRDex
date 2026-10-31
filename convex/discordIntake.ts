@@ -65,6 +65,28 @@ export const recordHeartbeat = internalMutation({
   },
 });
 
+/** How long the gateway can go without a received heartbeat before ops is alerted. */
+export const DISCORD_GATEWAY_HEARTBEAT_STALE_MS = 300_000;
+const HEARTBEAT_ALERT_KEY = "discord_gateway_heartbeat_stale";
+
+/** Alerts ops while the newest heartbeat, by Convex receipt time, is stale or missing; a fresh one resolves the alert. */
+export const checkHeartbeat = internalMutation({
+  args: {},
+  returns: v.union(v.object({ checked: v.literal(false) }), v.object({ checked: v.literal(true), stale: v.boolean(), newestAt: v.union(v.number(), v.null()) })),
+  handler: async ctx => {
+    if (!discordIntakeEnabled()) return { checked: false as const };
+    const newest = await ctx.db.query("discordGatewayHeartbeats").withIndex("by_receivedAt").order("desc").first();
+    const newestAt = newest?.receivedAt ?? null;
+    const stale = newestAt === null || Date.now() - newestAt > DISCORD_GATEWAY_HEARTBEAT_STALE_MS;
+    if (stale) await notifyOps(ctx, {
+      key: HEARTBEAT_ALERT_KEY, subject: "Discord gateway heartbeat is stale",
+      body: `Newest heartbeat: ${newestAt === null ? "never" : new Date(newestAt).toISOString()}. Threshold: ${DISCORD_GATEWAY_HEARTBEAT_STALE_MS / 1000} s. Check ECS service vrdex-discord-gateway and log group /aws/ecs/vrdex-discord-gateway.`,
+    });
+    else await resolveOps(ctx, HEARTBEAT_ALERT_KEY);
+    return { checked: true as const, stale, newestAt };
+  },
+});
+
 type StoredAttachments = Doc<"discordIntakeMessages">["attachments"];
 // Discord re-signs CDN links in the query string, so the link without it identifies an attachment.
 const attachmentKey = ({ url, contentType, byteLength }: StoredAttachments[number]) => `${url.split("?")[0]}|${contentType}|${byteLength}`;
@@ -125,6 +147,7 @@ async function restartQuietWindow(ctx: MutationCtx, connector: Doc<"eventConnect
   await cancelPendingSchedule(ctx.db, ctx.scheduler, run?.scheduledFunctionId);
   const scheduledFunctionId = await ctx.scheduler.runAfter(quietWindowMs(connector), internal.discordIntakeRun.runPending, { runId });
   await ctx.db.patch(runId, { scheduledFunctionId, triggerMessageIds: triggerMessageIds.includes(messageId) ? triggerMessageIds : [...triggerMessageIds, messageId] });
+  return runId;
 }
 
 const DAY_MS = 86_400_000;
@@ -173,14 +196,9 @@ export const claimRun = internalMutation({
     if (!discordIntakeEnabled() || !connectorsEnabled() || !connector || connector.state !== "active" || connector.direction === "off" || !community?.slug) return skip("connector_inactive");
 
     // One run per author at a time: two concurrent runs over the same post would each insert its link.
-    // A running row past its lease belongs to an action that died without failRun; close it so it reaches the alarm.
-    const running = await ctx.db.query("discordIntakeRuns").withIndex("by_connectorId_authorId_state", q => q.eq("connectorId", connector._id).eq("authorId", run.authorId).eq("state", "running")).collect();
-    let live = false;
-    for (const row of running) {
-      if ((row.startedAt ?? 0) > now - RUNNING_LEASE_MS) live = true;
-      else await closeFailedRun(ctx, row, "stalled", now);
-    }
-    if (live) {
+    // A running row past its lease defers this run too: sweepStalledRuns closes it, alerts, and joins its posts to this run.
+    const running = await ctx.db.query("discordIntakeRuns").withIndex("by_connectorId_authorId_state", q => q.eq("connectorId", connector._id).eq("authorId", run.authorId).eq("state", "running")).first();
+    if (running) {
       await cancelPendingSchedule(ctx.db, ctx.scheduler, run.scheduledFunctionId);
       const scheduledFunctionId = await ctx.scheduler.runAfter(quietWindowMs(connector), internal.discordIntakeRun.runPending, { runId });
       await ctx.db.patch(runId, { scheduledFunctionId });
@@ -351,6 +369,37 @@ async function closeFailedRun(ctx: MutationCtx, run: Doc<"discordIntakeRuns">, r
     });
   }
 }
+
+/** The only closer of running rows past their lease: alerts ops and requeues each one's posts once. */
+export const sweepStalledRuns = internalMutation({
+  args: {},
+  returns: v.object({ closed: v.number(), retried: v.number() }),
+  handler: async ctx => {
+    const now = Date.now();
+    const stalled = await ctx.db.query("discordIntakeRuns").withIndex("by_state_startedAt", q => q.eq("state", "running").lte("startedAt", now - RUNNING_LEASE_MS)).take(50);
+    let retried = 0;
+    for (const row of stalled) {
+      const connector = await ctx.db.get(row.connectorId);
+      let retryId: Id<"discordIntakeRuns"> | undefined;
+      // Safe to redo: finishRun writes events and links atomically, so a dead action wrote neither. Once only: a post that kills the action must not burn the daily cap.
+      if (!row.stalledRetry && connector?.state === "active" && connector.direction !== "off") {
+        for (const messageId of row.triggerMessageIds) retryId = await restartQuietWindow(ctx, connector, row.authorId, messageId);
+      }
+      if (retryId) {
+        await ctx.db.patch(retryId, { stalledRetry: true });
+        retried++;
+      }
+      // Dropped posts get a key per run: the connector key may be inside its dedupe window, which would swallow the last word on them.
+      await notifyOps(ctx, {
+        key: retryId ? discordIntakeAlertKey(row.connectorId) : `discord-intake-dropped:${row._id}`, subject: "Discord intake run stalled",
+        body: `Discord intake connector ${row.connectorId} (community ${connector?.communityProfileId}) run ${row._id} stalled; its posts were ${retryId ? "requeued" : "not requeued"}.`,
+      });
+      // Last: its three-failures alert shares the connector key, and that email would say nothing about the requeue.
+      await closeFailedRun(ctx, row, "stalled", now);
+    }
+    return { closed: stalled.length, retried };
+  },
+});
 
 /** Reopens a connector the daily run cap paused; any other pause stays. */
 export const resumeConnector = internalMutation({
