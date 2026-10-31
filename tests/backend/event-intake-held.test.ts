@@ -266,10 +266,13 @@ it("counts what a staffer saved as update keys, and only that without evidence",
 
 it("never carries a Discord message URL onto the event", () => {
   const url = "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333";
-  for (const fields of [{ sourceUrl: url }, { tentative: { sourceUrl: url }, evidence: [evidence("event.sourceUrl")] }]) {
-    assert.deepEqual(heldUpdatePatch(fields, "discord_announcements"), {});
-    assert.deepEqual(heldUpdatePatch(fields, "discord_board"), { sourceUrl: url });
-  }
+  for (const kind of ["discord_announcements", "discord_board", "google_calendar"] as const) assert.deepEqual(heldUpdatePatch({ sourceUrl: url }, kind), {});
+  assert.deepEqual(heldUpdatePatch({ tentative: { sourceUrl: url }, evidence: [evidence("event.sourceUrl")] }, "discord_announcements"), {});
+});
+
+it("keeps a source URL a staffer typed, whatever the kind", () => {
+  const typed = "https://club.example/night";
+  for (const kind of ["discord_announcements", "google_calendar"] as const) assert.deepEqual(heldUpdatePatch({ sourceUrl: typed }, kind), { sourceUrl: typed });
 });
 
 it("does not clear event clocks a re-dated draft declined to promote", () => {

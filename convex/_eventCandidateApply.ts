@@ -5,7 +5,7 @@ import { candidatePatch } from "../apps/web/src/lib/event-intake-source";
 import type { EventIntakeCandidate, EventIntakeDecision, EventIntakeFields, EventIntakeLocalTime, EventIntakePatch } from "../packages/api-contracts/src/event-intake";
 import { carriedFields, carriedFieldsHash, connectorsEnabled, EventIntakeUpdatePatchSchema, pendingLinkDraft, requireConnectorAuthority, type ConnectorKind } from "./_eventConnectors";
 import { normalizeIntakePublication } from "./_eventContributionPreflight";
-import { getActorIntakeDraft, publishIntakeDraft, sanitizeEventIntakePatch, saveIntakeDraft } from "./_eventIntake";
+import { DISCORD_MESSAGE_URL, getActorIntakeDraft, publishIntakeDraft, sanitizeEventIntakePatch, saveIntakeDraft } from "./_eventIntake";
 import { requireDateOnlyEventsEnabled } from "./_eventSchedule";
 import { getEventBySlug } from "./_eventSlugs";
 import { patchCommunityEventFieldsAsStaffRecord, validStaffPatch } from "./events";
@@ -30,8 +30,8 @@ export function evidenceKey(fieldPath: string): string {
 export function explicitUpdateKeys(evidence: NonNullable<EventIntakePatch["evidence"]>, kind: ConnectorKind, saved: Partial<EventIntakeFields> = {}) {
   const explicit = new Set(evidence.filter(entry => entry.assessment === "explicit").map(entry => evidenceKey(entry.fieldPath)));
   const carried = carriedFields(kind);
-  // A top-level sourceUrl on a Discord draft is the private message URL, never a staff edit.
-  const staffSet = (key: keyof EventIntakeFields) => (saved[key] ?? null) !== null && (key !== "sourceUrl" || carried.includes(key));
+  // A top-level Discord message URL is the draft's private provenance, never a staff edit.
+  const staffSet = (key: keyof EventIntakeFields) => (saved[key] ?? null) !== null && !(key === "sourceUrl" && DISCORD_MESSAGE_URL.test(saved.sourceUrl ?? ""));
   const keys = UPDATE_KEYS.filter(key => (explicit.has(key) && carried.includes(key)) || staffSet(key));
   // A start that appears or disappears also flips time TBA.
   if (keys.includes("start") && !keys.includes("timeTba") && carried.includes("timeTba")) keys.push("timeTba");
