@@ -196,14 +196,9 @@ export const claimRun = internalMutation({
     if (!discordIntakeEnabled() || !connectorsEnabled() || !connector || connector.state !== "active" || connector.direction === "off" || !community?.slug) return skip("connector_inactive");
 
     // One run per author at a time: two concurrent runs over the same post would each insert its link.
-    // A running row past its lease belongs to an action that died without failRun; close it so it reaches the alarm.
-    const running = await ctx.db.query("discordIntakeRuns").withIndex("by_connectorId_authorId_state", q => q.eq("connectorId", connector._id).eq("authorId", run.authorId).eq("state", "running")).collect();
-    let live = false;
-    for (const row of running) {
-      if ((row.startedAt ?? 0) > now - RUNNING_LEASE_MS) live = true;
-      else await closeFailedRun(ctx, row, "stalled", now);
-    }
-    if (live) {
+    // A running row past its lease defers this run too: sweepStalledRuns closes it, alerts, and joins its posts to this run.
+    const running = await ctx.db.query("discordIntakeRuns").withIndex("by_connectorId_authorId_state", q => q.eq("connectorId", connector._id).eq("authorId", run.authorId).eq("state", "running")).first();
+    if (running) {
       await cancelPendingSchedule(ctx.db, ctx.scheduler, run.scheduledFunctionId);
       const scheduledFunctionId = await ctx.scheduler.runAfter(quietWindowMs(connector), internal.discordIntakeRun.runPending, { runId });
       await ctx.db.patch(runId, { scheduledFunctionId });
@@ -375,7 +370,7 @@ async function closeFailedRun(ctx: MutationCtx, run: Doc<"discordIntakeRuns">, r
   }
 }
 
-/** Closes running rows past their lease, which claimRun alone reaches only when the author posts again, and requeues their posts once. */
+/** The only closer of running rows past their lease: alerts ops and requeues each one's posts once. */
 export const sweepStalledRuns = internalMutation({
   args: {},
   returns: v.object({ closed: v.number(), retried: v.number() }),
@@ -386,17 +381,20 @@ export const sweepStalledRuns = internalMutation({
     for (const row of stalled) {
       await closeFailedRun(ctx, row, "stalled", now);
       const connector = await ctx.db.get(row.connectorId);
-      await notifyOps(ctx, {
-        key: discordIntakeAlertKey(row.connectorId), subject: "Discord intake run stalled",
-        body: `Discord intake connector ${row.connectorId} (community ${connector?.communityProfileId}) run ${row._id} stalled.`,
-      });
-      // Safe to redo: finishRun writes events and links atomically, so a dead action wrote neither. Once only: a post that kills the action must not burn the daily cap.
-      if (row.stalledRetry || connector?.state !== "active" || connector.direction === "off") continue;
       let retryId: Id<"discordIntakeRuns"> | undefined;
-      for (const messageId of row.triggerMessageIds) retryId = await restartQuietWindow(ctx, connector, row.authorId, messageId);
-      if (!retryId) continue;
-      await ctx.db.patch(retryId, { stalledRetry: true });
-      retried++;
+      // Safe to redo: finishRun writes events and links atomically, so a dead action wrote neither. Once only: a post that kills the action must not burn the daily cap.
+      if (!row.stalledRetry && connector?.state === "active" && connector.direction !== "off") {
+        for (const messageId of row.triggerMessageIds) retryId = await restartQuietWindow(ctx, connector, row.authorId, messageId);
+      }
+      if (retryId) {
+        await ctx.db.patch(retryId, { stalledRetry: true });
+        retried++;
+      }
+      // Dropped posts get a key per run: the connector key may be inside its dedupe window, which would swallow the last word on them.
+      await notifyOps(ctx, {
+        key: retryId ? discordIntakeAlertKey(row.connectorId) : `discord-intake-dropped:${row._id}`, subject: "Discord intake run stalled",
+        body: `Discord intake connector ${row.connectorId} (community ${connector?.communityProfileId}) run ${row._id} stalled; its posts were ${retryId ? "requeued" : "not requeued"}.`,
+      });
     }
     return { closed: stalled.length, retried };
   },
