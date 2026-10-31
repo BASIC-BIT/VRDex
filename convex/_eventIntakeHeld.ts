@@ -127,7 +127,10 @@ export async function heldImportRows(db: DatabaseReader, community: Doc<"profile
     for (const { draft, source } of await pendingHeldDrafts(db, connector._id, now)) {
       // One bad row must not cost every manager the list, which is the only place to act on the others.
       const parsed = EventIntakePatchSchema.safeParse(draft.fields);
-      if (!parsed.success) continue;
+      if (!parsed.success) {
+        console.warn("held import row skipped", { draftId: draft._id });
+        continue;
+      }
       const fields = parsed.data;
       const message = source ? await messageRow(db, connector._id, source.messageId) : null;
       const promoted = promoteHeldFields(fields, community.slug);
@@ -142,7 +145,10 @@ export async function heldImportRows(db: DatabaseReader, community: Doc<"profile
         const [current, patch] = [await correctionFields(db, event), heldUpdatePatch(fields, connector.kind)];
         const applied = { ...current, ...patch };
         diff = { schedule: intakeSchedule(applied.timeTba ? { ...applied, start: undefined, end: undefined, doors: undefined } : applied), changes: heldChanges(current, patch) };
-      } catch { /* The row keeps the draft's own schedule and shows no diff. */ }
+      } catch {
+        // The row keeps the draft's own schedule and shows no diff.
+        console.warn("held import diff skipped", { draftId: draft._id });
+      }
       rows.push({ ...row, ...diff, kind: "update", target: { slug: event.slug!, title: event.title, href: editHref(event.slug!) } });
     }
     const reason = connector.kind === "discord_announcements" ? "source_deleted" : "external_deleted";
