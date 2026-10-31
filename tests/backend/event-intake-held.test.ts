@@ -744,6 +744,18 @@ it("publishing clears a deletion flag only when a live post feeds the draft", as
   assert.deepEqual((await published(cancelled, await googleLink({ draftId: cancelled, eventId: ids.event, state: "external_deleted" }))).slice(0, 1), ["external_deleted"]);
 });
 
+it("a cancelled held Discord scheduled event publishes with its flag, on a link exports leave alone", async () => {
+  const { t, ids, as, draft, now } = await fixture();
+  const connectorId = await t.run(({ db }) => db.insert("eventConnectors", { communityProfileId: ids.community, kind: "discord_scheduled_events", direction: "bidirectional", mode: "hold", authorityUserId: ids.authority, target: { guildId: "111111111111111111", guildName: "Night Server" }, state: "active", createdAt: now, updatedAt: now }));
+  const draftId = await draft(newDraft, { connectorId });
+  const linkId = await t.run(({ db }) => db.insert("eventSyncLinks", { connectorId, draftId, externalId: "444444444444444444", state: "external_deleted", createdAt: now, updatedAt: now }));
+  const { eventId } = await as("staff").mutation(api.eventIntakeHeld.publish, { draftId });
+  const link = (await t.run(({ db }) => db.get(linkId)))!;
+  assert.deepEqual([link.eventId, link.draftId, link.state], [eventId, undefined, "external_deleted"]);
+  const flag = (await as("staff").query(api.eventInventory.listHeldImports, {})).find(row => row.kind === "flag");
+  assert.deepEqual(flag?.kind === "flag" && [flag.eventId, flag.reason, flag.targetName], [eventId, "external_deleted", "Night Server"]);
+});
+
 it("refuses a save to a resolved draft, the owner's too", async () => {
   const { t, ids, draft, now } = await fixture();
   const draftId = await draft(newDraft, { resolvedAt: now, dismissedAt: now });

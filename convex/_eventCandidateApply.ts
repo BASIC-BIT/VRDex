@@ -101,7 +101,7 @@ export async function applyEventCandidate(ctx: MutationCtx, args: {
   const imported = { lastImportedAt: now, ...(args.externalUpdatedAt === undefined ? {} : { externalUpdatedAt: args.externalUpdatedAt }) };
   const pending = await pendingLinkDraft(db, link, now);
   if (link && pending) {
-    // A timestamped source delivers an edit only once, so it lands here, under what staff saved. Discord refreshes the draft in finishRun.
+    // A timestamped source delivers an edit only once, so it lands here, under what staff saved. Discord announcements refresh the draft in finishRun.
     if (args.externalUpdatedAt !== undefined && args.externalUpdatedAt > (link.externalUpdatedAt ?? 0)) {
       await saveIntakeDraft(db, pending.actorUserId, { draftId: pending._id, expectedVersion: pending.version, patch: heldPatch }, now, { connectorDriven: true, connectorId: connector._id });
       await db.patch(link._id, { ...imported, updatedAt: now });

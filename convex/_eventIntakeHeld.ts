@@ -102,7 +102,7 @@ export async function dismissHeldDraft(ctx: Pick<MutationCtx, "db" | "scheduler"
 }
 
 const targetName = ({ target }: Doc<"eventConnectors">) => target.channelName ? `#${target.channelName}`
-  : target.calendarName ?? target.groupName ?? target.guildName ?? target.channelId ?? target.calendarId ?? target.groupId ?? null;
+  : target.calendarName ?? target.groupName ?? target.guildName ?? target.channelId ?? target.calendarId ?? target.groupId ?? target.guildId ?? null;
 
 /** A connector's drafts awaiting review, newest first. A run's working draft has neither a source row nor a link until the run finishes. */
 export async function pendingHeldDrafts(db: DatabaseReader, connectorId: Id<"eventConnectors">, now: number) {
