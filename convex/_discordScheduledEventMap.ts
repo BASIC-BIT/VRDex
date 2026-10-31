@@ -94,6 +94,9 @@ export function toScheduledEventBody(source: ScheduledEventSource & { startAt: n
 
 const read = (value: string | null | undefined, max: number) => cutUnits(value?.trim() ?? "", max).trim() || null;
 const sameText = (inbound: string | null | undefined, written: string | undefined) => written !== undefined && inbound?.trim() === written.trim();
+// The staff patch collapses a summary's whitespace and intake publish keeps it raw, so a linked description reads as the summary either way.
+const collapsed = (value: string | null) => value?.replace(/\s+/g, " ") ?? null;
+const sameSummary = (text: string | null | undefined, summary: string | undefined) => collapsed(read(text, SUMMARY_MAX)) === collapsed(read(summary, SUMMARY_MAX));
 
 // The description as VRDex's summary, minus the event's own URL line.
 function withoutUrlLine(description: string | null | undefined, url: string): string | null | undefined {
@@ -107,7 +110,7 @@ function withoutUrlLine(description: string | null | undefined, url: string): st
  */
 export function patchKeepingDescription(body: DiscordScheduledEventBody, live: string | null, source: Pick<ScheduledEventSource, "summary" | "url">): Omit<DiscordScheduledEventBody, "description"> & { description?: string } {
   const plain = withoutUrlLine(live, source.url);
-  if (read(plain, SUMMARY_MAX) !== read(source.summary, SUMMARY_MAX)) return body;
+  if (!sameSummary(plain, source.summary)) return body;
   const { description: _description, ...kept } = body;
   return plain === live ? { ...kept, description: describe(live ?? "", source.url) } : kept;
 }
@@ -121,6 +124,7 @@ export function scheduledEventToFields(item: ScheduledEventFieldsInput, linked: 
   // A date-only event has no export to compare with.
   const written = linked?.startAt === undefined ? null : toScheduledEventBody({ ...linked, startAt: linked.startAt });
   const timezone = linked?.timezone ?? "UTC";
+  const description = linked ? withoutUrlLine(item.description, linked.url) : item.description;
   const startAt = Date.parse(item.scheduled_start_time);
   const endAt = item.scheduled_end_time ? Date.parse(item.scheduled_end_time) : null;
   const eventDate = eventDateForInstant(startAt, timezone);
@@ -132,7 +136,7 @@ export function scheduledEventToFields(item: ScheduledEventFieldsInput, linked: 
     eventDate, timezone,
     start: eventLocalTimeLenient(startAt, eventDate, timezone),
     end: endAt === null || fallbackEnd ? null : eventLocalTimeLenient(endAt, eventDate, timezone),
-    summary: read(sameText(item.description, written?.description) ? linked?.summary : linked ? withoutUrlLine(item.description, linked.url) : item.description, SUMMARY_MAX),
+    summary: read(linked && (sameText(item.description, written?.description) || sameSummary(description, linked.summary)) ? linked.summary : description, SUMMARY_MAX),
     venueLabel: read(sameText(item.entity_metadata?.location, written?.entity_metadata.location) ? linked?.venueLabel : item.entity_metadata?.location, VENUE_MAX),
   };
 }

@@ -364,6 +364,36 @@ it("a long Discord description survives a PATCH of an unchanged summary, and its
   assert.deepEqual(await all(t, "eventIntakeDrafts"), []);
 });
 
+const PARAGRAPHS = Array(23).fill("Bring your own lantern, the harbor is dark.").join("\n\n");
+const RAW_SUMMARY = PARAGRAPHS.slice(0, 240).trim();
+for (const mode of ["hold", "autopublish"] as const) {
+  for (const [form, summary] of [["collapsed", RAW_SUMMARY.replace(/\s+/g, " ")], ["raw", RAW_SUMMARY]] as const) {
+    it(`a multi-line Discord description survives a PATCH, and its echo changes nothing (${form} summary, ${mode})`, async (test) => {
+      const description = `${PARAGRAPHS}\n\n${URL_LINE}`;
+      const calls = fakeDiscord(test, liveWith({ description }));
+      const t = convexTest({ schema, modules });
+      const s = await seed(t, [{ link: LIVE, summary }], { direction: "bidirectional", mode });
+      await upsert(t, s);
+      assert.equal(Object.hasOwn(calls.find((call) => call.method === "PATCH")!.body!, "description"), false);
+      const before = await t.run((ctx) => ctx.db.get(s.eventIds[0]));
+      await importJob(t, s.connectorId, "update", discordEvent(s.now + 2 * DAY, { description }));
+      assert.deepEqual(await all(t, "eventIntakeDrafts"), []);
+      assert.deepEqual(await t.run((ctx) => ctx.db.get(s.eventIds[0])), before);
+    });
+  }
+}
+
+it("a multi-line Discord description survives its own import through the staff patch", async (test) => {
+  const description = `${PARAGRAPHS}\n\n${URL_LINE}`;
+  const calls = fakeDiscord(test, liveWith({ description }));
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE, summary: "Old." }], { direction: "bidirectional", mode: "autopublish" });
+  await importJob(t, s.connectorId, "update", discordEvent(s.now + 2 * DAY, { description }), Date.now() + 1000);
+  assert.equal((await t.run((ctx) => ctx.db.get(s.eventIds[0])))?.summary, RAW_SUMMARY.replace(/\s+/g, " "));
+  await upsert(t, s);
+  assert.equal(Object.hasOwn(calls.find((call) => call.method === "PATCH")!.body!, "description"), false);
+});
+
 it("adds the URL line to a long Discord description that lacks one, within Discord's limit", async (test) => {
   const calls = fakeDiscord(test, liveWith({ description: LONG }));
   const t = convexTest({ schema, modules });

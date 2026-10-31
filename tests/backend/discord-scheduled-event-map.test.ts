@@ -77,6 +77,14 @@ it("reads an unlinked Discord event in UTC and keeps its description whole", () 
   });
 });
 
+it("reads a linked description that differs only in whitespace as the event's own summary", () => {
+  const description = `Doors at nine.\n\nBring a friend.\n\n${URL_LINE}`;
+  for (const summary of ["Doors at nine. Bring a friend.", "Doors at nine.\n\nBring a friend."]) {
+    assert.equal(scheduledEventToFields(inbound({ description }), source({ summary })).summary, summary);
+  }
+  assert.equal(scheduledEventToFields(inbound({ description }), source({ summary: "Doors at ten. Bring a friend." })).summary, "Doors at nine.\n\nBring a friend.");
+});
+
 it("a title-only Discord edit keeps VRDex's own venue, end, and full title", () => {
   const linked = source({ title: "T".repeat(120), venueLabel: undefined, worldNames: ["Harbor Club"], endAt: undefined });
   const echoed = toScheduledEventBody(linked);
