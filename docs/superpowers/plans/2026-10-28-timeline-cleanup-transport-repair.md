@@ -130,9 +130,15 @@ The exact reason the original socket closed, and whether deletion committed befo
 
 ## Implementation status
 
-Implemented in `d1d1fc6604a1c0c818e772ecdb0909910e8a5fed`. The boundary suite passed 19 tests after the recorded failing run. Web and Markdown lint passed. Task and whole-branch reviews found no scoped code defect. [Draft PR #394](https://github.com/BASIC-BIT/VRDex/pull/394) contains the repair.
+The original repair was implemented in `d1d1fc6604a1c0c818e772ecdb0909910e8a5fed`. Its boundary suite passed 19 tests after the recorded failing run. Web and Markdown lint passed, and task and whole-branch reviews found no scoped code defect. [Draft PR #394](https://github.com/BASIC-BIT/VRDex/pull/394) retains the regression coverage and follow-up evidence.
 
-Step 6 remains open. The repeated local browser run failed all 24 cases because the unchanged timeline query raised Convex's multiple-pagination error. The broad web suite recorded 879 passes and three failures, including an owned stalled MCP child that was stopped. Screenshot acceptance, full-suite success and merge readiness remain unproven. No baseline, runtime or backend change was made. The lint command above uses the existing `lint:markdown` script; the earlier `lint:md` name did not exist.
+The original Step 6 run failed all 24 local comparisons before capture because the timeline query raised Convex's multiple-pagination error. That historical run also recorded 879 broad web passes and three failures, including an owned stalled MCP child that was stopped.
+
+On 31 October, current main already contained the separate-query roster repair and the cleanup retry. This branch merged main and reused those fixes. A duplicate retry option from the automatic merge was removed, preserving one cleanup retry and exact counts. The added controller assertion verifies that an unfinished roster read keeps loading and partial coverage active before favorite inclusion and deduplication complete.
+
+The new real local run reached timeline data without the pagination exception. Desktop/mobile timeline and time-regression flows passed 39 cases and failed one desktop search-suggestion navigation case. The required repeated visual run executed all 24 cases with two workers and two repeats; every failure was a screenshot comparison. Representative desktop/mobile timeline and dense-detail images showed populated content and the later-page selected set. Text rendering differed from the baselines; platform font/raster variance remains a hypothesis. No baseline was updated.
+
+Focused backend tests passed 18 cases, controller/cleanup checks passed 38, and the full web suite passed 1,094 with no skips. Backend/web typechecks and web lint passed. The full backend run remains incomplete after four unrelated media failures and a stalled process-cleanup test. Linux CI, screenshot acceptance, exact-head review, and the 30-minute readiness window remain open. Step 6 is not accepted. The lint command above uses the existing `lint:markdown` script; the earlier `lint:md` name did not exist.
 
 ## Evidence appendix
 
@@ -140,5 +146,7 @@ Step 6 remains open. The repeated local browser run failed all 24 cases because 
 - [Azn's live profile](https://vrdex.net/aznmandown): public API contains one verified VRChat connection dated 25 October 2026. Browser text and screenshot show "Verified VRChat account" and "25 Oct 2026". Profile trust remains `claimed_unverified`. This does not inspect Azn's private account session or replay his proof.
 - [First cleanup failure run](https://github.com/BASIC-BIT/VRDex/actions/runs/40628359392), image job `122623472695`: cleanup DELETE reset followed by blocked leases.
 - [Recurring cleanup failure run](https://github.com/BASIC-BIT/VRDex/actions/runs/40639134105), image job `122655405902`, head `8f7f6e86b84ca53a7fdf8b662c027690442c04f9`: same first error and lease cascade. Other checks, including signed-in verification and 221 broad flow cases, passed.
-- Current `main` was checked read-only at `b499f7ef8122f81d6ef55bc64a9705060964df96`; its cleanup DELETE still has no retry option.
+- Historical 28 October snapshot: `main` was checked read-only at `b499f7ef8122f81d6ef55bc64a9705060964df96`; that snapshot's cleanup DELETE had no retry option.
+- Reused pagination repair: `58bf1c3328eb372762d84ed6bd28cf36bb79bdad`. Main snapshot merged on 31 October: `2dfa6c5d475b1dc61df2590ded170d2ed36d5129`. Integration merge: `8304d63ff4227cf289cca92c1e868956432128d0`.
+- Local 31 October reports are retained under `apps/web/playwright-artifacts/issue395-flow.json` and `apps/web/playwright-artifacts/issue395-visual-repeat.json`. The detailed operator handoff is `.superpowers/sdd/2026-10-31-timeline-pagination/implementation-report.md`.
 - SDK references: `playwright-core@1.60.0/types/types.d.ts` documents `maxRetries`; bundled `lib/coreBundle.js`, `_sendRequestWithRetries`, implements the reset-only retry and backoff.

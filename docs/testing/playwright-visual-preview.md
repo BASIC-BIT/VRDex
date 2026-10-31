@@ -427,6 +427,14 @@ at October 26, 2026 21:30 UTC; configured browser timezone is UTC. Every case ow
 and exactly cleans its records through the gated helper. The default, prefetch
 and detail scenarios share that ownership boundary.
 
+Event pages and roster pages use separate client queries. `eventTimeline.listPublic`
+returns event identities with empty `slots` and `performers` arrays and a non-null
+initial roster cursor bound to the event and range. The controller drains
+`eventTimeline.listPublicRoster` independently before reporting complete coverage.
+Empty roster phases keep loading active; exhausting the bounded read budget keeps
+the partial state and More action. This separation respects Convex's single
+pagination budget across nested queries.
+
 Timeline fixtures hold a local cross-process lease for their backend from creation
 through exact owned cleanup. Unique IDs protect writes, but fixed-date public
 queries see every concurrent run, so the timeline fixture lifetime is exclusive
