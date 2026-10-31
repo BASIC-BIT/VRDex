@@ -221,9 +221,13 @@ again at once. Current alarms:
   `import_item`, and `reconcile` jobs neither clear the count nor resolve the
   alert: a successful read says nothing about writes.
 - `discord-intake:` plus the connector ID: a connector's three most recently
-  started intake runs all failed. The email names the connector and community
-  IDs and the failure codes only. The next finished run, or removing or
+  started intake runs all failed, or the five-minute sweep closed one of its
+  runs as `stalled`. The email names the connector and community IDs and the
+  failure codes or run ID only. The next finished run, or removing or
   disconnecting the connector, resolves it.
+- `discord-intake-dropped:` plus the run ID: the sweep closed a run as `stalled`
+  and did not requeue its posts, because the retry also stalled or the connector
+  is paused or off. Those posts need a real edit to run again.
 - `discord-intake-posters`: the poster bridge to the web app failed. See
   [Discord intake](#discord-intake).
 - `product-analytics-delivery`: a product analytics outbox row stops retrying
@@ -249,7 +253,8 @@ again at once. Current alarms:
   the last error code. The daily renewal resolves it once the connector is no
   longer stale.
 
-Gateway alarms in later plans use the same path.
+The Discord gateway's `discord_gateway_heartbeat_stale` alert and the stalled-run
+sweep use the same path; see [gateway alarms](./discord-gateway.md#alarms).
 
 Alerts send through the SES settings in
 [Transactional Email Environment](#transactional-email-environment):
@@ -263,7 +268,9 @@ shows as a failed function in the Convex logs.
 `true`. Scope: the Convex deployment environment only. Default: unset, which
 means off. Owner: BASIC. It gates the `/discord-intake/*` HTTP routes, which
 answer 503 while it is off, intake runs, and the Integrations page's Discord
-connect flow, which is hidden and refuses while it is off.
+connect flow, which is hidden and refuses while it is off. While it is off the
+gateway heartbeat check is silent. Turn it on immediately before creating the
+gateway service, as in the [bootstrap](./discord-gateway.md#bootstrap).
 
 `DISCORD_INTAKE_SECRET` is the bearer token the Discord gateway presents on
 every `/discord-intake/*` request (secret). Scope: the Convex deployment
@@ -272,9 +279,12 @@ generated with `openssl rand -base64 32`, set with
 `npx convex env set DISCORD_INTAKE_SECRET` and stored in the gateway's Secrets
 Manager entry. With the flag on and no secret set, every route answers 401.
 
-Rotation: set the new value on Convex and on the gateway in one window. Relays
-fail with 401 between the two writes, and the gateway does not retry those
-posts.
+It must match Secrets Manager `vrdex/discord-gateway/DISCORD_INTAKE_SECRET`.
+
+Rotation: set the new value on Convex and in Secrets Manager in one window, then
+force a new deployment as in [the gateway doc](./discord-gateway.md#environment),
+because ECS injects secrets at task start. Relays and heartbeats fail with 401
+until the new task runs, and the gateway does not retry those posts.
 
 `VRDEX_DISCORD_POSTER_TOKEN` is the bearer token intake runs present to the web
 app's internal poster bridge, `POST /api/internal/discord-intake/poster`, which
@@ -298,8 +308,9 @@ moves to another Discord application.
 `DISCORD_BOT_TOKEN` on Convex must be the token of that same gateway application.
 The Integrations page lists channels and proves a channel's guild as this bot,
 so a token from another application reports the gateway's bot as missing from
-every server. Rotate it with the gateway's token, in one window. These calls
-always go to `discord.com`: `DISCORD_API_BASE_URL` does not apply to them.
+every server. Rotate it with the gateway's token, in one window, as in
+[the gateway doc](./discord-gateway.md#environment). These calls always go to
+`discord.com`: `DISCORD_API_BASE_URL` does not apply to them.
 
 Staging's `DISCORD_BOT_TOKEN` is the hosted adapter stub's token (see
 [Hosted E2E Helpers](#hosted-e2e-helpers)), which real Discord rejects, and the
@@ -311,8 +322,12 @@ Runs reuse `SITE_URL` as the poster bridge origin. They also read
 `OPENAI_API_KEY`, `VRDEX_EVENT_INTAKE_AI_ENABLED`, and
 `VRDEX_EVENT_INTAKE_MODEL` from the Convex deployment, so set those on Convex as
 well as the web app before turning Discord intake on, plus the Langfuse
-variables above when runs should be traced. With extraction off, every run
-fails with `extraction_unavailable`.
+variables above when runs should be traced. With extraction off or
+`OPENAI_API_KEY` unset, every run fails with `extraction_unavailable`, and after
+three failed runs in a row the `discord-intake:` ops alert fires.
+
+The gateway heartbeat check adds no AWS credential on Convex. It emails through
+the [ops alert](#ops-alerts) path.
 
 ## Recurring events
 
