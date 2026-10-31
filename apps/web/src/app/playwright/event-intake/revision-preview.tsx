@@ -21,6 +21,7 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
   if (held === "held") fields = { ...fields, timeTba: false, timezone: "UTC", start: { time: "20:00", dayOffset: 0 } };
   if (held === "held-date-only") fields = { tentative: heldImport };
   if (held === "held-cleared-start") fields = { ...fields, timeTba: false };
+  if (held === "held-redated") fields = { communitySlug: "afterglow", title: "Held night", eventDate: "2027-07-16", tentative: { ...heldImport, timezone: "UTC", start: { time: "20:00", dayOffset: 0 } } };
   if (held === "held-tentative-start") fields = { tentative: { ...heldImport, timezone: "UTC", start: { time: "20:00", dayOffset: 0 } } };
   let version = 1;
   let completion: { sourceId: string; version: number } | undefined;

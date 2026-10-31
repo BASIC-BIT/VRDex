@@ -58,6 +58,8 @@ export const PublishEventIntakeSchema = z.strictObject({
 });
 export type EventIntakeFields = z.infer<typeof EventIntakeFieldsSchema>;
 export type EventIntakePatch = z.infer<typeof EventIntakePatchSchema>;
+/** A staffer moved a held import off its own date. An accepted date leaves no tentative date and is still the import's. */
+export const heldImportRedated = (fields: EventIntakePatch) => Boolean(fields.eventDate && fields.tentative?.eventDate && fields.eventDate !== fields.tentative.eventDate);
 export type EventIntakeLocalTime = z.infer<typeof EventIntakeLocalTimeSchema>;
 
 /** Return every valid instant. A gap is empty; a repeated hour has two choices. */

@@ -38,6 +38,14 @@ test("a draft saved with a start and then cleared opens date-only @flow @fixture
   expect(JSON.parse((await stored(page, "fixture-published"))!).timeTba).not.toBe(true);
 });
 
+test("a re-dated draft opens date-only, as row Publish reads it @flow @fixture", async ({ page }) => {
+  await page.goto("/playwright/event-intake?revision=held-redated");
+  await expect(page.getByLabel("Date", { exact: true })).toHaveValue("2027-07-16");
+  await review(page);
+  await publish(page);
+  await expect.poll(() => stored(page, "event-intake-review-command")).toBe("eventIntakeHeld:publish");
+});
+
 test("an imported start stays a choice the staffer makes @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?revision=held-tentative-start");
   await accept(page, "Community", "Event title", "Date");

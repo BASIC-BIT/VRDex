@@ -578,6 +578,14 @@ for (const [name, saved] of [
   assert.deepEqual([event.scheduleKind, event.eventDate, event.startAt], ["date_only", "2027-07-20", undefined]);
 });
 
+it("row Publish keeps the imported clock and lineup after an accepted date", async () => {
+  const { t, as, draft } = await fixture();
+  const { eventId } = await as("staff").mutation(api.eventIntakeHeld.publish, { draftId: await draft({ title: "Held", eventDate: "2027-07-20", tentative: { timezone: "UTC", start: nine, lineup: [A] } }) });
+  const [event, lineup] = await t.run(async ({ db }) => [await db.get(eventId), await db.query("eventLineupEntries").withIndex("by_eventId_position", q => q.eq("eventId", eventId)).collect()] as const);
+  assert.deepEqual([event?.scheduleKind, event?.startAt, lineup.length], ["timed", Date.UTC(2027, 6, 20, 21), 1]);
+  assert.deepEqual(heldUpdatePatch({ eventDate: "2027-07-20", tentative: { start: nine }, evidence: [evidence("event.start")] }, "google_calendar"), { eventDate: "2027-07-20", start: nine, timeTba: false });
+});
+
 it("editor publish reads a new item's missing Time TBA from its saved start", async () => {
   const { t, as, draft } = await fixture();
   const dated = await draft({ title: "Dated", eventDate: "2027-07-20" });

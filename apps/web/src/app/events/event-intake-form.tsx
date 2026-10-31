@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import { useAction, useConvex, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
-import { EventIntakePatchSchema, selectEventLocalTime, type EventIntakePatch as EventIntakeFields, type EventIntakeLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
+import { EventIntakePatchSchema, heldImportRedated, selectEventLocalTime, type EventIntakePatch as EventIntakeFields, type EventIntakeLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -475,7 +475,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
   // A published held draft reads as null for any manager but its actor; the form still has a redirect to run.
   if (draftId && loaded === null && !publishingHeld) return <>{heading}<Notice>Unavailable</Notice></>;
   // A connector import with no clock is date-only, the same reading row Publish takes.
-  const connectorFields = loaded?.connectorId ? { ...loaded.fields, timeTba: loaded.fields.timeTba || !(loaded.fields.start ?? loaded.fields.tentative?.start) } : undefined;
+  const connectorFields = loaded?.connectorId ? { ...loaded.fields, timeTba: loaded.fields.timeTba || !(loaded.fields.start ?? (heldImportRedated(loaded.fields) ? null : loaded.fields.tentative?.start)) } : undefined;
   return <EventIntakeFieldsForm heading={heading} savedTimezonePreference={viewer?.user.defaultEventTimezone} newDraft={!draftId} connectorDraft={Boolean(loaded?.connectorId)} initialFields={connectorFields ?? loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { if (published.current) await correctPublished(fields); else await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
     if (published.current) return correctPublished(fields);
     const current = await saveFields(fields, revision);

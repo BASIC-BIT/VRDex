@@ -9,7 +9,7 @@ import { eventPathForSlugs } from "./_eventPaths";
 import { getEventBySlug } from "./_eventSlugs";
 import { enqueueEventSync } from "./_eventSync";
 import { correctionFields } from "./eventCorrections";
-import { EventIntakePatchSchema, selectEventLocalTime, type EventIntakeFields, type EventIntakePatch } from "../packages/api-contracts/src/event-intake";
+import { EventIntakePatchSchema, heldImportRedated, selectEventLocalTime, type EventIntakeFields, type EventIntakePatch } from "../packages/api-contracts/src/event-intake";
 
 const HELD_CHANGE_FIELDS = ["title", "eventDate", "timeTba", "timezone", "start", "end", "doors", "venueLabel", "worldSlug", "summary", "sourceUrl", "lineup"] as const;
 export type HeldChangeField = (typeof HELD_CHANGE_FIELDS)[number];
@@ -28,11 +28,10 @@ export const HELD_IMPORT_LIMIT = 50;
 // What was extracted for one date does not carry over once a staffer re-dates the draft.
 const CLOCK_KEYS = new Set(["start", "end", "doors"]);
 const DATE_BOUND_KEYS = new Set([...CLOCK_KEYS, "timeTba", "lineup"]);
-const redated = (fields: EventIntakePatch) => Boolean(fields.eventDate) && fields.eventDate !== fields.tentative?.eventDate;
 
 /** A held draft as it would publish: staff values over extracted ones, in the connector's community. */
 export function promoteHeldFields(fields: EventIntakePatch, communitySlug: string): EventIntakePatch {
-  const stale = redated(fields);
+  const stale = heldImportRedated(fields);
   const set = (values: object) => Object.fromEntries(Object.entries(values).filter(([, value]) => value !== null && value !== undefined));
   const { tentative, evidence: _evidence, questions: _questions, ...saved } = fields;
   // Publication refuses clocks alongside Time TBA, whether a staffer saved it or no start means it.
@@ -54,7 +53,7 @@ export function heldUpdatePatch(held: EventIntakePatch, kind: ConnectorKind): He
   // A false left behind with no start says nothing about the event's clock.
   const fields = held.timeTba === false && !held.start ? { ...held, timeTba: undefined } : held;
   const promoted = promoteHeldFields(fields, "");
-  const stale = redated(fields);
+  const stale = heldImportRedated(fields);
   const evidence = (fields.evidence ?? []).filter(entry => !stale || !DATE_BOUND_KEYS.has(evidenceKey(entry.fieldPath)));
   const keys = explicitUpdateKeys(evidence, kind, fields);
   // Promotion's Time TBA is the new-event reading: an end with no start still fits the event's own start.
