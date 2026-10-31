@@ -133,8 +133,10 @@ export async function heldImportRows(db: DatabaseReader, community: Doc<"profile
       const target = await heldTarget(db, draft);
       if (!target) { rows.push({ ...row, kind: "new" }); continue; }
       const { event } = target;
-      rows.push({ ...row, kind: "update", target: { slug: event.slug!, title: event.title, href: editHref(event.slug!) },
-        changes: heldChanges(await correctionFields(db, event), heldUpdatePatch(fields, connector.kind)) });
+      const [current, patch] = [await correctionFields(db, event), heldUpdatePatch(fields, connector.kind)];
+      const applied = { ...current, ...patch };
+      rows.push({ ...row, kind: "update", schedule: intakeSchedule(applied.timeTba ? { ...applied, start: undefined, end: undefined, doors: undefined } : applied),
+        target: { slug: event.slug!, title: event.title, href: editHref(event.slug!) }, changes: heldChanges(current, patch) });
     }
     const reason = connector.kind === "discord_announcements" ? "source_deleted" : "external_deleted";
     const links = await db.query("eventSyncLinks")

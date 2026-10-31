@@ -9,6 +9,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { SectionTitle } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { EventInventoryControls, EventInventoryList, type EventInventoryCriteria, type EventInventoryView } from "./event-inventory-list";
+import { HeldImportsSection } from "./held-imports-section";
 
 const candidatePageSize = 20;
 const maxAutomaticAdvances = 3;
@@ -112,7 +113,7 @@ function ConnectedInventory({ viewerId }: { viewerId: string }) {
     controls={<EventInventoryControls view={view} query={query} onViewChange={setView} onQueryChange={setQuery} />}
     onRetry={onRetry}
     resetKey={traversalKey}
-    shortcuts={<InventoryShortcuts />}
+    shortcuts={<><InventoryShortcuts /><HeldImportsSection /></>}
   >
     <InventoryTraversal key={traversalKey} view={view} normalizedQuery={normalizedQuery} timeZone={timeZone} onRetry={onRetry} />
   </InventoryErrorBoundary>;

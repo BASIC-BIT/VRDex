@@ -424,3 +424,19 @@ checks, edits during pending requests, Review publication and canonical return
 remain unchanged. Staff Save changes retains publication. Discord text is
 composed from the authorized saved staff projection only when published and
 noncancelled. Inventory visibility grants no additional export access.
+
+Held imports sit above the inventory in `Waiting for review`, one heading
+constant in `held-imports-section.tsx`, read from
+`eventInventory.listHeldImports` inside the same error boundary as the
+shortcuts. The section renders nothing while loading or when no row is held.
+Rows go to viewers with `manage_events` on the connector's community; the
+connector's authority sees them only through that right. Connector drafts never
+appear as creator intake rows and do not count toward the 20-draft quota. A
+proposed update's Date column shows the event as it would read with the patch
+applied. Open uses the existing editor, which publishes through
+`eventIntakeHeld.publish`. Row actions follow
+[held imports](../backend/event-schema.md#held-imports):
+
+- Publish creates the event, or applies a proposed update, and removes the row.
+- Dismiss takes the draft off review and leaves the event and source untouched.
+- Keep clears a deleted-source flag and leaves the event up.

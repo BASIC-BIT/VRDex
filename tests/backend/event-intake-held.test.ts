@@ -375,6 +375,26 @@ it("lists proposed updates from a linked draft and from a run decision with the 
   assert.deepEqual([googleRow.author, googleRow.sourceUrl, googleRow.targetName], [null, null, "club@group.calendar.google.com"]);
 });
 
+it("dates an update row from the event with its patch applied", async () => {
+  const { t, ids, as, draft, now } = await fixture();
+  const start = Date.UTC(2027, 6, 15, 20);
+  const timed = (startAt: number, eventDate: string) => ({ kind: "timed", startAt, endAt: null, eventDate, timezone: "UTC" });
+  const cases = [
+    [{ tentative: { title: "Harbor Night", eventDate: "2027-07-15" }, evidence: [evidence("event.title")] }, timed(start, "2027-07-15")],
+    [{ tentative: { eventDate: "2027-07-16" }, evidence: [evidence("event.eventDate")] }, timed(start + 86_400_000, "2027-07-16")],
+    [updateDraft, timed(start + 3_600_000, "2027-07-15")],
+    [{ timeTba: true, tentative: { eventDate: "2027-07-15" } }, { kind: "date_only", eventDate: "2027-07-15" }],
+  ] as const;
+  const drafts = [];
+  for (const [fields] of cases) {
+    const draftId = await draft(fields as EventIntakePatch, { connectorId: ids.google });
+    drafts.push(draftId);
+    await t.run(({ db }) => db.insert("eventSyncLinks", { connectorId: ids.google, draftId, eventId: ids.event, externalId: `g-${draftId}`, state: "linked", createdAt: now, updatedAt: now }));
+  }
+  const rows = await as("staff").query(api.eventInventory.listHeldImports, {});
+  assert.deepEqual(drafts.map(draftId => rows.find(row => row.kind === "update" && row.draftId === draftId)).map(row => row?.kind === "update" && row.schedule), cases.map(([, schedule]) => schedule));
+});
+
 it("reads the newest run's decision and shows a new row when the target is unusable", async () => {
   const { t, ids, as, draft, discordSource, now } = await fixture();
   const kind = async (draftId: Id<"eventIntakeDrafts">) => (await as("staff").query(api.eventInventory.listHeldImports, {})).find(row => row.kind !== "flag" && row.draftId === draftId)?.kind;

@@ -121,3 +121,91 @@ test("a personal draft still needs a start @flow @fixture", async ({ page }) => 
   await expect(page.getByLabel("Starts", { exact: true })).toBeFocused();
   expect(await stored(page, "event-intake-review-command")).toBeNull();
 });
+
+test.describe("Waiting for review @flow @fixture", () => {
+  const heading = "Waiting for review";
+
+  test("lists held imports above My events and sends each action", async ({ page }) => {
+    await page.goto("/playwright/event-inventory?held=1");
+    const section = page.getByRole("region", { name: heading });
+    await expect(section).toBeVisible();
+    expect(await page.evaluate(() => {
+      const held = document.querySelector('[aria-labelledby="held-imports-heading"]');
+      const list = document.querySelector('ul[aria-label="My events"]');
+      return Boolean(held && list && held.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING);
+    })).toBe(true);
+    await expect(section.getByRole("columnheader")).toHaveText(["Title", "Date", "Community", "Channel", "Author", "Source", "Actions"]);
+    const fresh = section.getByRole("row", { name: /Afterglow Social/ });
+    await expect(fresh.getByRole("cell", { name: "Jul 20, 2099 · Time TBA" })).toBeVisible();
+    await expect(fresh.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/events/new?draft=held-new");
+    await expect(fresh.getByRole("link", { name: "Source" })).toHaveAttribute("href", "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333");
+    await expect(fresh.getByRole("cell", { name: "#events" })).toBeVisible();
+    await expect(fresh.getByRole("cell", { name: "Promoter" })).toBeVisible();
+    const update = section.getByRole("row", { name: /Update to Harbor Night/ });
+    await expect(update.getByRole("link", { name: "Harbor Night" })).toHaveAttribute("href", "/afterglow/events/harbor/edit");
+    await expect(update.getByRole("listitem")).toHaveCount(1);
+    await expect(update.getByRole("listitem")).toHaveText("Starts: Jul 15, 8:00 PM UTC → Jul 15, 9:00 PM UTC");
+    const flag = section.getByRole("row", { name: /Pier Night/ });
+    await expect(flag.getByText("Discord post deleted", { exact: true })).toBeVisible();
+    await expect(flag.getByRole("link", { name: "Pier Night" })).toHaveAttribute("href", "/afterglow/events/pier/edit");
+    for (const [row, action, call] of [
+      [fresh, "Publish", ["eventIntakeHeld:publish", { draftId: "held-new" }]],
+      [update, "Dismiss", ["eventIntakeHeld:dismiss", { draftId: "held-update" }]],
+      [flag, "Keep", ["eventIntakeHeld:dismissFlag", { eventId: "flag-1" }]],
+    ] as const) {
+      await row.getByRole("button", { name: action, exact: true }).click();
+      await expect.poll(() => stored(page, "held-command")).toBe(JSON.stringify(call));
+    }
+    await expect(section).toHaveCount(0);
+  });
+
+  for (const [mode, action, message] of [
+    ["publish", "Publish", "Unable to publish."],
+    ["dismiss", "Dismiss", "Unable to dismiss."],
+    ["dismissFlag", "Keep", "Unable to keep."],
+  ] as const) {
+    test(`a failed ${action} keeps its row and says so`, async ({ page }) => {
+      await page.goto(`/playwright/event-inventory?held=fail-${mode}`);
+      const section = page.getByRole("region", { name: heading });
+      const button = section.getByRole("button", { name: action, exact: true }).first();
+      await button.click();
+      await expect(section.getByRole("alert")).toHaveText(message);
+      await expect(button).toBeEnabled();
+      await expect(section.getByRole("row")).toHaveCount(4);
+    });
+  }
+
+  test("reads a row with little to show", async ({ page }) => {
+    await page.goto("/playwright/event-inventory?held=sparse");
+    const section = page.getByRole("region", { name: heading });
+    const untitled = section.getByRole("row", { name: /Untitled event/ });
+    await expect(untitled.getByRole("link", { name: "Source" })).toHaveCount(0);
+    await expect(section.getByRole("row", { name: /Update to Harbor Night/ }).getByRole("listitem")).toHaveText(["Date: Jul 15, 2099 → next week", "Where: Hall →"]);
+    await expect(section.getByRole("row", { name: /Lantern Night/ }).getByText("Deleted at the source", { exact: true })).toBeVisible();
+  });
+
+  test("holds a button while its call runs", async ({ page }) => {
+    await page.goto("/playwright/event-inventory?held=slow");
+    const section = page.getByRole("region", { name: heading });
+    const fresh = section.getByRole("row", { name: /Afterglow Social/ });
+    await fresh.getByRole("button", { name: "Publish", exact: true }).click();
+    await expect(fresh.getByRole("button", { name: "Publish", exact: true })).toBeDisabled();
+    await expect(fresh.getByRole("button", { name: "Dismiss", exact: true })).toBeEnabled();
+    await page.evaluate(() => window.dispatchEvent(new Event("held-release")));
+    await expect(fresh).toHaveCount(0);
+    await expect(section.getByRole("row")).toHaveCount(3);
+  });
+
+  test("is absent when nothing is held", async ({ page }) => {
+    await page.goto("/playwright/event-inventory");
+    await expect(page.getByRole("heading", { name: "My events", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: heading })).toHaveCount(0);
+  });
+
+  test("scrolls inside its frame on a phone", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto("/playwright/event-inventory?held=1");
+    await expect(page.getByRole("region", { name: heading })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+});
