@@ -303,9 +303,19 @@ always go to `discord.com`: `DISCORD_API_BASE_URL` does not apply to them.
 
 Staging's `DISCORD_BOT_TOKEN` is the hosted adapter stub's token (see
 [Hosted E2E Helpers](#hosted-e2e-helpers)), which real Discord rejects, and the
-stub cannot stand in here. The site channel listing and connect do not work
-against the stub, so `VRDEX_DISCORD_INTAKE_ENABLED` stays off on staging until a
-real staging bot exists.
+stub cannot stand in here. The site channel listing and connect work there only
+once `DISCORD_REST_BOT_TOKEN` holds a real bot token, so
+`VRDEX_DISCORD_INTAKE_ENABLED` stays off on staging until it does.
+
+`DISCORD_REST_BOT_TOKEN` overrides `DISCORD_BOT_TOKEN` for
+`convex/_discordRest.ts` only, so the Discord event board and the announcement
+connector's REST calls use a real bot while the hosted stub path in
+`convex/profileClaims.ts` keeps its token (secret). Unset or empty, those calls
+fall back to `DISCORD_BOT_TOKEN`. It must be the token of the same gateway
+application. Scope: the Convex deployment environment; currently only needed on
+the dev deployment, and production leaves it unset. Owner: BASIC. Rotation:
+reset the token in the Discord Developer Portal, then set the new value with
+`npx convex env set DISCORD_REST_BOT_TOKEN`, in one window with the gateway.
 
 Runs reuse `SITE_URL` as the poster bridge origin. They also read
 `OPENAI_API_KEY`, `VRDEX_EVENT_INTAKE_AI_ENABLED`, and
@@ -645,7 +655,8 @@ Development/staging Convex env names:
 - `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord credentials for the purpose-scoped community-verification round-trip. These are **not** sign-in credentials — Clerk holds those — but `convex/discordVerification.ts` still requires them
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`
 - `DISCORD_OAUTH_AUTHORIZE_URL`: optional consent-screen override, for pointing the OAuth round-trip at a stub instead of Discord. Defaults to `https://discord.com/oauth2/authorize`. The browser follows it carrying the `state` that authorizes the round-trip, so it must be https unless it is loopback
-- `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment. It is not a real bot token, so the site Discord connect flow does not work on staging; see [Discord intake](#discord-intake). The Discord board connector also uses it from Convex in any deployment where `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` is on
+- `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment. It is not a real bot token, so the site Discord connect flow needs `DISCORD_REST_BOT_TOKEN` on staging; see [Discord intake](#discord-intake). The Discord board connector also uses it from Convex in any deployment where `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` is on, unless `DISCORD_REST_BOT_TOKEN` overrides it
+- `DISCORD_REST_BOT_TOKEN` (secret): optional real bot token for `convex/_discordRest.ts`; see [Discord intake](#discord-intake)
 - `VRCHAT_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCLINKING_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching the hosted app environment
