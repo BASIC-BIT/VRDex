@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import { useAction, useConvex, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
-import { EventIntakePatchSchema, heldImportRedated, selectEventLocalTime, type EventIntakePatch as EventIntakeFields, type EventIntakeLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
+import { EventIntakePatchSchema, heldImportTimeTba, selectEventLocalTime, type EventIntakePatch as EventIntakeFields, type EventIntakeLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -176,11 +176,13 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
       return updated.timeTba ? untimed(updated) : updated;
     });
   }
+  // Back on its import's date, a held draft's start applies again: the form reads as Open would.
+  const heldReading = (next: EventIntakeFields) => connectorDraft && next.eventDate && !next.start ? { ...next, timeTba: heldImportTimeTba({ ...next, timeTba: false }) } : next;
   function acceptSuggestion(acceptance: IntakeSuggestionAcceptance) {
     const updated = acceptIntakeSuggestion({ fields, acceptance });
     if (!updated) return;
     if (["timezone", "eventDate", "start", "end", "doors", "lineup"].includes(acceptance.key)) timezoneAuthored.current = true;
-    const next = { ...updated, timeTba: updated.start ? false : updated.timeTba };
+    const next = heldReading({ ...updated, timeTba: updated.start ? false : updated.timeTba });
     startAnchor.current = readIntakeInstant(next, next.start) ?? startAnchor.current;
     setFields(next);
   }
@@ -190,7 +192,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     const next = rebaseIntakeSuggestions({ ...fields, timeTba: change.local ? false : fields.timeTba, timezone: fields.timezone ?? (!hasSourceClocks && change.local ? editingTimezone : fields.timezone), eventDate: change.eventDate, start: change.local,
       end: rebaseTime(fields.end, fields.eventDate, change.eventDate), doors: rebaseTime(fields.doors, fields.eventDate, change.eventDate),
       lineup: fields.lineup?.map(row => ({ ...row, start: rebaseTime(row.start, fields.eventDate, change.eventDate), end: rebaseTime(row.end, fields.eventDate, change.eventDate) })),
-    }, fields.eventDate);
+    }, fields.eventDate, connectorDraft);
     const nextStart = readIntakeInstant(next, next.start);
     try {
       let updated = next;
@@ -335,7 +337,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     <input type="hidden" name="timezone" value={fields.timezone ?? ""} />
     {!fields.timezone && [fields.start, fields.end, fields.doors, ...(fields.lineup ?? []).flatMap(row => [row.start, row.end])].some(Boolean) ? <section className="grid gap-2"><h3>Unresolved time</h3><EventTimezonePicker name="sourceTimezone" value={null} date={fields.eventDate ?? null} onChange={zone => { if (revealPendingTime()) return false; timezoneAuthored.current = true; const next = { ...fields, timezone: zone }; startAnchor.current = readIntakeInstant(next, next.start) ?? startAnchor.current; setFields(next); }} /></section> : null}
     <div className="grid items-start gap-3 sm:grid-cols-2">
-      {fields.timeTba ? <div className="grid gap-3"><Field>Date<Input type="date" required value={fields.eventDate ?? ""} onChange={event => { timezoneAuthored.current = true; const date = event.target.value || null; setFields(current => rebaseIntakeSuggestions(rebaseIntakeTimes(current, current.eventDate, date), current.eventDate)); }} /></Field><details open={fields.lineup?.some(row => row.relativeTiming) || undefined}><summary className="cursor-pointer text-sm font-medium">Add start time</summary><div className="mt-3">{startControl}</div></details></div> : startControl}
+      {fields.timeTba ? <div className="grid gap-3"><Field>Date<Input type="date" required value={fields.eventDate ?? ""} onChange={event => { timezoneAuthored.current = true; const date = event.target.value || null; setFields(current => heldReading(rebaseIntakeSuggestions(rebaseIntakeTimes(current, current.eventDate, date), current.eventDate, connectorDraft))); }} /></Field><details open={fields.lineup?.some(row => row.relativeTiming) || undefined}><summary className="cursor-pointer text-sm font-medium">Add start time</summary><div className="mt-3">{startControl}</div></details></div> : startControl}
       {!fields.timeTba ? <div className={`flex flex-wrap items-start gap-x-5 gap-y-3 ${endOpen || doorsOpen ? "" : "pt-1 sm:pt-7"}`}>
         <details className={`relative min-w-0 ${endOpen ? "w-full" : "w-fit"}`} open={endOpen} onToggle={event => setEndOpen(event.currentTarget.open)}><summary className={`cursor-pointer font-medium ${endOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add end time</summary><IntakeTime label="Ends (optional)" value={fields.end} date={fields.eventDate} timezone={fields.timezone} displayTimezone={editingTimezone} onChange={change => set("end", change.local)} /></details>
         <details className={`relative min-w-0 ${doorsOpen ? "w-full" : "w-fit"}`} open={doorsOpen} onToggle={event => setDoorsOpen(event.currentTarget.open)}><summary className={`cursor-pointer font-medium ${doorsOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add doors-open time</summary><IntakeTime label="Doors open" value={fields.doors} date={fields.eventDate} timezone={fields.timezone} displayTimezone={editingTimezone} onChange={change => set("doors", change.local)} /></details>
@@ -475,7 +477,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
   // A published held draft reads as null for any manager but its actor; the form still has a redirect to run.
   if (draftId && loaded === null && !publishingHeld) return <>{heading}<Notice>Unavailable</Notice></>;
   // A connector import with no clock is date-only, the same reading row Publish takes.
-  const connectorFields = loaded?.connectorId ? { ...loaded.fields, timeTba: loaded.fields.timeTba || !(loaded.fields.start ?? (heldImportRedated(loaded.fields) ? null : loaded.fields.tentative?.start)) } : undefined;
+  const connectorFields = loaded?.connectorId ? { ...loaded.fields, timeTba: heldImportTimeTba(loaded.fields) } : undefined;
   return <EventIntakeFieldsForm heading={heading} savedTimezonePreference={viewer?.user.defaultEventTimezone} newDraft={!draftId} connectorDraft={Boolean(loaded?.connectorId)} initialFields={connectorFields ?? loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { if (published.current) await correctPublished(fields); else await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
     if (published.current) return correctPublished(fields);
     const current = await saveFields(fields, revision);

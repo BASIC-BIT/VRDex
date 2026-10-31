@@ -58,8 +58,10 @@ export const PublishEventIntakeSchema = z.strictObject({
 });
 export type EventIntakeFields = z.infer<typeof EventIntakeFieldsSchema>;
 export type EventIntakePatch = z.infer<typeof EventIntakePatchSchema>;
-/** A staffer moved a held import off its own date. An accepted date leaves no tentative date and is still the import's. */
+/** A staffer moved a held import off its own date. An accepted date leaves no tentative date and is still the import's, until the editor moves it and writes that date back. */
 export const heldImportRedated = (fields: EventIntakePatch) => Boolean(fields.eventDate && fields.tentative?.eventDate && fields.eventDate !== fields.tentative.eventDate);
+/** A held draft reads as Time TBA unless a start survives review: row Publish and the editor's Open both go by this. */
+export const heldImportTimeTba = (fields: EventIntakePatch) => Boolean(fields.timeTba || fields.tentative?.timeTba || !(fields.start ?? (heldImportRedated(fields) ? null : fields.tentative?.start)));
 export type EventIntakeLocalTime = z.infer<typeof EventIntakeLocalTimeSchema>;
 
 /** Return every valid instant. A gap is empty; a repeated hour has two choices. */

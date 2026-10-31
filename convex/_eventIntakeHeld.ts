@@ -9,7 +9,7 @@ import { eventPathForSlugs } from "./_eventPaths";
 import { getEventBySlug } from "./_eventSlugs";
 import { enqueueEventSync } from "./_eventSync";
 import { correctionFields } from "./eventCorrections";
-import { EventIntakePatchSchema, heldImportRedated, selectEventLocalTime, type EventIntakeFields, type EventIntakePatch } from "../packages/api-contracts/src/event-intake";
+import { EventIntakePatchSchema, heldImportRedated, heldImportTimeTba, selectEventLocalTime, type EventIntakeFields, type EventIntakePatch } from "../packages/api-contracts/src/event-intake";
 
 const HELD_CHANGE_FIELDS = ["title", "eventDate", "timeTba", "timezone", "start", "end", "doors", "venueLabel", "worldSlug", "summary", "sourceUrl", "lineup"] as const;
 export type HeldChangeField = (typeof HELD_CHANGE_FIELDS)[number];
@@ -35,8 +35,7 @@ export function promoteHeldFields(fields: EventIntakePatch, communitySlug: strin
   const set = (values: object) => Object.fromEntries(Object.entries(values).filter(([, value]) => value !== null && value !== undefined));
   const { tentative, evidence: _evidence, questions: _questions, ...saved } = fields;
   // Publication refuses clocks alongside Time TBA, whether a staffer saved it or no start means it.
-  const timeTba = saved.timeTba || tentative?.timeTba || !(saved.start ?? tentative?.start);
-  const declined = stale ? DATE_BOUND_KEYS : timeTba ? CLOCK_KEYS : new Set<string>();
+  const declined = stale ? DATE_BOUND_KEYS : heldImportTimeTba(fields) ? CLOCK_KEYS : new Set<string>();
   const promoted: EventIntakePatch = {
     ...Object.fromEntries(Object.entries(set(tentative ?? {})).filter(([key]) => !declined.has(key))),
     ...set(saved), communitySlug, tentative: null, evidence: null, questions: null,

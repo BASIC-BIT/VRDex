@@ -46,6 +46,25 @@ test("a re-dated draft opens date-only, as row Publish reads it @flow @fixture",
   await expect.poll(() => stored(page, "event-intake-review-command")).toBe("eventIntakeHeld:publish");
 });
 
+for (const [how, back] of [
+  ["accepting it", (page: Page) => accept(page, "Date")],
+  ["typing it", (page: Page) => page.getByLabel("Date", { exact: true }).fill("2027-07-15")],
+] as const) {
+  test(`a re-dated draft taken back to its date by ${how} reads as Open reads it @flow @fixture`, async ({ page }) => {
+    await page.goto("/playwright/event-intake?revision=held-redated");
+    await back(page);
+    await expect(page.getByLabel("Date", { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel("Starts", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Save draft", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("Draft saved");
+    expect(JSON.parse((await stored(page, "event-intake-revision-submission"))!).patch).not.toHaveProperty("timeTba");
+    await review(page);
+    await publish(page);
+    await expect(page.getByLabel("Starts", { exact: true })).toBeFocused();
+    expect(await stored(page, "event-intake-review-command")).not.toBe("eventIntakeHeld:publish");
+  });
+}
+
 test("an imported start stays a choice the staffer makes @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?revision=held-tentative-start");
   await accept(page, "Community", "Event title", "Date");

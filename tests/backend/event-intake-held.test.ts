@@ -4,10 +4,12 @@ import { convexTest } from "convex-test";
 import schemaModule from "../../convex/schema";
 import { api, internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
-import type { EventIntakePatch } from "../../packages/api-contracts/src/event-intake";
+import { acceptIntakeSuggestion, rebaseIntakeSuggestions, rebaseIntakeTimes } from "../../apps/web/src/lib/calendar/event-intake-suggestions";
+import { EventIntakePatchSchema, heldImportTimeTba, selectEventLocalTime, type EventIntakePatch } from "../../packages/api-contracts/src/event-intake";
 import { normalizeIntakePublication } from "../../convex/_eventContributionPreflight";
 import { EVENT_INTAKE_DRAFT_TTL_MS, getConnectorDraftForManager, publishIntakeDraft } from "../../convex/_eventIntake";
 import { HELD_IMPORT_LIMIT, heldChanges, heldUpdatePatch, promoteHeldFields } from "../../convex/_eventIntakeHeld";
+import { intakeSchedule } from "../../convex/_eventInventory";
 
 process.env.CLERK_JWT_ISSUER_DOMAIN = "test";
 process.env.EVENT_DATE_ONLY_ENABLED = "true";
@@ -670,4 +672,78 @@ it("Keep clears the deletion flag for that event without touching the link's sta
       assert.deepEqual([link.state, Boolean(link.flagReviewedAt)], ["external_deleted", true]);
     }
   });
+});
+
+it("row Publish agrees with Open over every date, clock, and saved start combination", () => {
+  const importDate = "2027-07-20";
+  const day = (offset: number) => new Date(Date.parse(`${importDate}T00:00:00Z`) + offset * DAY).toISOString().slice(0, 10);
+  const instant = (date: string, time: string) => Date.parse(`${date}T${time}:00Z`);
+  const local = (time: string) => ({ time, dayOffset: 0 });
+  const STAFF_START = "22:30";
+  const IMPORTED = { start: "22:00", end: "23:30", doors: "21:00", lineupStart: "22:00", lineupEnd: "23:00" };
+  const ACCEPT = "accept";
+  // A date in [X-7, X+1] is where a pending clock's offset survives translation, so nothing else marks the move.
+  const moves: Array<[string, Array<string | null>]> = [
+    ["stays", []], ["a day later", [day(1)]], ["a week earlier", [day(-7)]], ["two days later", [day(2)]], ["eight days earlier", [day(-8)]],
+    ["there and back", [day(1), importDate]], ["on and on", [day(1), day(3)]], ["cleared and re-entered", [null, day(1)]], ["taken back by Accept", [day(1), ACCEPT]],
+  ];
+  const accept = (fields: EventIntakePatch) => acceptIntakeSuggestion({ fields, acceptance: { key: "eventDate", proposalDate: fields.tentative?.eventDate } }) ?? fields;
+  // The Date input, or Starts when a start is saved: that one moves the date and keeps the start on it.
+  const move = (fields: EventIntakePatch, date: string | null) => rebaseIntakeSuggestions({ ...rebaseIntakeTimes(fields, fields.eventDate, date), start: fields.start }, fields.eventDate, true);
+  const broken: string[] = [];
+  let rows = 0;
+
+  for (const accepted of [false, true]) for (const [moved, steps] of moves) for (const staffStart of [false, true]) for (let bits = 0; bits < 16; bits++) {
+    // Starts has no way to clear the date.
+    if (staffStart && steps.includes(null)) continue;
+    const [start, end, doors, lineup] = [0, 1, 2, 3].map(bit => Boolean(bits & (1 << bit)));
+    const label = `${accepted ? "accepted" : "pending"} date, ${moved}, ${staffStart ? "saved" : "no"} start, import ${[start && "start", end && "end", doors && "doors", lineup && "lineup"].filter(Boolean).join("+") || "none"}`;
+    const check = (holds: boolean, invariant: string) => { if (!holds) broken.push(`${label}: ${invariant}`); };
+    rows++;
+
+    let fields: EventIntakePatch = { tentative: { communitySlug: "club", title: "Afterglow Social", eventDate: importDate, timezone: "UTC",
+      ...(start ? { start: local(IMPORTED.start) } : {}), ...(end ? { end: local(IMPORTED.end) } : {}), ...(doors ? { doors: local(IMPORTED.doors) } : {}),
+      ...(lineup ? { lineup: [{ clientKey: "slot", position: 0, performerLabel: "DJ", start: local(IMPORTED.lineupStart), end: local(IMPORTED.lineupEnd) }] } : {}) } };
+    if (accepted) fields = accept(fields);
+    if (staffStart) fields = { ...fields, eventDate: importDate, timeTba: false, start: local(STAFF_START) };
+    for (const step of steps) fields = step === ACCEPT ? accept(fields) : move(fields, step);
+
+    const saved = EventIntakePatchSchema.parse(JSON.parse(JSON.stringify(fields)));
+    const promoted = promoteHeldFields(saved, "club");
+    const eventDate = promoted.eventDate!;
+    const clocks = { start, end, doors, lineupStart: lineup, lineupEnd: lineup };
+    const names = Object.keys(IMPORTED) as Array<keyof typeof IMPORTED>;
+    const reading = heldImportTimeTba(saved) ? "date_only" : "timed";
+
+    // Accept Date leaves a staffer's start on its own date, so the row refuses it rather than guess. Open fails the same way on Publish.
+    if (saved.start?.dayOffset) {
+      check(moved === "taken back by Accept" && intakeSchedule(promoted).kind === "incomplete", "invariant 3, a start off its date reads as publishable");
+      assert.throws(() => normalizeIntakePublication(promoted), /Event start must use the event date/, label);
+      continue;
+    }
+
+    let published: ReturnType<typeof normalizeIntakePublication>;
+    try { published = normalizeIntakePublication(promoted); } catch (error) { check(false, `invariant 3, refused: ${(error as Error).message}`); continue; }
+    const { schedule, endAt, doorsOpenAt, lineup: slots } = published;
+    const out: Partial<Record<keyof typeof IMPORTED, number>> = { start: schedule.startAt, end: endAt, doors: doorsOpenAt, lineupStart: slots[0]?.startAt, lineupEnd: slots[0]?.endAt };
+
+    const clockHolds = (name: keyof typeof IMPORTED, at: number, date: string) => name === "start" && staffStart ? at === instant(date, STAFF_START)
+      : date === importDate && clocks[name] && at === instant(importDate, IMPORTED[name]);
+    for (const name of names) if (out[name] !== undefined) check(clockHolds(name, out[name], eventDate), `invariant 1, ${name} off the event's date`);
+    if (eventDate === importDate) for (const name of names) {
+      // Ruled, rulings.md Task 3 carried (b): with no start the event is date-only, which holds no end or doors.
+      const ruledOut = schedule.scheduleKind === "date_only" && (name === "end" || name === "doors");
+      if (clocks[name] && !ruledOut) check(out[name] !== undefined, `invariant 2, ${name} dropped on its own date`);
+    }
+    check(schedule.scheduleKind === reading && intakeSchedule(promoted).kind === reading, `invariant 3, Open reads ${reading}, row reads ${schedule.scheduleKind}/${intakeSchedule(promoted).kind}`);
+
+    const update = heldUpdatePatch({ ...saved, evidence: ["event.eventDate", "event.start", "event.end", "event.doors", "lineup.0.start"].map(path => evidence(path)) }, "discord_announcements");
+    const updateDate = update.eventDate ?? importDate;
+    const at = (clock: EventIntakePatch["start"]) => clock ? selectEventLocalTime(updateDate, clock, "UTC") : undefined;
+    const patched: typeof out = { start: at(update.start), end: at(update.end), doors: at(update.doors), lineupStart: at(update.lineup?.[0]?.start), lineupEnd: at(update.lineup?.[0]?.end) };
+    for (const name of names) if (patched[name] !== undefined) check(clockHolds(name, patched[name], updateDate), `heldUpdatePatch, ${name} off the event's date`);
+  }
+
+  assert.deepEqual(broken, []);
+  assert.equal(rows, 2 * (9 * 16 + 8 * 16));
 });
