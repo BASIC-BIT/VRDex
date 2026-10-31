@@ -104,6 +104,21 @@ it("closes a run past its lease, alerts, and requeues its posts once", async () 
   assert.equal(pending[0].scheduledFunctionId, last._id);
 });
 
+it("sends the requeued email, not the streak alert, when the stalled run is a third failure in a row", async () => {
+  const { t, connectorId } = await seedDiscordIntake();
+  for (const ageMs of [LEASE_MS + 120_000, LEASE_MS + 60_000]) {
+    await t.run(ctx => ctx.db.insert("discordIntakeRuns", {
+      connectorId, authorId: AUTHOR_A, triggerMessageIds: [], state: "failed", reason: "extraction_failed", startedAt: Date.now() - ageMs, createdAt: Date.now() - ageMs,
+    }));
+  }
+  await seedRunning(t, connectorId, LEASE_MS);
+  assert.deepEqual(await t.mutation(internal.discordIntake.sweepStalledRuns, {}), { closed: 1, retried: 1 });
+  assert.deepEqual((await opsAlerts(t)).map(a => a.key), [discordIntakeAlertKey(connectorId)]);
+  const emails = await sends(t);
+  assert.equal(emails.length, 1);
+  assert.match(emails[0].body, /its posts were requeued/);
+});
+
 it("leaves a run inside its lease alone", async () => {
   const { t, connectorId } = await seedDiscordIntake();
   const runId = await seedRunning(t, connectorId, LEASE_MS - 60_000);

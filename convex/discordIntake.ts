@@ -379,7 +379,6 @@ export const sweepStalledRuns = internalMutation({
     const stalled = await ctx.db.query("discordIntakeRuns").withIndex("by_state_startedAt", q => q.eq("state", "running").lte("startedAt", now - RUNNING_LEASE_MS)).take(50);
     let retried = 0;
     for (const row of stalled) {
-      await closeFailedRun(ctx, row, "stalled", now);
       const connector = await ctx.db.get(row.connectorId);
       let retryId: Id<"discordIntakeRuns"> | undefined;
       // Safe to redo: finishRun writes events and links atomically, so a dead action wrote neither. Once only: a post that kills the action must not burn the daily cap.
@@ -395,6 +394,8 @@ export const sweepStalledRuns = internalMutation({
         key: retryId ? discordIntakeAlertKey(row.connectorId) : `discord-intake-dropped:${row._id}`, subject: "Discord intake run stalled",
         body: `Discord intake connector ${row.connectorId} (community ${connector?.communityProfileId}) run ${row._id} stalled; its posts were ${retryId ? "requeued" : "not requeued"}.`,
       });
+      // Last: its three-failures alert shares the connector key, and that email would say nothing about the requeue.
+      await closeFailedRun(ctx, row, "stalled", now);
     }
     return { closed: stalled.length, retried };
   },
