@@ -135,6 +135,14 @@ for (const [name, status, method, lastError] of [
   });
 }
 
+it("a 403 in flight during Disconnect leaves the connector removed", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [], { state: "removed" });
+  await t.mutation(internal.eventSyncKinds.discordBoard.pauseBoardConnector, { connectorId: s.connectorId, lastError: "discord_forbidden" });
+  const connector = await t.run((ctx) => ctx.db.get(s.connectorId));
+  assert.deepEqual([connector?.state, connector?.lastError], ["removed", undefined]);
+});
+
 it("refuses to post into a channel of another guild", async (test) => {
   const calls = fakeDiscord(test, (call) => (call.method === "GET" ? Response.json({ id: CHANNEL, guild_id: "999999999999999999", type: 0 }) : undefined));
   const t = convexTest({ schema, modules });

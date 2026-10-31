@@ -181,7 +181,8 @@ export const getBoardEvent = internalQuery({
 export const pauseBoardConnector = internalMutation({
   args: { connectorId: v.id("eventConnectors"), lastError: v.string() },
   handler: async (ctx, { connectorId, lastError }): Promise<void> => {
-    await ctx.db.patch(connectorId, { state: "paused", lastError, updatedAt: Date.now() });
+    // A 403 in flight during Disconnect must not turn `removed` back into `paused`.
+    if ((await ctx.db.get(connectorId))?.state === "active") await ctx.db.patch(connectorId, { state: "paused", lastError, updatedAt: Date.now() });
   },
 });
 
