@@ -166,7 +166,7 @@ Each run:
 3. Applies that saved plan and waits for the rollout. A circuit-breaker rollback fails the job, even though ECS reports the rollout complete, because the job compares the running task definition with the one it applied.
 4. Registers slash commands in its own job after the roll, from the `discord-gateway-commands` environment, including while the service is disabled. A failed roll registers nothing.
 
-Any failed job emails through `vrdex-group-telemetry-alerts`: a failed roll, a plan guard refusal, a rollback, or a failed registration.
+Any failed or cancelled job emails through `vrdex-group-telemetry-alerts`: a failed roll, a plan guard refusal, a rollback, a failed registration, or a timeout.
 
 CI validates and tests this stack and never plans or applies it. Any infrastructure change is a manual apply, which must pass the image and origin, or validation rejects the plan once `enable_service = true`. Reuse the running image so the apply does not roll it:
 
@@ -244,7 +244,8 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
    Create the `discord-gateway-commands` environment first and restrict it to `main`. Only it holds the GitHub copies of these two values.
 
    ```bash
-   gh api --method PUT repos/BASIC-BIT/VRDex/environments/discord-gateway-commands \n     --input - <<< '{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}'
+   gh api --method PUT repos/BASIC-BIT/VRDex/environments/discord-gateway-commands \
+     --input - <<< '{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}'
    gh api --method POST repos/BASIC-BIT/VRDex/environments/discord-gateway-commands/deployment-branch-policies -f name=main -f type=branch
    BOT_TOKEN=$(pnpm --silent cx -- prod env get DISCORD_BOT_TOKEN)
    INTAKE_SECRET=$(openssl rand -base64 32)

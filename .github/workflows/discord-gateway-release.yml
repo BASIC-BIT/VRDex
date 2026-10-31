@@ -167,7 +167,7 @@ jobs:
   notify-failure:
     name: Email a failed release
     needs: [release, register-commands]
-    if: ${{ failure() && vars.DISCORD_GATEWAY_RELEASE_ENABLED == 'true' }}
+    if: ${{ (failure() || cancelled()) && vars.DISCORD_GATEWAY_RELEASE_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
