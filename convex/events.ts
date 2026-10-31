@@ -32,7 +32,7 @@ import {
 import { requireUser } from "./_identity";
 import { contributorStaffLock } from "./_eventContributorLock";
 import { replaceEventLineup } from "./_eventLineup";
-import { eventContributionFingerprint } from "./_eventContributionPreflight";
+import { eventContributionFingerprint, normalizeIntakePublication } from "./_eventContributionPreflight";
 import { activeBrowserSessionSubjectOrNull, requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
   apiWriteAuditActorKindValidator,
@@ -93,6 +93,12 @@ import { userOwnsProfile } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { reindexEventSearchDocument } from "./_searchDocuments";
 import { ensureShortLinkForTarget } from "./_shortLinks";
+import { enqueueEventSync } from "./_eventSync";
+import { EventIntakeUpdatePatchSchema, canonicalIntakeValue, eventIntakeUpdatePatchValidator, userHasCommunityPermission } from "./_eventConnectors";
+import { correctionFields } from "./eventCorrections";
+import { seriesRepeatValidator, type SeriesRepeat } from "./_eventSeriesModel";
+// Cycle with _eventSeries (it imports this module): used only inside function bodies.
+import { createSeriesFromEvent, recordOccurrenceOverrides, requireRepeatableDraft } from "./_eventSeries";
 import { getVrcdnOutputAccount, listPublicVrcdnOutputAccounts } from "./_vrcdnOutputAccounts";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
 
@@ -127,7 +133,7 @@ const eventMediaWorkerHealthInput = v.object({
   commandFailureCount: v.optional(v.number()),
 });
 
-const eventDraftArgs = {
+export const eventDraftArgs = {
   title: v.string(),
   startAt: v.number(),
   doorsOpenAt: v.optional(v.number()),
@@ -906,7 +912,7 @@ export async function retireConfirmedEventInstanceAssociations(db: DatabaseWrite
   await Promise.all(confirmed.map(association => db.patch(association._id, { state: "suggested", updatedAt: now })));
 }
 
-async function eventSearchAssociations(db: DatabaseReader, event: Doc<"events">) {
+export async function eventSearchAssociations(db: DatabaseReader, event: Doc<"events">) {
   if (event.sourceType !== "contributor") {
     const [world, roleLabels] = await Promise.all([
       linkedPublishedEventWorld(db, event._id), eventParticipantRoleLabels(db, event._id),
@@ -990,24 +996,28 @@ async function requireApiOwnedPublishedCommunity(
 }
 
 async function createCommunityEventForApiOwnerRecord(
-  db: DatabaseWriter,
+  ctx: MutationCtx,
   args: EventDraftInput & {
     ownerUserId: Id<"users">;
     actorSurface?: "api" | "mcp";
+    repeat?: SeriesRepeat;
   },
 ) {
   const input = sanitizeEventDraftInput(args);
-  const community = await requireApiOwnedPublishedCommunity(db, input.communitySlug, args.ownerUserId);
-  const world = await getPublishedWorldBySlug(db, input.worldSlug);
-  const result = await insertCommunityEventRecord(db, {
+  const community = await requireApiOwnedPublishedCommunity(ctx.db, input.communitySlug, args.ownerUserId);
+  const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
+  const result = await insertCommunityEventRecord(ctx, {
     input,
     community,
     world,
     submitter: apiOwnerAuthSubject(args.ownerUserId),
     actorSurface: args.actorSurface ?? "api",
   });
+  if (args.repeat === undefined) return { community, result };
 
-  return { community, result };
+  const event = (await ctx.db.get(result.eventId))!;
+  const { seriesId } = await createSeriesFromEvent(ctx, event, args.repeat, args.ownerUserId, Date.now());
+  return { community, result: { ...result, seriesId } };
 }
 
 async function sanitizeOwnerEventInput(db: DatabaseReader, event: Doc<"events">, input: EventOwnerDraftInput) {
@@ -1063,7 +1073,24 @@ async function updateCommunityEventForApiOwnerRecord(
     throw new Error("You do not have permission to update this event.");
   }
 
-  const currentCommunity = await db.get(communityProfileId);
+  const { community, result } = await applyOwnerEventUpdate(ctx, event, args, {
+    kind: "api_owner", ownerUserId: args.ownerUserId, actorSurface: args.actorSurface ?? "api",
+  });
+  return { community, event, result };
+}
+
+type OwnerEventUpdateAuthority =
+  | { kind: "api_owner"; ownerUserId: Id<"users">; actorSurface: "api" | "mcp" }
+  | { kind: "staff"; actorUserId: Id<"users"> };
+
+async function applyOwnerEventUpdate(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  args: EventDraftUpdateInput,
+  authority: OwnerEventUpdateAuthority,
+) {
+  const {db}=ctx;
+  const currentCommunity = event.communityProfileId === undefined ? null : await db.get(event.communityProfileId);
 
   if (currentCommunity === null) {
     throw new Error("Event community was not found.");
@@ -1108,21 +1135,28 @@ async function updateCommunityEventForApiOwnerRecord(
       mediaLinks: event.mediaLinks ?? [],
     }),
   );
-  const community = await requireApiOwnedPublishedCommunity(db, input.communitySlug, args.ownerUserId);
+  let community: Doc<"profiles">;
+  if (authority.kind === "api_owner") {
+    community = await requireApiOwnedPublishedCommunity(db, input.communitySlug, authority.ownerUserId);
+  } else {
+    if (input.communitySlug !== currentCommunity.slug) throw new Error("Staff updates cannot move an event to another community.");
+    community = currentCommunity;
+  }
   const world = updateFields.has("worldSlug")
     ? await getPublishedWorldBySlug(db, input.worldSlug)
     : await linkedPublishedEventWorld(db, event._id);
   const result = await updateCommunityEventRecord(ctx, { event, input, community, world, updateFields });
   await recordEventAuditEvent(db, {
     eventId: event._id,
-    actor: apiOwnerAuthSubject(args.ownerUserId),
-    actorSurface: args.actorSurface ?? "api",
+    ...(authority.kind === "api_owner"
+      ? { actor: apiOwnerAuthSubject(authority.ownerUserId), actorSurface: authority.actorSurface }
+      : { actorUserId: authority.actorUserId, actorSurface: "system" as const }),
     action: "updated",
     changedFields: [...updateFields],
     now: Date.now(),
   });
 
-  return { community, event, result };
+  return { community, result };
 }
 
 export const listCommunityManagedEventsForApiOwner = internalQuery({
@@ -1167,8 +1201,8 @@ export const listCommunityManagedEventsForApiOwner = internalQuery({
   },
 });
 
-async function insertCommunityEventRecord(
-  db: DatabaseWriter,
+export async function insertCommunityEventRecord(
+  ctx: MutationCtx,
   options: {
     input: SanitizedEventDraftInput & Pick<SanitizedEventOwnerDraftInput, "lineup" | "venueLabel">;
     community: Doc<"profiles">;
@@ -1176,8 +1210,10 @@ async function insertCommunityEventRecord(
     submitter: AuthSubject;
     publicationState?: Doc<"events">["publicationState"];
     actorSurface?: Doc<"eventAuditEvents">["actorSurface"];
+    occurrence?: { seriesId: Id<"eventSeries">; occurrenceDate: string };
   },
 ) {
+  const { db } = ctx;
   const { community, input, submitter, world } = options;
   const now = Date.now();
   const publicationState = options.publicationState ?? "published";
@@ -1208,6 +1244,7 @@ async function insertCommunityEventRecord(
     ...(publicationState === "published" ? { publishedAt: now } : {}),
     createdAt: now,
     updatedAt: now,
+    ...(options.occurrence ? { ...options.occurrence, overrides: [] } : {}),
   });
   const shortLink = await ensureShortLinkForTarget(
     db,
@@ -1242,6 +1279,7 @@ async function insertCommunityEventRecord(
     const roleLabels = input.lineup?.flatMap(row => row.roleLabel ? [row.roleLabel] : []) ?? participantLinks.map((participant) => participant.roleLabel);
     await reindexEventSearchDocument(db, event, { community, world, roleLabels }, now);
   }
+  await enqueueEventSync(db, ctx.scheduler, eventId, "upsert");
 
   return {
     eventId,
@@ -1306,6 +1344,7 @@ async function updateCommunityEventRecord(
       throw new Error("You do not have permission to move this event to another community.");
     }
   }
+  const previousWorldSlug = event.seriesId === undefined ? undefined : (await linkedPublishedEventWorld(db, event._id))?.slug;
   await db.patch(event._id, {
     title: input.title,
     sortTitle: input.sortTitle,
@@ -1338,9 +1377,11 @@ async function updateCommunityEventRecord(
       ? {}
       : {
           publicationState,
-          ...(publicationState === "published" ? { publishedAt: event.publishedAt ?? now } : {}),
+          ...(publicationState === "published" ? { publishedAt: event.publishedAt ?? now, seriesRetiredAt: undefined } : {}),
         }),
     updatedAt: now,
+    // A series stays inside its community, so a moved night stops being one of its occurrences.
+    ...(community._id === event.communityProfileId ? {} : { seriesId: undefined, occurrenceDate: undefined, overrides: undefined, seriesRetiredAt: undefined }),
     ...contributorStaffLock(event, now),
   });
   const updatedEvent = await db.get(event._id);
@@ -1405,6 +1446,11 @@ async function updateCommunityEventRecord(
       preserveAssociationIds: preserveWorldAssociationIds,
     });
   }
+  if (updatedEvent.seriesId !== undefined) {
+    // The browser passes no world when the chooser keeps it, so compare the linked worlds, not the argument.
+    const worldChanged = replaceWorld && (await linkedPublishedEventWorld(db, event._id))?.slug !== previousWorldSlug;
+    await recordOccurrenceOverrides(db, event, updatedEvent, worldChanged);
+  }
 
   if (replaceSlots) {
     await replaceEventSlots(db, event._id, input.startAt, input.slotLinks, now, {
@@ -1436,6 +1482,7 @@ async function updateCommunityEventRecord(
     { community, world: indexedWorld, roleLabels },
     now,
   );
+  await enqueueEventSync(db, ctx.scheduler, event._id, "upsert");
 
   return {
     eventId: event._id,
@@ -2836,7 +2883,7 @@ export const createCommunityEvent = mutation({
     );
     const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
 
-    return await insertCommunityEventRecord(ctx.db, {
+    return await insertCommunityEventRecord(ctx, {
       input,
       community,
       world,
@@ -3042,10 +3089,12 @@ export const createCommunityEventForApiOwner = internalMutation({
     actorKind: apiWriteAuditActorKindValidator,
     ownerUserId: v.id("users"),
     ...eventDraftArgs,
+    repeat: v.optional(seriesRepeatValidator),
   },
   handler: async (ctx, args) => {
+    if (args.repeat !== undefined) requireRepeatableDraft(args, args.repeat);
     const { community, result } = await createCommunityEventForApiOwnerRecord(
-      ctx.db,
+      ctx,
       args,
     );
     await recordApiWriteAuditEvent(ctx.db, {
@@ -3067,6 +3116,7 @@ export const createCommunityEventForMcpOwner = internalMutation({
   args: {
     ...mcpWriteAttributionArgs,
     ...eventDraftArgs,
+    repeat: v.optional(seriesRepeatValidator),
   },
   handler: async (ctx, args) => {
     const oauthClientId = normalizeOAuthClientId(args.oauthClientId);
@@ -3087,12 +3137,20 @@ export const createCommunityEventForMcpOwner = internalMutation({
       return await withCurrentEventWritePaths(ctx.db, existing.result as McpEventWriteResult);
     }
 
+    // Before the create, so a bad repeat is a definite denial that names its own error.
+    if (args.repeat !== undefined) {
+      try {
+        requireRepeatableDraft(args, args.repeat);
+      } catch (error) {
+        throw new ConvexError({ code: "MCP_WRITE_DENIED", message: error instanceof Error ? error.message : String(error) });
+      }
+    }
     let community: Doc<"profiles">;
     let result: McpEventWriteResult;
 
     try {
       ({ community, result } = await createCommunityEventForApiOwnerRecord(
-        ctx.db,
+        ctx,
         { ...args, actorSurface: "mcp" },
       ));
     } catch {
@@ -3220,6 +3278,79 @@ export const updateCommunityEventForMcpOwner = internalMutation({
 
     return result;
   },
+});
+
+const STAFF_SCHEDULE_KEYS = ["eventDate", "timeTba", "timezone", "start"] as const;
+
+// Both validation steps run before any write, so a caller may catch INVALID_EVENT_PATCH and continue its mutation.
+export function validStaffPatch<T>(validate: () => T): T {
+  try { return validate(); } catch (error) {
+    throw new ConvexError({ code: "INVALID_EVENT_PATCH", message: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+// Field-level: only the patch keys that differ from the canonical record reach the owner update path.
+export async function patchCommunityEventFieldsAsStaffRecord(
+  ctx: MutationCtx,
+  args: { actorUserId: Id<"users">; slug: string; expectedUpdatedAt: number; patch: unknown },
+): Promise<{ eventId: Id<"events">; updatedAt: number; changed: boolean }> {
+  const { db } = ctx;
+  const event = await getEventBySlug(db, args.slug);
+  const community = event?.communityProfileId === undefined ? null : await db.get(event.communityProfileId);
+  if (event === null || community === null) throw new ConvexError({ code: "EVENT_NOT_FOUND" });
+  if (!await userHasCommunityPermission(db, community._id, args.actorUserId, ["manage_events", "manage_integrations"])) {
+    throw new ConvexError({ code: "EVENT_STAFF_REQUIRED" });
+  }
+  if (args.expectedUpdatedAt !== event.updatedAt) throw new ConvexError({ code: "VERSION_CONFLICT" });
+  const parsed = validStaffPatch(() => EventIntakeUpdatePatchSchema.parse(args.patch));
+  const current = await correctionFields(db, event);
+  const same = (key: keyof typeof parsed) =>
+    JSON.stringify(canonicalIntakeValue(key === "timeTba" ? parsed.timeTba ?? false : parsed[key])) === JSON.stringify(canonicalIntakeValue(current[key]));
+  const patch = Object.fromEntries(Object.entries(parsed).filter(([key]) => !same(key as keyof typeof parsed))) as typeof parsed;
+  const has = (key: keyof typeof parsed) => Object.prototype.hasOwnProperty.call(patch, key);
+  if (Object.keys(patch).length === 0) return { eventId: event._id, updatedAt: event.updatedAt, changed: false };
+
+  const touchesSchedule = STAFF_SCHEDULE_KEYS.some(has);
+  const touchesTimes = touchesSchedule || has("end") || has("doors");
+  const update: EventDraftUpdateInput = {};
+  if (touchesTimes || has("lineup")) {
+    // Normalize the schedule subset only: unrelated legacy data (doors, unlabeled lineup) must not block the patch.
+    const dateOnly = has("timeTba") ? patch.timeTba === true : current.timeTba === true;
+    const n = validStaffPatch(() => {
+      const normalized = normalizeIntakePublication({
+        communitySlug: community.slug, title: patch.title ?? current.title, eventDate: current.eventDate,
+        timeTba: current.timeTba, timezone: current.timezone,
+        ...(dateOnly ? {} : { start: current.start, ...(touchesTimes ? { end: current.end, doors: current.doors } : {}) }),
+        ...Object.fromEntries([...STAFF_SCHEDULE_KEYS, "end", "doors", "lineup"].filter(key => has(key as keyof typeof parsed)).map(key => [key, patch[key as keyof typeof parsed]])),
+      });
+      // applyOwnerEventUpdate applies the same gate; checking it here first lets a caller catch it as INVALID_EVENT_PATCH.
+      if (normalized.schedule.scheduleKind === "date_only" && event.scheduleKind !== "date_only") requireDateOnlyEventsEnabled();
+      return normalized;
+    });
+    if (touchesSchedule) {
+      Object.assign(update, n.schedule.scheduleKind === "date_only"
+        ? { scheduleKind: "date_only", eventDate: n.schedule.eventDate, timezone: null }
+        : { scheduleKind: "timed", eventDate: n.schedule.eventDate, startAt: n.schedule.startAt, timezone: n.fields.timezone });
+    }
+    if (touchesSchedule || has("end")) update.endAt = n.endAt ?? null;
+    if (touchesSchedule || has("doors")) update.doorsOpenAt = n.doorsOpenAt ?? null;
+    if (has("lineup")) update.lineup = n.lineup;
+  }
+  if (patch.title) update.title = patch.title;
+  if (has("venueLabel")) update.venueLabel = patch.venueLabel ?? "";
+  if (has("summary")) update.summary = patch.summary || null;
+  if (has("sourceUrl")) update.sourceUrl = patch.sourceUrl || null;
+  if (has("worldSlug")) update.worldSlug = patch.worldSlug || null;
+  if (Object.keys(update).length === 0) return { eventId: event._id, updatedAt: event.updatedAt, changed: false };
+
+  await applyOwnerEventUpdate(ctx, event, update, { kind: "staff", actorUserId: args.actorUserId });
+  const stored = (await db.get(event._id))!;
+  return { eventId: event._id, updatedAt: stored.updatedAt, changed: true };
+}
+
+export const patchCommunityEventFieldsAsStaff = internalMutation({
+  args: { actorUserId: v.id("users"), slug: v.string(), expectedUpdatedAt: v.number(), patch: eventIntakeUpdatePatchValidator },
+  handler: (ctx, args) => patchCommunityEventFieldsAsStaffRecord(ctx, args),
 });
 
 export const updateCommunityEvent = mutation({
@@ -3476,6 +3607,56 @@ export const listEventAudit = query({
   },
 });
 
+/** Writes a changed publication state with its search, audit, and sync side effects (one enqueue). */
+export async function applyEventPublicationState(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  publicationState: Doc<"events">["publicationState"],
+  actor: AuthSubject,
+  actorSurface: Doc<"eventAuditEvents">["actorSurface"],
+  now: number,
+): Promise<void> {
+  const published = publicationState === "published";
+  await ctx.db.patch(event._id, {
+    publicationState,
+    ...(published ? { publishedAt: event.publishedAt ?? now, seriesRetiredAt: undefined } : {}),
+    updatedAt: now,
+    ...contributorStaffLock(event, now),
+  });
+  const updated = await ctx.db.get(event._id);
+  if (updated !== null) {
+    await syncPreservedEventAssociations(ctx.db, updated, now, {
+      preserveParticipants: true,
+      preserveSlots: false,
+      preserveWorld: true,
+    });
+    const [community, associations] = await Promise.all([
+      updated.communityProfileId === undefined
+        ? undefined
+        : ctx.db.get(updated.communityProfileId),
+      eventSearchAssociations(ctx.db, updated),
+    ]);
+    await reindexEventSearchDocument(
+      ctx.db,
+      updated,
+      {
+        community: community?.profileType === "community" ? community : undefined,
+        ...associations,
+      },
+      now,
+    );
+  }
+  await recordEventAuditEvent(ctx.db, {
+    eventId: event._id,
+    actor,
+    actorSurface,
+    action: published ? "published" : "unpublished",
+    changedFields: ["publicationState"],
+    now,
+  });
+  await enqueueEventSync(ctx.db, ctx.scheduler, event._id, "upsert");
+}
+
 export const setCommunityEventPublished = mutation({
   args: {
     currentSlug: v.string(),
@@ -3513,43 +3694,7 @@ export const setCommunityEventPublished = mutation({
       }
     }
 
-    await ctx.db.patch(event._id, {
-      publicationState,
-      ...(args.published ? { publishedAt: event.publishedAt ?? now } : {}),
-      updatedAt: now,
-      ...contributorStaffLock(event, now),
-    });
-    const updated = await ctx.db.get(event._id);
-    if (updated !== null) {
-      await syncPreservedEventAssociations(ctx.db, updated, now, {
-        preserveParticipants: true,
-        preserveSlots: false,
-        preserveWorld: true,
-      });
-      const [community, associations] = await Promise.all([
-        updated.communityProfileId === undefined
-          ? undefined
-          : ctx.db.get(updated.communityProfileId),
-        eventSearchAssociations(ctx.db, updated),
-      ]);
-      await reindexEventSearchDocument(
-        ctx.db,
-        updated,
-        {
-          community: community?.profileType === "community" ? community : undefined,
-          ...associations,
-        },
-        now,
-      );
-    }
-    await recordEventAuditEvent(ctx.db, {
-      eventId: event._id,
-      actor: subject,
-      actorSurface: "browser",
-      action: args.published ? "published" : "unpublished",
-      changedFields: ["publicationState"],
-      now,
-    });
+    await applyEventPublicationState(ctx, event, publicationState, subject, "browser", now);
 
     return {
       eventId: event._id,
@@ -3635,6 +3780,7 @@ export const setCommunityEventCancelled = mutation({
       ...(reason === undefined ? {} : { reason }),
       now,
     });
+    await enqueueEventSync(ctx.db, ctx.scheduler, event._id, "upsert");
 
     return { eventId: event._id, eventStatus, changed: true as const };
   },
@@ -3748,7 +3894,7 @@ export const configureTwitchOutput = mutation({
 });
 
 /** Bind capacity authority at construction; public callers cannot override it. */
-export function createScheduleEventMediaWorker(resolveAllocation = resolveWorkerAllocation) {
+export function createScheduleEventMediaWorker(resolveAllocation: typeof resolveWorkerAllocation) {
   return mutation({
   args: eventMediaWorkerScheduleArgs,
   handler: async (ctx, args) => {
@@ -3909,10 +4055,10 @@ export function createScheduleEventMediaWorker(resolveAllocation = resolveWorker
       ...(startCommandId === undefined ? {} : { startCommandId }),
     };
   },
-});
+  });
 }
 
-export const scheduleEventMediaWorker = createScheduleEventMediaWorker();
+export const scheduleEventMediaWorker = createScheduleEventMediaWorker(resolveWorkerAllocation);
 
 export const recordEventMediaWorkerTaskStatus = mutation({
   args: eventMediaWorkerTaskStatusArgs,

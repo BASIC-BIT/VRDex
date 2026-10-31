@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useEffectEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { TimelineSelection } from "./home-schedule";
+import type { TimelineSelection } from "../home-browse-provider";
 import { useEventDetail } from "./use-event-detail";
 import { useEventRoster } from "./use-event-roster";
 import {

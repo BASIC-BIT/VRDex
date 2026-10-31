@@ -6,6 +6,7 @@ export function clubNavigation(
   owner: boolean,
   permissions: readonly string[],
   readableCategories: readonly string[] = [],
+  eventConnectorsEnabled = false,
 ) {
   const root = `/account/communities/${encodeURIComponent(slug)}`;
   return [
@@ -85,6 +86,13 @@ export function clubNavigation(
       label: "Group connection",
       href: `${root}/connection`,
       visible: owner || permissions.includes("manage_integrations"),
+    },
+    {
+      label: "Integrations",
+      href: `${root}/integrations`,
+      visible:
+        eventConnectorsEnabled &&
+        (owner || permissions.includes("manage_integrations")),
     },
   ].filter((item) => item.visible);
 }

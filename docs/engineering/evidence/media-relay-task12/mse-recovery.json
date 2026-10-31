@@ -1,0 +1,20 @@
+{
+  "status": "passed",
+  "durationMs": 33582,
+  "media": [],
+  "sourceConnections": 2,
+  "sourceEpoch": 1,
+  "newAttemptSequence": 8,
+  "manifestStatuses": [
+    503,
+    503,
+    503,
+    503,
+    503,
+    200,
+    200,
+    200
+  ],
+  "finalActiveGrants": 1,
+  "policy": "30 bounded linear 1-second playlist error retries; Hls 4xx behavior unchanged"
+}

@@ -654,6 +654,8 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
             };
           })}
           profileSlug={profile.slug}
+          profileId={profile.id}
+          displayName={profile.displayName}
           streams={vrcdnStreams.map(({ item, label, stream }) => ({
             claimable: true,
             key: `${item.link.type}-${item.link.url}`,
@@ -661,6 +663,7 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
             pcUrl: stream.pcUrl,
             previewUrl: stream.previewUrl,
             questUrl: stream.questUrl,
+            directVideoUrl: stream.directVideoUrl,
             streamId: stream.streamId,
           }))}
           twitchContent={twitchLink ? (

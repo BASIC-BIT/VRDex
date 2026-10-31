@@ -1,0 +1,22 @@
+{
+  "browser": {
+    "browser": "148.0.7778.96",
+    "headless": true,
+    "launchOverrides": []
+  },
+  "deliveredSegmentSha256": "ddd449d264ef91a8411d081cfe997580cfd90e4bf1746496f10080891018ff04",
+  "codecs": [
+    {
+      "codec": "h264",
+      "type": "video"
+    },
+    {
+      "codec": "aac",
+      "type": "audio"
+    }
+  ],
+  "ffmpegDecodeExitCode": 0,
+  "coldBeforeReadiness": "PipelineStatus::DEMUXER_ERROR_COULD_NOT_PARSE at time 0, native src path",
+  "warmDiagnostic": "Four segments allowed decode, audio, navigation and recovery; extra diagnostic grant made final release assertion fail.",
+  "coldAfterReadiness": "Normal native-first factory passed including metadata and actual Next child-route retention."
+}

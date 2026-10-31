@@ -10,6 +10,7 @@
   "scripts": {
     "prestart": "node ../../scripts/guard-main-worktree.mjs",
     "start": "tsx src/index.ts",
+    "register-commands": "tsx src/register-commands.ts",
     "pretypecheck": "node ../../scripts/guard-main-worktree.mjs",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "pretest": "node ../../scripts/guard-main-worktree.mjs",

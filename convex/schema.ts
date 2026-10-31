@@ -1,4 +1,6 @@
+import { mediaRelayTables } from "./_mediaRelayTables";
 import { statisticsAdmissionValidator } from "./_groupAdmission";
+import { admissionDiagnosticsValidator } from "./_groupObservationMonitoring";
 import { destinationGroupMetadataValidator } from "./_profileLinkDestination";
 import { collectionScopeValidator, groupObservationDecisionValidator } from "./_communityTelemetry";
 import { resourceSnapshotValidator, computeRuntimeValidator } from "./_eventBroadcastResources";
@@ -10,7 +12,10 @@ import { clubPermission, clubVisibility, clubSubject } from "./_clubModel";
 import { providerReadParams, providerReadPage } from "./_clubProviderReads";
 import { integrationFeature, storedAuthority } from "./_clubConnection";
 import {clubOperationPayload,operationSchedule,operationState} from "./_clubOperations";
+import { operationResult } from "./_clubOperations";
 import { contributionTables } from "./_contributionTables";
+import { connectorDirection, connectorKind, connectorMode, connectorState, connectorTarget, credentialProvider, syncJobKind, syncJobState, syncLinkState } from "./_eventConnectors";
+import { eventSeriesRuleValidator } from "./_eventSeriesModel";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
@@ -46,16 +51,6 @@ import {
   billingSubscriptionStatusValidator,
   stripeEnvironmentValidator,
 } from "./_billing";
-import {
-  eventImportBatchReviewStateValidator,
-  eventImportCandidatePublicationStateValidator,
-  eventImportCandidateReviewStateValidator,
-  eventImportCancellationStateValidator,
-  eventImportFieldConfidenceValidator,
-  eventImportFieldReviewStateValidator,
-  eventImportFieldVisibilityValidator,
-  eventImportProviderValidator,
-} from "./_eventCalendarImports";
 import {
   eventMediaActorSurfaceValidator,
   eventMediaCommandStatusValidator,
@@ -397,6 +392,15 @@ const eventMediaLinkType = v.union(
 
 const eventMediaLinkPresentation = v.union(v.literal("open"), v.literal("copy"));
 
+const eventMediaLinks = v.array(
+  v.object({
+    type: eventMediaLinkType,
+    label: v.string(),
+    url: v.string(),
+    presentation: eventMediaLinkPresentation,
+  }),
+);
+
 const eventWorldConfirmationState = v.union(
   v.literal("unconfirmed"),
   v.literal("confirmed"),
@@ -657,7 +661,9 @@ const fieldVisibility = v.object({
 });
 
 const sharedProfileFields = {
-  primaryGroupReference: v.optional(v.object({ url: v.string(), key: v.string(), contributorUserId: v.id("users") })),
+  primaryGroupReference: v.optional(v.object({ url: v.string(), key: v.string(), contributorUserId: v.optional(v.id("users")), inferred: v.optional(v.boolean()) })),
+  primaryGroupSelectionDisabled: v.optional(v.boolean()),
+  inferredGroupContributorUserId: v.optional(v.id("users")),
   slug: v.string(),
   displayName: v.string(),
   sortName: v.string(),
@@ -716,6 +722,7 @@ const sharedProfileFields = {
 };
 
 export default defineSchema({
+  ...mediaRelayTables,
   clubProviderReadRequests: defineTable({
     communityProfileId: v.id("profiles"), integrationId: v.id("communityVrchatIntegrations"),
     subject: clubSubject, params: providerReadParams, requestKey: v.string(),
@@ -1145,7 +1152,8 @@ export default defineSchema({
     uploadedAt: v.number(), expiresAt: v.number(), uploadExpiresAt: v.number(), lastActivityAt: v.number(),
     holdReportId: v.optional(v.id("eventReports")), cleanupToken: v.optional(v.string()),
     cleanupLeaseUntil: v.optional(v.number()), expiredAt: v.optional(v.number()), eventId: v.optional(v.id("events")),
-  }).index("by_actor_state", ["actorUserId", "state"])
+    connectorId: v.optional(v.id("eventConnectors")),
+  }).index("by_actor_connector_state", ["actorUserId", "connectorId", "state"])
     .index("by_draft", ["draftId"]).index("by_draft_state", ["draftId", "state"]).index("by_state_expiresAt", ["state", "expiresAt"]),
   eventPosterArtwork: defineTable({
     actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"), sourceId: v.id("eventPosterSources"),
@@ -1167,22 +1175,87 @@ export default defineSchema({
     fields: v.any(),
     provenance: v.array(v.object({ field: v.string(), kind: v.union(v.literal("contributor"), v.literal("tentative")), version: v.number() })),
     publishedReceiptId: v.optional(v.id("eventContributionReceipts")),
+    connectorId: v.optional(v.id("eventConnectors")),
     createdAt: v.number(), updatedAt: v.number(), expiresAt: v.number(),
   }).index("by_actor_updatedAt", ["actorUserId", "updatedAt"])
     .index("by_actor_expiresAt", ["actorUserId", "expiresAt"])
+    .index("by_actor_connector_expiresAt", ["actorUserId", "connectorId", "expiresAt"])
     .index("by_expiresAt", ["expiresAt"]),
   eventContributionReceipts: defineTable({
     actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"), draftVersion: v.number(),
     eventId: v.id("events"), eventPath: v.string(), communityProfileId: v.id("profiles"),
     fingerprint: v.string(), createdAt: v.number(),
+    // Set on connector-driven publishes, which skip and do not count toward the actor's own caps.
+    connectorId: v.optional(v.id("eventConnectors")),
   }).index("by_actor_createdAt", ["actorUserId", "createdAt"])
+    .index("by_actor_connector_createdAt", ["actorUserId", "connectorId", "createdAt"])
     .index("by_community_createdAt", ["communityProfileId", "createdAt"])
     .index("by_eventId", ["eventId"]),
   eventIntakePublishRequests: defineTable({
     actorUserId: v.id("users"), idempotencyKey: v.string(), draftId: v.id("eventIntakeDrafts"),
     draftVersion: v.number(), receiptId: v.id("eventContributionReceipts"), createdAt: v.number(),
+    connectorId: v.optional(v.id("eventConnectors")),
   }).index("by_actor_key", ["actorUserId", "idempotencyKey"])
-    .index("by_actor_createdAt", ["actorUserId", "createdAt"]),
+    .index("by_actor_createdAt", ["actorUserId", "createdAt"])
+    .index("by_actor_connector_createdAt", ["actorUserId", "connectorId", "createdAt"]),
+  eventConnectors: defineTable({
+    communityProfileId: v.id("profiles"), kind: connectorKind, direction: connectorDirection, mode: connectorMode,
+    authorityUserId: v.id("users"), credentialId: v.optional(v.id("connectorCredentials")), target: connectorTarget,
+    quietWindowSeconds: v.optional(v.number()), state: connectorState, lastSyncedAt: v.optional(v.number()), lastError: v.optional(v.string()),
+    consecutiveFailures: v.optional(v.number()), createdAt: v.number(), updatedAt: v.number(),
+  }).index("by_communityProfileId", ["communityProfileId"])
+    .index("by_kind_target_channelId", ["kind", "target.channelId"]),
+  connectorCredentials: defineTable({
+    provider: credentialProvider, ownerUserId: v.id("users"), encryptedAccessToken: v.string(), encryptedRefreshToken: v.string(),
+    accessTokenExpiresAt: v.number(), scopes: v.array(v.string()), externalAccountId: v.string(),
+    state: v.union(v.literal("active"), v.literal("revoked")), createdAt: v.number(), updatedAt: v.number(),
+  }),
+  eventSyncLinks: defineTable({
+    connectorId: v.id("eventConnectors"), eventId: v.optional(v.id("events")), draftId: v.optional(v.id("eventIntakeDrafts")),
+    externalId: v.string(), externalSeriesId: v.optional(v.string()), lastExportedAt: v.optional(v.number()), lastExportedHash: v.optional(v.string()),
+    lastImportedAt: v.optional(v.number()), externalUpdatedAt: v.optional(v.number()), state: syncLinkState, createdAt: v.number(), updatedAt: v.number(),
+    // vrchat_calendar: the poster URL last exported, so an unchanged poster is not re-sent.
+    externalArtworkUrl: v.optional(v.string()),
+  }).index("by_connectorId_externalId", ["connectorId", "externalId"])
+    .index("by_eventId", ["eventId"]),
+  eventSyncJobs: defineTable({
+    connectorId: v.id("eventConnectors"), eventId: v.optional(v.id("events")), kind: syncJobKind, payload: v.any(),
+    dueAt: v.number(), attempts: v.number(), leaseExpiresAt: v.optional(v.number()), state: syncJobState, lastError: v.optional(v.string()),
+    scheduledFunctionId: v.optional(v.id("_scheduled_functions")), createdAt: v.number(), updatedAt: v.number(),
+  }).index("by_connectorId_eventId_state", ["connectorId", "eventId", "state"])
+    .index("by_state_dueAt", ["state", "dueAt"]),
+  discordIntakeMessages: defineTable({
+    connectorId: v.id("eventConnectors"), messageId: v.string(), guildId: v.string(), channelId: v.string(),
+    authorId: v.string(), authorDisplayName: v.string(),
+    // Set at record time only when exactly one VRDex user has verified this Discord ID.
+    authorUserId: v.optional(v.id("users")),
+    content: v.string(), attachments: v.array(v.object({ url: v.string(), contentType: v.string(), byteLength: v.number() })),
+    createdAt: v.number(), editedAt: v.optional(v.number()), deletedAt: v.optional(v.number()), updatedAt: v.number(),
+  }).index("by_connectorId_messageId", ["connectorId", "messageId"])
+    .index("by_connectorId_authorId_createdAt", ["connectorId", "authorId", "createdAt"]),
+  discordIntakeRuns: defineTable({
+    connectorId: v.id("eventConnectors"), authorId: v.string(), triggerMessageIds: v.array(v.string()),
+    scheduledFunctionId: v.optional(v.id("_scheduled_functions")),
+    state: v.union(v.literal("pending"), v.literal("running"), v.literal("done"), v.literal("failed")),
+    decision: v.optional(v.union(
+      v.object({ kind: v.literal("new") }),
+      v.object({ kind: v.literal("update"), slug: v.string() }),
+      v.object({ kind: v.literal("not_event"), reason: v.string() }),
+    )),
+    reason: v.optional(v.string()), draftId: v.optional(v.id("eventIntakeDrafts")), eventId: v.optional(v.id("events")),
+    startedAt: v.optional(v.number()), finishedAt: v.optional(v.number()), createdAt: v.number(),
+  }).index("by_connectorId_authorId_state", ["connectorId", "authorId", "state"])
+    .index("by_connectorId_startedAt", ["connectorId", "startedAt"]),
+  discordIntakeSources: defineTable({
+    connectorId: v.id("eventConnectors"), messageId: v.string(), eventId: v.optional(v.id("events")),
+    // The sync link's external ID this post resolved to; later runs that include the post reuse it.
+    externalId: v.string(),
+    draftId: v.optional(v.id("eventIntakeDrafts")), runId: v.id("discordIntakeRuns"), createdAt: v.number(),
+  }).index("by_connectorId_messageId", ["connectorId", "messageId"])
+    .index("by_eventId", ["eventId"]),
+  discordGatewayHeartbeats: defineTable({ instanceId: v.string(), at: v.number(), receivedAt: v.number() })
+    .index("by_instanceId", ["instanceId"])
+    .index("by_receivedAt", ["receivedAt"]),
   eventReports: defineTable({
     eventId: v.id("events"), communityProfileId: v.optional(v.id("profiles")),
     actorUserId: v.optional(v.id("users")), reason: v.string(),
@@ -1197,6 +1270,33 @@ export default defineSchema({
     fingerprint: v.string(), eventId: v.id("events"), createdAt: v.number(), expiresAt: v.number(),
   }).index("by_fingerprint_expiresAt", ["fingerprint", "expiresAt"])
     .index("by_expiresAt", ["expiresAt"]),
+  // Recurring events (plan 10): a series owns the shared fields; events carry the occurrence.
+  eventSeries: defineTable({
+    communityProfileId: v.id("profiles"),
+    title: v.string(),
+    summary: v.optional(v.string()),
+    timezone: v.string(),
+    venueLabel: v.optional(v.string()),
+    worldSlug: v.optional(v.string()),
+    mediaLinks: v.optional(eventMediaLinks),
+    watchMode: v.optional(v.union(v.literal("event_stream"), v.literal("performer_sequence"))),
+    watchSurfaceEnabled: v.optional(v.boolean()),
+    bannerImageUrl: v.optional(v.string()),
+    thumbnailImageUrl: v.optional(v.string()),
+    sourceUrl: v.optional(v.string()),
+    sourceLabel: v.optional(v.string()),
+    rule: eventSeriesRuleValidator,
+    startsOn: v.string(),
+    endsOn: v.optional(v.string()),
+    count: v.optional(v.number()),
+    horizonDays: v.number(),
+    authorityUserId: v.id("users"),
+    state: v.union(v.literal("active"), v.literal("ended"), v.literal("removed")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_communityProfileId_state", ["communityProfileId", "state"])
+    .index("by_state", ["state"]),
   events: defineTable({
     venueLabel: v.optional(v.string()),
     contributorUserId: v.optional(v.id("users")),
@@ -1224,16 +1324,7 @@ export default defineSchema({
     thumbnailImageUrl: v.optional(v.string()),
     watchMode: v.optional(v.union(v.literal("event_stream"), v.literal("performer_sequence"))),
     watchSurfaceEnabled: v.optional(v.boolean()),
-    mediaLinks: v.optional(
-      v.array(
-        v.object({
-          type: eventMediaLinkType,
-          label: v.string(),
-          url: v.string(),
-          presentation: eventMediaLinkPresentation,
-        }),
-      ),
-    ),
+    mediaLinks: v.optional(eventMediaLinks),
     sourceType: eventSourceType,
     sourceLabel: v.string(),
     sourceUrl: v.optional(v.string()),
@@ -1243,8 +1334,15 @@ export default defineSchema({
     publishedAt: v.optional(v.number()),
     createdAt: v.optional(v.number()),
     updatedAt: v.number(),
+    // Recurring events (plan 10): occurrence of an eventSeries; overrides lists series-owned fields edited on this night.
+    seriesId: v.optional(v.id("eventSeries")),
+    occurrenceDate: v.optional(v.string()),
+    overrides: v.optional(v.array(v.string())),
+    // Set when an active series' edit unpublished this night, so a later edit can bring it back. Any publish clears it.
+    seriesRetiredAt: v.optional(v.number()),
   })
     .index("by_slug", ["slug"])
+    .index("by_seriesId_occurrenceDate", ["seriesId", "occurrenceDate"])
     .index("by_publicationState_startAt", ["publicationState", "startAt"])
     .index("by_contributionFingerprint", ["contributionFingerprint"])
     .index("by_contributorUserId", ["contributorUserId"])
@@ -1424,78 +1522,6 @@ export default defineSchema({
   })
     .index("by_eventId_createdAt", ["eventId", "createdAt"])
     .index("by_action_createdAt", ["action", "createdAt"]),
-  eventImportBatches: defineTable({
-    externalBatchId: v.string(),
-    provider: eventImportProviderValidator,
-    sourceName: v.string(),
-    sourceCalendarId: v.string(),
-    sourceCalendarSummary: v.optional(v.string()),
-    sourceCalendarTimeZone: v.optional(v.string()),
-    syncJobId: v.optional(v.string()),
-    receivedAt: v.number(),
-    importedBy: v.optional(authSubject),
-    reviewState: eventImportBatchReviewStateValidator,
-    reviewedBy: v.optional(authSubject),
-    reviewedAt: v.optional(v.number()),
-    notes: v.optional(v.string()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_externalBatchId", ["externalBatchId"])
-    .index("by_provider_receivedAt", ["provider", "receivedAt"])
-    .index("by_reviewState_receivedAt", ["reviewState", "receivedAt"]),
-  eventImportCandidates: defineTable({
-    batchId: v.id("eventImportBatches"),
-    externalEventId: v.string(),
-    externalICalUid: v.optional(v.string()),
-    sourceUpdatedAt: v.optional(v.number()),
-    sourceUrl: v.optional(v.string()),
-    title: v.string(),
-    startAt: v.optional(v.number()),
-    endAt: v.optional(v.number()),
-    timezone: v.optional(v.string()),
-    allDay: v.optional(v.boolean()),
-    location: v.optional(v.string()),
-    description: v.optional(v.string()),
-    recurrenceRules: v.array(v.string()),
-    recurringEventId: v.optional(v.string()),
-    cancellationState: eventImportCancellationStateValidator,
-    reviewState: eventImportCandidateReviewStateValidator,
-    publicationState: eventImportCandidatePublicationStateValidator,
-    matchedEventId: v.optional(v.id("events")),
-    reviewer: v.optional(authSubject),
-    reviewedAt: v.optional(v.number()),
-    reviewNote: v.optional(v.string()),
-    publicationQueuedBy: v.optional(authSubject),
-    publicationQueuedAt: v.optional(v.number()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_batchId", ["batchId"])
-    .index("by_batchId_reviewState", ["batchId", "reviewState"])
-    .index("by_batchId_publicationState", ["batchId", "publicationState"])
-    .index("by_externalEventId", ["externalEventId"])
-    .index("by_sourceUpdatedAt", ["sourceUpdatedAt"])
-    .index("by_matchedEventId", ["matchedEventId"]),
-  eventImportCandidateFields: defineTable({
-    candidateId: v.id("eventImportCandidates"),
-    fieldKey: v.string(),
-    value: v.any(),
-    sourceLabel: v.string(),
-    sourceUrl: v.optional(v.string()),
-    confidence: eventImportFieldConfidenceValidator,
-    reviewState: eventImportFieldReviewStateValidator,
-    visibility: eventImportFieldVisibilityValidator,
-    reviewedBy: v.optional(authSubject),
-    reviewedAt: v.optional(v.number()),
-    reviewNote: v.optional(v.string()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_candidateId", ["candidateId"])
-    .index("by_candidateId_reviewState", ["candidateId", "reviewState"])
-    .index("by_candidateId_visibility", ["candidateId", "visibility"])
-    .index("by_fieldKey_reviewState", ["fieldKey", "reviewState"]),
   // Local-only rehearsal ownership. No public API writes this manifest.
   localEventBroadcastRehearsals: defineTable({
     runId: v.string(), userId: v.id("users"), ownerId: v.id("profileOwners"),
@@ -1750,7 +1776,10 @@ export default defineSchema({
   communityDashboardPreferences: defineTable({
     communityProfileId:v.id("profiles"),scope:v.union(v.literal("club"),v.literal("personal")),subjectTokenIdentifier:v.string(),widgets:v.array(v.string()),rangeDays:v.union(v.literal(7),v.literal(30),v.literal(90)),updatedAt:v.number(),
   }).index("by_communityProfileId_scope_subject",["communityProfileId","scope","subjectTokenIdentifier"]),
-  clubOperations:defineTable({dependencyId:v.optional(v.id("clubOperations")),dependencyRevision:v.optional(v.number()),readyAt:v.number(),preflightAttempts:v.optional(v.number()),retryAt:v.optional(v.number()),communityProfileId:v.id("profiles"),integrationId:v.id("communityVrchatIntegrations"),epochStartedAt:v.number(),requestId:v.string(),batchId:v.string(),payload:clubOperationPayload,schedule:operationSchedule,eventId:v.optional(v.id("events")),dueAt:v.number(),actor:clubSubject,createdBy:clubSubject,revision:v.number(),state:operationState,claim:v.optional(v.object({nonce:v.string(),collectorAccountId:v.id("collectorAccounts"),credentialGeneration:v.number(),workerId:v.string(),fencingToken:v.number(),expiresAt:v.number()})),submittedAt:v.optional(v.number()),completedAt:v.optional(v.number()),code:v.optional(v.string()),result:v.optional(v.object({worldId:v.optional(v.string()),instanceId:v.optional(v.string()),postId:v.optional(v.string())})),createdAt:v.number(),updatedAt:v.number()})
+  clubOperations:defineTable({dependencyId:v.optional(v.id("clubOperations")),dependencyRevision:v.optional(v.number()),readyAt:v.number(),preflightAttempts:v.optional(v.number()),retryAt:v.optional(v.number()),communityProfileId:v.id("profiles"),integrationId:v.id("communityVrchatIntegrations"),epochStartedAt:v.number(),requestId:v.string(),batchId:v.string(),payload:clubOperationPayload,schedule:operationSchedule,eventId:v.optional(v.id("events")),dueAt:v.number(),actor:clubSubject,createdBy:clubSubject,revision:v.number(),state:operationState,claim:v.optional(v.object({nonce:v.string(),collectorAccountId:v.id("collectorAccounts"),credentialGeneration:v.number(),workerId:v.string(),fencingToken:v.number(),expiresAt:v.number()})),submittedAt:v.optional(v.number()),completedAt:v.optional(v.number()),code:v.optional(v.string()),result:v.optional(operationResult),createdAt:v.number(),updatedAt:v.number(),
+    // Set only on operations a VRChat calendar connector enqueued; terminal ones resume this sync job.
+    connectorSync:v.optional(v.object({connectorId:v.id("eventConnectors"),jobId:v.id("eventSyncJobs")})),
+  })
     .index("by_state_createdAt",["state","createdAt"])
     .index("by_integration_state_dueAt",["integrationId","state","dueAt"])
     .index("by_integration_state_readyAt",["integrationId","state","readyAt"])
@@ -1783,6 +1812,11 @@ export default defineSchema({
     key: v.string(), admittedAt: v.array(v.number()),
   }).index("by_key", ["key"]),
   collectorFleetSettings: defineTable({
+    admissionMonitoringStartedAt: v.optional(v.number()),
+    admissionMonitoring: v.optional(v.object({
+      observedAt: v.number(), configUpdatedAt: v.number(), automaticBacklog: v.boolean(),
+      diagnostics: admissionDiagnosticsValidator,
+    })),
     automaticEnrollmentEnabled: v.optional(v.boolean()),
     automaticEnrollmentLimit: v.optional(v.number()),
     automaticEnrollmentScope: v.optional(v.union(v.object({ kind: v.literal("pilot"), vrchatGroupId: v.string() }), v.object({ kind: v.literal("all_eligible") }))),
@@ -2810,6 +2844,21 @@ export default defineSchema({
     .index("by_state_deliveredAt", ["state", "deliveredAt"])
     .index("by_state_nextAttemptAt", ["state", "nextAttemptAt"])
     .index("by_state_leaseUntil", ["state", "leaseUntil"]),
+  // One row per ops alert key: dedupes [VRDex ops] emails and marks recovery.
+  opsAlerts: defineTable({ key: v.string(), lastSentAt: v.number(), resolvedAt: v.optional(v.number()) }).index("by_key", ["key"]),
+  // ponytail: no retention sweep or dead-letter recovery yet (tens of rows a
+  // day); add both, modelled on claimAnalytics.sweepDeliveredEvents and
+  // recoverUndeliveredDeliveries, when the table passes a few thousand rows.
+  productAnalyticsOutbox: defineTable({
+    event: v.string(),
+    distinctId: v.string(),
+    properties: v.any(),
+    createdAt: v.number(),
+    attemptCount: v.number(),
+    nextAttemptAt: v.number(),
+    leaseExpiresAt: v.optional(v.number()),
+    deliveredAt: v.optional(v.number()),
+  }).index("by_deliveredAt_nextAttemptAt", ["deliveredAt", "nextAttemptAt"]),
   // A user proved they control an external asset. This is deliberately not a
   // claim: proving you administer a Discord guild says nothing about which
   // VRDex profile that guild represents. Profile ownership is granted only
@@ -2962,11 +3011,13 @@ export default defineSchema({
     // could plausibly take.
     issuedAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_userId_discordUserId", ["userId", "discordUserId"]),
+  }).index("by_userId_discordUserId", ["userId", "discordUserId"])
+    .index("by_discordUserId", ["discordUserId"]),
   // Many-to-many association between a profile and an external asset. One
   // community may hold several Discord guilds and VRChat groups (one marked
   // `primary`), and one guild may back several community profiles.
   profileExternalLinks: defineTable({
+    removedByReconciliation: v.optional(v.boolean()),
     provenance: v.optional(v.union(v.literal("directory_reference"), v.literal("control_association"))),
     profileId: v.id("profiles"),
     assetType: externalAssetType,

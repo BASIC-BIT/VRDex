@@ -3,6 +3,16 @@ import { rejectBearerTokenQuery, rejectInvalidOrRateLimitedPublicApiRequest } fr
 import { convexHttpClient } from "@/lib/server/convex-http";
 import { getProfileAssetObject, isProfileAssetStorageConfigured } from "@/lib/server/profile-asset-storage";
 
+import { createNowPlayingArtworkService } from "@/lib/server/now-playing-artwork";
+
+const artworkService = createNowPlayingArtworkService({
+  async authorize(input) {
+    const asset = await convexHttpClient().query(api.profileAssets.getPublicAssetForStorage, { slug: input.profileId, assetId: input.assetId });
+    return asset?.nowPlayingEligible ? asset : null;
+  },
+  read: getProfileAssetObject,
+});
+
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
@@ -51,6 +61,16 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const { slug, assetId } = await context.params;
+  const url = new URL(request.url);
+  if (url.searchParams.has("brand") || url.searchParams.has("revision")) {
+    const artwork = await artworkService.get({ profileId: slug, assetId, revision: url.searchParams.get("revision") ?? "", brandVersion: url.searchParams.get("brand") ?? "" });
+    if (!artwork) return Response.json({ error: "Asset not found." }, { status: 404, headers: { "cache-control": "private, no-store" } });
+    return new Response(new Uint8Array(artwork.body), { headers: {
+      "cache-control": "private, max-age=31536000, immutable",
+      "content-type": "image/png", "content-length": String(artwork.body.length),
+      "x-content-type-options": "nosniff",
+    } });
+  }
   const asset = await convexHttpClient().query(api.profileAssets.getPublicAssetForStorage, {
     slug,
     assetId,
@@ -60,7 +80,6 @@ export async function GET(request: Request, context: RouteContext) {
     return Response.json({ error: "Asset not found." }, { status: 404 });
   }
 
-  const url = new URL(request.url);
   const download = url.searchParams.get("download") === "1";
   const storageKey = download ? asset.downloadStorageKey ?? asset.storageKey : asset.storageKey;
   const mimeType = download ? asset.downloadMimeType ?? asset.mimeType : asset.mimeType;

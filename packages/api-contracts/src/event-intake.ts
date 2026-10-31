@@ -8,9 +8,20 @@ export const EventPosterDeclarationSchema = z.strictObject({
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
+/** Discord poster attachments are fetched only from Discord's own CDN, over HTTPS. */
+export const DISCORD_CDN_HOSTS = ["cdn.discordapp.com", "media.discordapp.net"];
+export function isDiscordCdnUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && DISCORD_CDN_HOSTS.includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 const text = (max: number) => z.string().trim().max(max);
 const nullable = <T extends z.ZodType>(schema: T) => schema.nullable().optional();
-const EventIntakeEvidenceSchema = z.array(z.strictObject({ fieldPath: text(120), origin: z.enum(["text", "poster", "lookup", "calculation"]), excerpt: text(500).nullable(), assessment: z.enum(["explicit", "inferred", "conflicting"]) })).max(40);
+const EventIntakeEvidenceSchema = z.array(z.strictObject({ fieldPath: text(120), origin: z.enum(["text", "poster", "lookup", "calculation", "connector"]), excerpt: text(500).nullable(), assessment: z.enum(["explicit", "inferred", "conflicting"]) })).max(40);
 export const EventIntakeLocalTimeSchema = z.strictObject({
   time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   dayOffset: z.number().int().min(-1).max(7).optional(),
@@ -91,8 +102,12 @@ export const EventIntakeCandidateSchema = z.strictObject({
   })).max(80),
   evidence: EventIntakeEvidenceSchema,
   questions: z.array(z.strictObject({ fieldPath: text(120), reason: text(500), alternatives: z.array(text(200)).max(10) })).max(100),
+  // OpenAI strict mode: z.union (anyOf, not oneOf), single-value enums (not const), no default, no minLength;
+  // only keywords the production candidate schema already sends.
+  decision: z.union([z.strictObject({ kind: z.enum(["new"]) }), z.strictObject({ kind: z.enum(["update"]), slug: text(64) }), z.strictObject({ kind: z.enum(["not_event"]), reason: text(200) })]),
 });
 export type EventIntakeCandidate = z.infer<typeof EventIntakeCandidateSchema>;
+export type EventIntakeDecision = EventIntakeCandidate["decision"];
 
 export const EventIntakeCandidateJsonSchema = z.toJSONSchema(EventIntakeCandidateSchema);
 

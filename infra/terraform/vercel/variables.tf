@@ -89,6 +89,54 @@ variable "twitch_client_secret" {
   nullable    = true
 }
 
+variable "google_connector_client_id" {
+  description = "Optional server-only Google OAuth client ID for the Google Calendar connector. Set with google_connector_client_secret to manage both Vercel values."
+  type        = string
+  sensitive   = true
+  default     = null
+  nullable    = true
+}
+
+variable "google_connector_client_secret" {
+  description = "Optional server-only Google OAuth client secret for the Google Calendar connector."
+  type        = string
+  sensitive   = true
+  default     = null
+  nullable    = true
+}
+
+variable "langfuse_public_key" {
+  description = "Optional server-only Langfuse public key for event intake tracing. Set with langfuse_secret_key to manage the Langfuse Vercel values."
+  type        = string
+  sensitive   = true
+  default     = null
+  nullable    = true
+}
+
+variable "langfuse_secret_key" {
+  description = "Optional server-only Langfuse secret key for event intake tracing."
+  type        = string
+  sensitive   = true
+  default     = null
+  nullable    = true
+}
+
+# No validation block: CI skips variable validation, and the value is either null or a URL.
+variable "langfuse_base_url" {
+  description = "Optional Langfuse host for event intake tracing. Null uses Langfuse Cloud."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "discord_poster_token" {
+  description = "Optional server-only bearer token Convex Discord intake runs present to the web poster bridge. Must equal VRDEX_DISCORD_POSTER_TOKEN on the Convex deployment."
+  type        = string
+  sensitive   = true
+  default     = null
+  nullable    = true
+}
+
 # Clerk instances are per-environment, so unlike the Twitch credentials these
 # cannot be one pair applied to every target: production must carry a `pk_live_`
 # key, which `apps/web/scripts/check-vercel-env.mjs` enforces at build time, and
@@ -107,7 +155,7 @@ variable "clerk_production_publishable_key" {
   nullable    = true
 
   validation {
-    condition     = var.clerk_production_publishable_key == null || startswith(var.clerk_production_publishable_key, "pk_live_")
+    condition     = var.clerk_production_publishable_key == null ? true : startswith(var.clerk_production_publishable_key, "pk_live_")
     error_message = "clerk_production_publishable_key must be a live Clerk publishable key (pk_live_...)."
   }
 }
@@ -127,7 +175,7 @@ variable "clerk_preview_publishable_key" {
   nullable    = true
 
   validation {
-    condition     = var.clerk_preview_publishable_key == null || startswith(var.clerk_preview_publishable_key, "pk_test_")
+    condition     = var.clerk_preview_publishable_key == null ? true : startswith(var.clerk_preview_publishable_key, "pk_test_")
     error_message = "clerk_preview_publishable_key must be a development Clerk publishable key (pk_test_...)."
   }
 }

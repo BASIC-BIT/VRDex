@@ -1,0 +1,593 @@
+ scripts/event-marker-authority-closure.mjs               | 12 +++++++++++-
+ scripts/event-marker-native-bundle.mjs                   |  6 +++++-
+ scripts/event-marker-native-controller.mjs               |  6 ++++--
+ scripts/event-marker-program-contract.mjs                | 16 +++++++++++++---
+ scripts/event-marker-program-guards.mjs                  |  5 +++--
+ tests/fixtures/marker-positive-program.mjs               | 13 +++++++++----
+ tests/scripts/event-marker-data-separation.test.mjs      |  7 +++----
+ tests/scripts/event-marker-native-controller.test.mjs    | 15 ++++++++++++++-
+ .../scripts/event-marker-positive-program-fix1.test.mjs  |  2 +-
+ .../scripts/event-marker-program-result-sizing.test.mjs  |  6 +++---
+ 10 files changed, 66 insertions(+), 22 deletions(-)
+diff --git a/scripts/event-marker-authority-closure.mjs b/scripts/event-marker-authority-closure.mjs
+index b663645..def5cfe 100644
+--- a/scripts/event-marker-authority-closure.mjs
++++ b/scripts/event-marker-authority-closure.mjs
+@@ -1,16 +1,26 @@
++import { PROGRAM_AUTHORITY_REFS } from './event-marker-program-contract.mjs';
+ const must=(v,r)=>{if(!v)throw Error('native_authority_'+r);};
+ const valid=r=>r&&['audit','runtime'].includes(r.kind)&&typeof r.id==='string'&&r.id.length>0&&Number.isSafeInteger(r.bytes)&&r.bytes>0&&/^[0-9a-f]{64}$/.test(r.sha256)&&(!r.range||Number.isSafeInteger(r.range.start)&&Number.isSafeInteger(r.range.length)&&r.range.start>=0&&r.range.length>0&&r.range.start+r.range.length<=r.bytes);
++/** Mandatory originals always denote the complete body, including when a caller
++ * supplies an otherwise valid full-length range or an explicit null range. */
++export function isFullAuthorityReference(actual,expected){
++ return Boolean(actual&&expected&&actual.kind===expected.kind&&actual.id===expected.id&&actual.bytes===expected.bytes&&actual.sha256===expected.sha256&&!Object.hasOwn(actual,'range'));
++}
++export function requireMandatoryAuthorityMembership(audits){
++ must(Array.isArray(audits)&&audits.every(r=>valid(r)&&r.kind==='audit')&&new Set(audits.map(r=>r.id)).size===audits.length,'audit_catalog');
++ for(const expected of PROGRAM_AUTHORITY_REFS)must(audits.some(actual=>isFullAuthorityReference(actual,expected)),'required_reference');
++}
+ export function requiredAuthorityReferences({profile,proof,closure,plans,manifest}){
+  const refs=[profile.platformAssumptionsRef,profile.sourceAuditRef,profile.platform.view.auditRef,plans.generatorAuditRef,...profile.objects.flatMap(o=>[o.provenanceRef,...(o.partition==='critical'?[o.sourceBuildRef]:[])]),...closure.files.map(f=>f.sourceAuditRef),...proof.descriptions.flatMap(d=>[d.auditRef,...d.sourceRefs]),...manifest.entries.flatMap(e=>e.dependsOn??[])];
+  const unique=new Map();for(const r of refs){must(valid(r),'reference');const previous=unique.get(r.id);must(!previous||previous.kind===r.kind&&previous.bytes===r.bytes&&previous.sha256===r.sha256,'conflict');unique.set(r.id,r);}return refs;
+ }
+ export function requireAuthorityMembership(deps,audits){
+- must(Array.isArray(audits)&&audits.every(r=>valid(r)&&r.kind==='audit')&&new Set(audits.map(r=>r.id)).size===audits.length,'audit_catalog');
++ requireMandatoryAuthorityMembership(audits);
+  for(const ref of requiredAuthorityReferences(deps)){const expected=ref.kind==='audit'?audits.find(a=>a.id===ref.id):deps.manifest.entries.find(a=>a.id===ref.id);must(expected&&expected.bytes===ref.bytes&&expected.sha256===ref.sha256,'required_reference');}
+ }
+ const common=['workers/restream/Dockerfile','workers/restream/install_twitch.py','workers/restream/packaging-manifest.json','workers/restream/twitch-requirements.lock','workers/restream/twitch-wheels.lock.json','scripts/event-marker-native-bundle.mjs'];
+ export function producerSourcePaths(execution,packaging){
+  must(Array.isArray(packaging)&&packaging.length>0&&packaging.length<=256&&new Set(packaging).size===packaging.length&&packaging.every(p=>typeof p==='string'&&!p.startsWith('/')&&!p.split('/').includes('..')),'packaging');
+  const selected=execution?.producer==='root-program-v1'?['scripts/event-marker-native-ecs-controller.mjs','scripts/event-marker-root-retrieval.mjs','scripts/event-marker-root-retrieval.py','scripts/event-marker-program-collector.mjs']:execution?.producer==='ci-native132-v1'?['.github/workflows/baseline-checks.yml','.github/scripts/restream-native.mjs','.github/scripts/restream-native-names.json','scripts/event-marker-native-ci-controller.mjs']:null;
+  must(selected,'producer');return [...new Set([...common,...selected,...packaging])].sort();
+ }
+diff --git a/scripts/event-marker-native-bundle.mjs b/scripts/event-marker-native-bundle.mjs
+index fbaa30c..7771833 100644
+--- a/scripts/event-marker-native-bundle.mjs
++++ b/scripts/event-marker-native-bundle.mjs
+@@ -1,33 +1,37 @@
+ import { readFile,mkdir,writeFile } from 'node:fs/promises';
+ import { resolve } from 'node:path';
+ import { pathToFileURL } from 'node:url';
+ import { createHash } from 'node:crypto';
+ import { validateProgramDependencies } from './event-marker-program-guards.mjs';
+ import { verifyImplementationSource,expandImplementationCatalog } from './event-marker-implementation-assets.mjs';
+ import { makeNativeCandidate,nativeArtifact } from './event-marker-native-controller.mjs';
+ import { requireAuthorityMembership,producerSourcePaths } from './event-marker-authority-closure.mjs';
++import { PROGRAM_AUTHORITY_REFS } from './event-marker-program-contract.mjs';
+ import { validateExecution } from './event-marker-evidence-policy.mjs';
+ const sha=b=>createHash('sha256').update(b).digest('hex'),must=(v,r)=>{if(!v)throw Error('native_bundle_'+r);};
+ const RUNTIME='workers/restream/native-binding/runtime/';
+ /** A deterministic materializer of EXPLICIT reviewed inputs. It validates whole
+  * bytes and produces a new candidate; it never discovers eligibility, creates
+  * an approval, or reads the private audit registry. A changed candidate needs a
+  * new external Root decision. K stays outside the packaged runtime tree. */
+ export async function materializeNativeBundle(bundle,{readSource=path=>readFile(path),write}={}) {
+  must(bundle?.schema==='native-reviewed-bundle-v1'&&['ci','ecs'].includes(bundle.environmentClass)&&Array.isArray(bundle.runtimeFiles)&&bundle.runtimeFiles.length>=5&&bundle.runtimeFiles.length<=257&&Array.isArray(bundle.sourceFiles)&&Array.isArray(bundle.auditRefs),'shape');
+  const files=new Map();for(const f of bundle.runtimeFiles){must(typeof f.relativePath==='string'&&f.relativePath.split('/').every(p=>/^[a-zA-Z0-9_.-]+$/.test(p)&&!['.','..'].includes(p))&&!files.has(f.relativePath)&&typeof f.base64==='string','runtime_path');const b=Buffer.from(f.base64,'base64');must(b.toString('base64')===f.base64&&b.length===f.bytes&&b.length>0&&b.length<=196608&&sha(b)===f.sha256,'runtime_original');files.set(f.relativePath,b);}
+  const manifestBytes=files.get('manifest.json');must(manifestBytes?.length<=65536,'manifest');const manifest=JSON.parse(manifestBytes);must(manifest.schema==='native-runtime-deps-v1'&&manifest.entries.length+1===files.size&&manifest.entries.length<=256,'manifest');
+  for(const entry of manifest.entries){const b=files.get(entry.relativePath);must(b&&b.length===entry.bytes&&sha(b)===entry.sha256,'manifest_member');}
+  const entry=key=>manifest.entries.find(e=>e.id===manifest.entrypoints[key]),read=key=>JSON.parse(files.get(entry(key)?.relativePath));
+  const profile=read('profile'),proof=read('proofDescriptions'),closure=expandImplementationCatalog(read('verifierClosure')),plans=read('plans'),nativeCatalog=read('nativeCatalog');must(entry('profile').bytes<=65536,'profile_cap');validateExecution(bundle.execution);const deps=validateProgramDependencies({profile,proof,closure,plans,nativeCatalog,manifest,intent:{semanticEnvironment:profile.environment,execution:bundle.execution,workload:bundle.workload}});requireAuthorityMembership(deps,bundle.auditRefs);
++ // Fixed authority is external to the packaged source closure and K outputs.
++ const authorityOriginals=[];
++ for(const {key,...ref} of PROGRAM_AUTHORITY_REFS){const path=key==='resultSizing'?'tests/fixtures/program-result-sizing-r94-v1.txt':'docs/engineering/authority/'+ref.id+'.md',bytes=await readSource(path);must(bytes instanceof Uint8Array&&bytes.length===ref.bytes&&sha(bytes)===ref.sha256,'authority_original');authorityOriginals.push({ref,bytes});}
+  const sourceFiles=[],originals=new Map();for(const ref of bundle.sourceFiles){must(typeof ref.id==='string'&&/^(?:scripts|workers|tests|\.github\/(?:scripts|workflows))\/[A-Za-z0-9_./-]+$/.test(ref.id)&&!ref.id.split('/').includes('..'),'source_path');const b=await readSource(ref.id);must(b instanceof Uint8Array&&b.length===ref.bytes&&sha(b)===ref.sha256,'source_original');sourceFiles.push({...ref});originals.set(ref.id,b);const item=closure.files.find(f=>f.path===ref.id);if(item){must(ref.kind===item.kind&&ref.imagePath==='/app/'+item.path,'source_kind');verifyImplementationSource(item,b,closure);}}
+  must(closure.files.every(f=>sourceFiles.some(s=>s.id===f.path&&s.bytes===f.bytes&&s.sha256===f.sha256&&s.kind===f.kind)),'source_closure');
+  for(const path of producerSourcePaths(bundle.execution,JSON.parse(originals.get('workers/restream/packaging-manifest.json'))))must(originals.has(path),'producer_closure');
+  const candidate=makeNativeCandidate({sourceFiles,auditRefs:bundle.auditRefs,profileSHA:entry('profile').sha256,runtimeManifestSHA:sha(manifestBytes),observerClosureSHA:entry('verifierClosure').sha256,controller:bundle.controller,environmentClass:bundle.environmentClass,execution:bundle.execution});
+  if(write){for(const [path,b] of files)await write(RUNTIME+path,b);await write('provenance/native-binding/K.json',candidate.bytes);}
+- return {candidate,runtimeFiles:[...files].map(([path,b])=>({path:RUNTIME+path,...nativeArtifact('runtime',path,b)})),state:'candidate-pending-external-Root-approval'};
++ return {candidate,authorityOriginals,runtimeFiles:[...files].map(([path,b])=>({path:RUNTIME+path,...nativeArtifact('runtime',path,b)})),state:'candidate-pending-external-Root-approval'};
+ }
+ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
+  const [bundlePath,sourceRoot,outputRoot]=process.argv.slice(2);if(!bundlePath||!sourceRoot||!outputRoot)throw Error('usage: node scripts/event-marker-native-bundle.mjs BUNDLE_JSON SOURCE_ROOT OUTPUT_ROOT');
+  const bytes=await readFile(bundlePath);must(bytes.length<=2097152,'input_cap');const result=await materializeNativeBundle(JSON.parse(bytes),{readSource:path=>readFile(resolve(sourceRoot,path)),write:async(path,b)=>{const target=resolve(outputRoot,path);await mkdir(resolve(target,'..'),{recursive:true});await writeFile(target,b,{flag:'wx',mode:0o600});}});console.log(JSON.stringify({candidate:result.candidate.ref,runtimeFiles:result.runtimeFiles,state:result.state}));
+ }
+diff --git a/scripts/event-marker-native-controller.mjs b/scripts/event-marker-native-controller.mjs
+index ebfd55a..399d56b 100644
+--- a/scripts/event-marker-native-controller.mjs
++++ b/scripts/event-marker-native-controller.mjs
+@@ -1,31 +1,32 @@
+ import { createHash } from 'node:crypto';
+ import { isDeepStrictEqual } from 'node:util';
+ import { writeFile,rename } from 'node:fs/promises';
+ import { inspectAcquiredDependencies,expandImplementationObservations } from './event-marker-native-binding.mjs';
+ import { validateMountView } from './event-marker-platform-view.mjs';
+ import { inspectEngineArchive,validateBindingInventory } from './event-marker-engine-readback.mjs';
+ import { validateReceipt } from './event-marker-native132-receipt.mjs';
+ import { artifactUseEntries } from './marker-qualification/artifacts.mjs';
+ import { PROGRAM_SOURCE_CONTRACT } from './event-marker-program-guards.mjs';
+-import { requireAuthorityMembership,producerSourcePaths } from './event-marker-authority-closure.mjs';
++import { requireAuthorityMembership,requireMandatoryAuthorityMembership,producerSourcePaths } from './event-marker-authority-closure.mjs';
+ import { validateExecution,validateExecutionCommand,deriveEvidencePolicy,invocationAggregate,programResultLimits,isProgramResultReference } from './event-marker-evidence-policy.mjs';
+ const sha=b=>createHash('sha256').update(b).digest('hex'),json=v=>Buffer.from(JSON.stringify(v)),same=isDeepStrictEqual;
+ const must=(v,r)=>{if(!v)throw Error('native_controller_'+r);};
+ const hash=v=>typeof v==='string'&&/^[0-9a-f]{64}$/.test(v);
+ export const nativeArtifact=(kind,id,bytes)=>({kind,id,bytes:bytes.length,sha256:sha(bytes)});
+ export const nativeJsonArtifact=(kind,id,value)=>{const bytes=json(value);return {ref:nativeArtifact(kind,id,bytes),bytes};};
+ 
+ /** K closes first. Source/audit artifacts are complete originals, never future
+  * approval, context, launch or receipt references. A is only in Root's ledger. */
+ export function makeNativeCandidate({sourceFiles,auditRefs,profileSHA,runtimeManifestSHA,observerClosureSHA,controller,environmentClass,execution}) {
+  must(['ci','ecs'].includes(environmentClass)&&[profileSHA,runtimeManifestSHA,observerClosureSHA].every(hash)&&Array.isArray(sourceFiles)&&sourceFiles.length>0&&Array.isArray(auditRefs)&&auditRefs.length>0,'candidate');
++ requireMandatoryAuthorityMembership(auditRefs);
+  const refs=[...sourceFiles,...auditRefs];must(refs.every(r=>r&&typeof r.id==='string'&&hash(r.sha256)&&Number.isSafeInteger(r.bytes)&&r.bytes>0&&['implementationCode','runtimeData','audit'].includes(r.kind))&&new Set(refs.map(r=>r.id)).size===refs.length,'candidate_references');
+  must(sourceFiles.every(r=>['implementationCode','runtimeData'].includes(r.kind)&&(r.imagePath==='/app/'+r.id||r.imagePath===null))&&auditRefs.every(r=>r.kind==='audit'),'candidate_roles');
+  must(sourceFiles.some(r=>r.id===controller.id&&r.sha256===controller.sha256),'controller');
+  if(execution)validateExecution(execution);
+  return nativeJsonArtifact('audit','K',{schema:'native-candidate-v1',sourceContract:PROGRAM_SOURCE_CONTRACT,sourceFiles,auditRefs,profileSHA,runtimeManifestSHA,observerClosureSHA,controller,environmentClass,...(execution?{execution}:{})});
+ }
+ export function imageFactsFromEcr({manifest,config,manifestDigest,reference,outerImageEvidenceId}) {
+  const m=JSON.parse(manifest),c=JSON.parse(config);must(sha(manifest)===manifestDigest?.replace(/^sha256:/,'')&&m.schemaVersion===2&&m.config?.digest==='sha256:'+sha(config)&&m.config.size===config.length,'manifest');
+  must(c.os==='linux'&&c.architecture==='amd64'&&c.rootfs?.type==='layers'&&Array.isArray(c.rootfs.diff_ids)&&c.rootfs.diff_ids.length===m.layers?.length&&c.rootfs.diff_ids.every(d=>/^sha256:[0-9a-f]{64}$/.test(d)),'image_config');
+  return {kind:'ecrManifestConfig',manifestSHA:sha(manifest),manifestBytes:manifest.length,configSHA:sha(config),configBytes:config.length,diffIdsSHA:sha(json(c.rootfs.diff_ids)),diffIds:c.rootfs.diff_ids,reference,outerImageEvidenceId};
+@@ -56,20 +57,21 @@ export async function scanDockerSave(chunks,{imageId,inspect,terminal,check=()=>
+  must(!current&&!padding&&pending.length===0&&ended&&terminal?.exitCode===0&&terminal.signal===null&&terminal.stdoutEOF===true&&terminal.stderrEOF===true&&!terminal.error,'save_completion');
+  const manifests=JSON.parse(members.get('manifest.json')?.data);must(Array.isArray(manifests)&&manifests.length===1,'save_manifest');const m=manifests[0],configuration=members.get(m.Config);must(configuration?.data&&m.Config===imageId.replace(/^sha256:/,'')+'.json'&&configuration.sha256===imageId.replace(/^sha256:/,''),'save_config');
+  const config=JSON.parse(configuration.data),observed=JSON.parse(inspect);must(observed.length===1&&observed[0].Id===imageId&&same(observed[0].RootFS?.Layers,config.rootfs?.diff_ids)&&m.Layers.length===config.rootfs.diff_ids.length&&config.os==='linux'&&config.architecture==='amd64','save_inspect');
+  m.Layers.forEach((name,i)=>must(members.get(name)?.sha256===config.rootfs.diff_ids[i].replace(/^sha256:/,''),'layer_diffid'));
+  const allowed=new Set(['manifest.json','repositories',m.Config,...m.Layers]);for(const name of m.Layers){const directory=name.slice(0,name.lastIndexOf('/')+1);for(const suffix of ['', 'json','VERSION'])allowed.add(directory+suffix);}for(const [name] of members)must(allowed.has(name),'save_member');
+  return {kind:'localUnpublishedImage',localImageId:imageId,configSHA:configuration.sha256,configBytes:configuration.bytes,diffIdsSHA:sha(json(config.rootfs.diff_ids)),diffIds:config.rootfs.diff_ids,outerImageEvidenceId:'image',archive:{bytes:total,sha256:whole.digest('hex'),complete:true},inspect:{bytes:inspect.length,sha256:sha(inspect)},originals:{configUTF8:configuration.data.toString(),manifestUTF8:members.get('manifest.json').data.toString(),inspectUTF8:inspect.toString(),layers:m.Layers.map(name=>({name,bytes:members.get(name).bytes,sha256:members.get(name).sha256})),terminal}};
+ }
+ 
+ export function makeNativeIntent({candidate,imageFacts,workload,semanticEnvironment,nonce,deadline,transport}) {
+  const k=JSON.parse(candidate.bytes);must(candidate.ref.sha256===sha(candidate.bytes)&&k.schema==='native-candidate-v1'&&same(k.sourceContract,PROGRAM_SOURCE_CONTRACT),'candidate_hash');
++ requireMandatoryAuthorityMembership(k.auditRefs);
+  must(typeof nonce==='string'&&nonce.length>0&&Buffer.byteLength(nonce)<=128&&Number.isFinite(deadline)&&Array.isArray(workload.originalCommand)&&workload.originalCommand.every(v=>typeof v==='string')&&hash(imageFacts.configSHA)&&hash(imageFacts.diffIdsSHA)&&Number.isSafeInteger(imageFacts.configBytes)&&imageFacts.configBytes>0,'intent');
+  must(!Object.keys(semanticEnvironment).some(k=>/^(?:LD_|DYLD_|VRDEX_NATIVE_BINDING_CONTEXT)/.test(k)||['NODE_OPTIONS','NODE_PATH'].includes(k))&&Object.values(semanticEnvironment).every(v=>typeof v==='string'),'environment');
+  if(k.execution)validateExecutionCommand(k.execution,workload.originalCommand);
+  const {originals:unused,...projection}=imageFacts;
+  const intent=nativeJsonArtifact('observation','I',{schema:'native-intent-v1',nonce,candidateManifestSHA:candidate.ref.sha256,candidateManifestBytes:candidate.bytes.length,profileSHA:k.profileSHA,runtimeManifestSHA:k.runtimeManifestSHA,observerClosureSHA:k.observerClosureSHA,imageFacts:projection,workload,semanticEnvironment,transport,deadline,...(k.execution?{execution:k.execution}:{})});
+  const context=nativeJsonArtifact('observation','C',{schema:'native-context-v1',intent:{utf8:intent.bytes.toString(),bytes:intent.bytes.length,sha256:intent.ref.sha256}});must(context.bytes.length<=4096,'context_cap');return {intent,context};
+ }
+ export async function installCiContext(context,directory) {
+  must(context.bytes.length<=4096&&sha(context.bytes)===context.ref.sha256,'context');const temporary=directory+'/context.json.tmp',path=directory+'/context.json';await writeFile(temporary,context.bytes,{flag:'wx',mode:0o400});await rename(temporary,path);return path;
+ }
+@@ -87,22 +89,22 @@ export async function verifyNativeOuterJoins({binding,manifest,budget,serialized
+   const lengthMatches=b=>b.byteLength>0&&b.byteLength<=cap&&(expectedBytes===undefined||b.byteLength===expectedBytes);
+   if(originals.has(id)){const b=originals.get(id);must(lengthMatches(b),'outer_original');return b;}
+   const raw=await outerResolver(id,{cap:expectedBytes??cap});
+   must(raw instanceof Uint8Array&&lengthMatches(raw),'outer_original');
+   const b=Buffer.from(raw);originals.set(id,b);return b;
+  };
+  const documents={};for(const id of ['K','I','C','Q','L','image'])documents[id]=JSON.parse(await get(id,id==='C'?4096:196608));const {K,I,C,Q,L,image}=documents;
+  must(sha(originals.get('K'))===binding.candidateSHA&&sha(originals.get('I'))===binding.intentSHA&&sha(originals.get('C'))===binding.contextSHA&&K.profileSHA===binding.profileSHA&&K.runtimeManifestSHA===binding.manifestSHA&&K.observerClosureSHA===binding.observerClosureSHA&&same(K.sourceContract,PROGRAM_SOURCE_CONTRACT),'candidate_join');
+  const {originals:imageOriginals,...imageProjection}=image;
+  must(C.schema==='native-context-v1'&&C.intent.utf8===originals.get('I').toString()&&C.intent.sha256===sha(originals.get('I'))&&C.intent.bytes===originals.get('I').length&&originals.get('C').length<=4096&&I.candidateManifestSHA===sha(originals.get('K'))&&I.candidateManifestBytes===originals.get('K').length&&same(I.imageFacts,imageProjection),'intent_context_image');
+- const sourceBodies=new Map();for(const ref of [...K.sourceFiles,...K.auditRefs]){const cap=inspectAcquiredDependencies(binding).closure.files.some(f=>f.path===ref.id)?196608:67108864;must(typeof ref.id==='string'&&ref.id.length>0&&Number.isSafeInteger(ref.bytes)&&ref.bytes>0&&ref.bytes<=cap&&hash(ref.sha256),'candidate_member');const raw=await outerResolver(ref.id,{cap:ref.bytes});must(raw instanceof Uint8Array&&raw.length===ref.bytes&&sha(raw)===ref.sha256,'candidate_member');sourceBodies.set(ref.id,raw);}
+  requireAuthorityMembership(inspectAcquiredDependencies(binding),K.auditRefs);
++ const sourceBodies=new Map();for(const ref of [...K.sourceFiles,...K.auditRefs]){const cap=inspectAcquiredDependencies(binding).closure.files.some(f=>f.path===ref.id)?196608:67108864;must(typeof ref.id==='string'&&ref.id.length>0&&Number.isSafeInteger(ref.bytes)&&ref.bytes>0&&ref.bytes<=cap&&hash(ref.sha256),'candidate_member');const raw=await outerResolver(ref.id,{cap:ref.bytes});must(raw instanceof Uint8Array&&raw.length===ref.bytes&&sha(raw)===ref.sha256,'candidate_member');sourceBodies.set(ref.id,raw);}
+  must(same(K.execution,I.execution),'execution_join');validateExecutionCommand(K.execution,I.workload.originalCommand);
+  const packaging=JSON.parse(sourceBodies.get('workers/restream/packaging-manifest.json'));
+  for(const path of producerSourcePaths(K.execution,packaging))must(K.sourceFiles.some(f=>f.id===path)&&sourceBodies.has(path),'producer_closure');
+  must(K.controller.id===(K.execution.producer==='root-program-v1'?'scripts/event-marker-native-ecs-controller.mjs':'scripts/event-marker-native-ci-controller.mjs'),'selected_controller');
+  // R87: the complete semantic eligibility catalog is bound to K. Full matching
+  // code originals are required even after image cleanup; supplied totals or a
+  // hash-only registry never substitute for source possession.
+  for(const observed of expandImplementationObservations(binding.implementation,inspectAcquiredDependencies(binding).closure)){const ref=K.sourceFiles.find(r=>r.id===observed.path);must(ref&&ref.imagePath==='/app/'+observed.path&&ref.kind===observed.kind&&ref.bytes===observed.bytes&&ref.sha256===observed.sha256,'image_source_member');}
+  const codeAssets=inspectAcquiredDependencies(binding).closure.files.filter(f=>f.loaded&&f.kind==='implementationCode');for(const index of budget.implementationAssets){const asset=codeAssets[index],ref=asset&&K.sourceFiles.find(r=>r.id===asset.path);must(ref?.kind==='implementationCode'&&sourceBodies.get(asset.path)?.length===asset.bytes&&ref.sha256===asset.sha256,'implementation_possession');}
+  const ledger=await rootLedger.lookup(binding.candidateSHA,{cap:196608});must(ledger&&ledger.original instanceof Uint8Array&&ledger.original.byteLength>0&&ledger.original.byteLength<=196608&&typeof ledger.ledgerId==='string'&&ledger.ledgerId.length>0,'external_approval');if(ledger.ref)must(ledger.ref.bytes===ledger.original.byteLength&&hash(ledger.ref.sha256)&&sha(ledger.original)===ledger.ref.sha256,'external_approval');const A=JSON.parse(Buffer.from(ledger.original));
+diff --git a/scripts/event-marker-program-contract.mjs b/scripts/event-marker-program-contract.mjs
+index 7d1e962..6d88a68 100644
+--- a/scripts/event-marker-program-contract.mjs
++++ b/scripts/event-marker-program-contract.mjs
+@@ -1,7 +1,17 @@
+ // Complete construction/authority DATA; the whole original is charged.
+ export const PROGRAM_SOURCE_CONTRACT = Object.freeze({
+-  design: "aa6d1308c3ed17a2440004d06ef85a5d47aa47d09034b11fe8ddc01087f13c93",
+-  guards: "a9cdeede2f5be1c9daf79cc9842b60e079e1bc2dff8501b3cc9cf75f4f9073f7",
+-  pins: "8cd6382c44b4c70bde56a20387d8268b8133023c79bd8c5afd90027dbd00e75a",
++  design: "7463c898c2104ce5897830dafabb1e7b0ec88242f54bdfb45771ce6aa703c6c1",
++  guards: "54130902985c22ddef115437afe033d4347e66901c17a211295b0e529ad7ef12",
++  pins: "f5d04c68d66494a2aaa16056a06a15eea907f6254cafe4e567e97c2964e50417",
+   resultSizing: "0a7214700021178996f717487ce09b513fa8ebfcb70dca6a2bed863abb7a5c3c",
++  authorityRebaseline: "42b3ad94be9a551b1f8a97e84ebff0ce65aaac4f6e367a323d1db2f442f014c5",
+ });
++
++// Ordered whole-body references. No runtime reader belongs in this DATA leaf.
++export const PROGRAM_AUTHORITY_REFS = Object.freeze([
++  Object.freeze({"key":"design","kind":"audit","id":"program-source-design-rebaseline-v1","bytes":17953,"sha256":"7463c898c2104ce5897830dafabb1e7b0ec88242f54bdfb45771ce6aa703c6c1"}),
++  Object.freeze({"key":"guards","kind":"audit","id":"program-source-guards-rebaseline-v1","bytes":21732,"sha256":"54130902985c22ddef115437afe033d4347e66901c17a211295b0e529ad7ef12"}),
++  Object.freeze({"key":"pins","kind":"audit","id":"program-native-pins-rebaseline-v1","bytes":15483,"sha256":"f5d04c68d66494a2aaa16056a06a15eea907f6254cafe4e567e97c2964e50417"}),
++  Object.freeze({"key":"resultSizing","kind":"audit","id":"program-result-sizing-r94-v1","bytes":41830,"sha256":"0a7214700021178996f717487ce09b513fa8ebfcb70dca6a2bed863abb7a5c3c"}),
++  Object.freeze({"key":"authorityRebaseline","kind":"audit","id":"program-authority-rebaseline-v1","bytes":16626,"sha256":"42b3ad94be9a551b1f8a97e84ebff0ce65aaac4f6e367a323d1db2f442f014c5"}),
++]);
+diff --git a/scripts/event-marker-program-guards.mjs b/scripts/event-marker-program-guards.mjs
+index dd9671f..3beb54f 100644
+--- a/scripts/event-marker-program-guards.mjs
++++ b/scripts/event-marker-program-guards.mjs
+@@ -1,12 +1,13 @@
+ import { programResultLimits } from './event-marker-evidence-policy.mjs';
+-import { PROGRAM_SOURCE_CONTRACT } from './event-marker-program-contract.mjs';
++import { isFullAuthorityReference } from './event-marker-authority-closure.mjs';
++import { PROGRAM_SOURCE_CONTRACT,PROGRAM_AUTHORITY_REFS } from './event-marker-program-contract.mjs';
+ import { createHash } from 'node:crypto';
+ import { diagnosticArguments } from './event-marker-native-capture.mjs';
+ import { parseNativeStatistics,parseNativeProgress } from './event-marker-native-observations.mjs';
+ import { programEncoderArguments } from '../workers/restream/program-renderer.mjs';
+ import { validateImplementationCatalog,expandImplementationCatalog } from './event-marker-implementation-assets.mjs';
+ import { expandNativeCatalog } from './event-marker-native-catalog.mjs';
+ import { validateViewRules,assertCatalogAlias } from './event-marker-platform-view.mjs';
+ 
+ export const PROGRAM_GUARDS=Object.freeze(Array.from({length:13},(_,i)=>'G'+i));
+ export { PROGRAM_SOURCE_CONTRACT };
+@@ -23,21 +24,21 @@ const critical=['ffmpeg','ffprobe','libavcodec','libavformat','libavfilter','lib
+  * The fixed operators below, never rule-name assertions, establish media facts. */
+ export function validateProgramDependencies({profile,proof,closure,plans,nativeCatalog,manifest,intent}) {
+  closure=expandImplementationCatalog(closure);
+  check(profile.schema==='native-profile-v2'&&profile.assuranceBasis==='trustedStackMeasurement','profile');
+  check(ref(profile.nativeCatalogRef)&&profile.nativeCatalogRef.kind==='runtime'&&!Object.hasOwn(profile,'objects')&&manifest.entries.some(e=>e.id===profile.nativeCatalogRef.id&&e.bytes===profile.nativeCatalogRef.bytes&&e.sha256===profile.nativeCatalogRef.sha256),'native_catalog_ref');
+  profile={...profile,objects:expandNativeCatalog(nativeCatalog)};
+  check(ref(profile.platformAssumptionsRef)&&profile.platformAssumptionsRef.kind==='audit'&&ref(profile.sourceAuditRef)&&profile.sourceAuditRef.kind==='audit','audit_reference');
+  check(same(profile.requiredGuards,PROGRAM_GUARDS)&&same(proof.contract,PROGRAM_SOURCE_CONTRACT),'guard_contract');
+  check(proof.schema==='native-proof-descriptions-v2'&&proof.descriptions?.length===13,'guard_descriptions');
+  for(const [i,d] of proof.descriptions.entries())check(d.guard===PROGRAM_GUARDS[i]&&ref(d.auditRef)&&d.auditRef.kind==='audit'&&Array.isArray(d.sourceRefs)&&d.sourceRefs.length>0&&d.sourceRefs.every(ref),'guard_description');
+- for(const guard of ['G0','G12']){const d=proof.descriptions.find(d=>d.guard===guard);check([d.auditRef,...d.sourceRefs].some(r=>r.kind==='audit'&&r.id==='program-result-sizing-r94-v1'&&r.bytes===41830&&r.sha256===PROGRAM_SOURCE_CONTRACT.resultSizing&&!r.range),'result_sizing_authority');}
++ for(const description of proof.descriptions){const required=['G0','G12'].includes(description.guard)?PROGRAM_AUTHORITY_REFS:PROGRAM_AUTHORITY_REFS.filter(r=>r.key==='guards');for(const expected of required)check([description.auditRef,...description.sourceRefs].some(actual=>isFullAuthorityReference(actual,expected)),expected.key==='resultSizing'?'result_sizing_authority':'program_authority');}
+  check(Array.isArray(profile.objects)&&profile.objects.length>=critical.length&&profile.objects.length<=256,'objects');
+  const ids=new Set(),names=new Set();
+  for(const object of profile.objects){
+   check(typeof object.id==='string'&&!ids.has(object.id)&&['critical','platform'].includes(object.partition)&&path(object.path)&&hash(object.sha256)&&Number.isSafeInteger(object.bytes)&&object.bytes>0&&object.bytes<=536870912,'object');ids.add(object.id);
+   check(Array.isArray(object.aliases)&&object.aliases.length>0&&object.aliases.every(path)&&Array.isArray(object.links)&&object.links.every(l=>path(l.path)&&typeof l.target==='string')&&object.elf?.class===64&&object.elf?.machine===62&&Array.isArray(object.elf.needed)&&ref(object.provenanceRef),'object_identity');
+   if(object.partition==='critical'){check(typeof object.semantic==='string'&&!names.has(object.semantic)&&ref(object.sourceBuildRef)&&object.sourceBuildRef.kind==='audit','critical_source');names.add(object.semantic);}
+  }
+  check(critical.every(n=>names.has(n)),'critical_partition');
+  check(profile.executable&&ids.has(profile.executable.id)&&profile.objects.find(o=>o.id===profile.executable.id)?.semantic==='ffmpeg'&&path(profile.executable.path),'executable');
+  check(profile.platform&&profile.platform.loader==='standard-elf'&&profile.platform.view?.kind==='stable-overlay'&&typeof profile.platform.kernelRelease==='string'&&Array.isArray(profile.platform.namespaces)&&profile.platform.namespaces.length>0&&!Object.hasOwn(profile.platform,'mountinfoSHA256')&&!Object.hasOwn(profile.platform,'rootIdentitySHA256'),'platform');
+diff --git a/tests/fixtures/marker-positive-program.mjs b/tests/fixtures/marker-positive-program.mjs
+index 8dd5965..37984b9 100644
+--- a/tests/fixtures/marker-positive-program.mjs
++++ b/tests/fixtures/marker-positive-program.mjs
+@@ -7,42 +7,47 @@ import { createHash } from 'node:crypto';
+ import { parseElfIdentity } from '../../scripts/event-marker-runtime-observer.mjs';
+ import { PROGRAM_GUARDS,PROGRAM_SOURCE_CONTRACT } from '../../scripts/event-marker-program-guards.mjs';
+ import { openNativeBindingDependencies } from '../../scripts/event-marker-native-binding.mjs';
+ import { createQualificationOwner } from '../../scripts/marker-qualification/owner.mjs';
+ import { inventoryProgramTransport,replayProgramDemux } from '../../scripts/event-marker-conservation.mjs';
+ import { fakeProgramTransport,fakeProgramNativeLogs } from './marker-program-transport.mjs';
+ import { collectImplementationCatalog,compactImplementationCatalog,IMPLEMENTATION_ROOTS,PROGRAM_BUILTINS } from '../../scripts/event-marker-implementation-assets.mjs';
+ import { makeNativeCandidate,imageFactsFromEcr,nativeArtifact } from '../../scripts/event-marker-native-controller.mjs';
+ import { prepareEcsNativeLaunch } from '../../scripts/event-marker-native-ecs-controller.mjs';
+ import { packNativeCatalog } from '../../scripts/event-marker-native-catalog.mjs';
++import { PROGRAM_AUTHORITY_REFS } from '../../scripts/event-marker-program-contract.mjs';
+ import { producerSourcePaths } from '../../scripts/event-marker-authority-closure.mjs';
+ import { NATIVE_POLICY,LEGACY_POLICY,NATIVE132_COMMAND } from '../../scripts/event-marker-evidence-policy.mjs';
+ import { captureRawMembers } from '../../scripts/event-marker-raw-capture.mjs';
+ export const sha=b=>createHash('sha256').update(b).digest('hex');
+ const json=x=>Buffer.from(JSON.stringify(x));
+ export async function simulatedProgramRuntime({mutateProfile=()=>{},mutateLogs=()=>{},mutateIO=()=>{},nativeObjectCount=9,mapsVolume=false,nativeCatalogFloorBytes=0,legacyPolicy=false,programRequest=null,domain='program',invocationId=programRequest?.invocationId??'simulated',containerName='SIMULATED',taskDefinition='SIMULATED:1'}={}) {
+  const objects=[],files=new Map(),mountinfo=Buffer.from('1 0 0:85 / / rw - overlay overlay rw\n'),stat=id=>Buffer.from(`${id} (SIMULATED) S ${process.pid} ${id} 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 123 0\n`),audit={kind:'audit',id:'SIMULATED-APPROVAL-ONLY',bytes:1,sha256:sha(Buffer.from('S'))};
+  for(const [i,semantic] of [...['ffmpeg','ffprobe','libavcodec','libavformat','libavfilter','libavutil','libswresample','libswscale','libx264'],...Array.from({length:nativeObjectCount-9},(_,i)=>'libSIMULATED-platform-dependency-'+String(i).padStart(3,'0'))].entries()){
+   const raw=Buffer.alloc(128);raw.set([127,69,76,70,2,1,1]);raw.writeUInt16LE(3,16);raw.writeUInt16LE(62,18);raw.writeBigUInt64LE(64n,32);raw.writeUInt16LE(56,54);raw.writeUInt16LE(1,56);raw.writeUInt32LE(1,64);raw.writeBigUInt64LE(128n,96);raw[127]=i;
+   const path=i<2?'/usr/bin/'+semantic:'/usr/lib/x86_64-linux-gnu/'+semantic+'.so.1.2.3';files.set(path,raw);objects.push({id:i<9?semantic:'n'+i,...(i<9?{semantic}:{}),partition:i<9?'critical':'platform',path,aliases:[path],links:[],bytes:raw.length,sha256:sha(raw),elf:parseElfIdentity(raw),provenanceRef:audit,...(i<9?{sourceBuildRef:audit}:{})});
+  }
+  const policy=legacyPolicy?LEGACY_POLICY.id:NATIVE_POLICY.id,execution={schema:'native-execution-v1',domain,producer:domain==='program'?'root-program-v1':'ci-native132-v1',retrieval:domain==='program'?'root-originals-v1':'engine-binding-v1',policy,invocation:{id:domain==='program'?invocationId:'prelude',kind:'mass'}};
+  const profile={evidencePolicy:policy,schema:'native-profile-v2',assuranceBasis:'trustedStackMeasurement',requiredGuards:PROGRAM_GUARDS,platformAssumptionsRef:audit,sourceAuditRef:audit,objects,executable:{id:'ffmpeg',path:'/usr/bin/ffmpeg'},environment:{PATH:'/usr/bin'},platform:{loader:'standard-elf',view:{kind:'stable-overlay',identityRule:'named-alias-under-approved-mount',auditRef:audit,rootFilesystem:'overlay',devicePolicy:'retain-overlay-disagreement',mounts:[{mount:'/',filesystem:'overlay',root:{kind:'exact',value:'/'},options:['rw'],required:true,source:'overlay'}],materialMappings:[{prefix:'/',mount:'/'}]},kernelRelease:'SIMULATED',node:{version:process.versions.node,execPath:process.execPath,execArgv:[...process.execArgv]},namespaces:['mnt','pid'],vdso:true}};mutateProfile(profile);
+  const nativeCatalog=packNativeCatalog(profile.objects);while(json(nativeCatalog).length<nativeCatalogFloorBytes)nativeCatalog.strings.push('SIMULATED ordinary DATA sizing '+nativeCatalog.strings.length+':'+'.'.repeat(Math.min(4000,nativeCatalogFloorBytes-json(nativeCatalog).length)));delete profile.objects;profile.nativeCatalogRef={kind:'runtime',id:'nativeCatalog',bytes:json(nativeCatalog).length,sha256:sha(json(nativeCatalog))};
+  const closure=await collectImplementationCatalog({roots:IMPLEMENTATION_ROOTS,approvedBuiltins:PROGRAM_BUILTINS,sourceAuditRef:audit,read:async path=>{const b=await readFile(new URL('../../'+path,import.meta.url));files.set('/app/'+path,b);return b;}});
+- const amendmentBody=await readFile(new URL('./program-result-sizing-r94-v1.txt',import.meta.url)),amendment={kind:'audit',id:'program-result-sizing-r94-v1',bytes:amendmentBody.length,sha256:sha(amendmentBody)};
+- const proof={schema:'native-proof-descriptions-v2',contract:PROGRAM_SOURCE_CONTRACT,descriptions:PROGRAM_GUARDS.map(guard=>({guard,auditRef:audit,sourceRefs:[audit,...(['G0','G12'].includes(guard)?[amendment]:[])]}))},plans={evidencePolicy:policy,schema:'native-plans-v2',domains:['externalFeed','externalCodedRecording'],generator:'massFrames',sourceRate:48000,sourceChannels:2,generatorAuditRef:audit,outerReserveBytes:legacyPolicy?(nativeObjectCount===9?65536:32768):domain==='program'?458752:196608};
++ const authorityOriginals=[];for(const {key,...ref} of PROGRAM_AUTHORITY_REFS){const path=key==='resultSizing'?'tests/fixtures/program-result-sizing-r94-v1.txt':'docs/engineering/authority/'+ref.id+'.md',body=await readFile(new URL('../../'+path,import.meta.url));if(body.length!==ref.bytes||sha(body)!==ref.sha256)throw Error('SIMULATED fixture authority body mismatch');authorityOriginals.push({ref,path,body});}
++ // These substantive review operands exercise closure only. They are simulated
++ // and never attest an actual implementation, adoption, native image or A.
++ const reviewOriginals=['review-exact-body','adoption','semantic-source'].map(id=>{const body=Buffer.from('SIMULATED '+id+'; no actual approval or qualification.');return {ref:nativeArtifact('audit','SIMULATED-'+id,body),body};}),reviewRefs=reviewOriginals.map(x=>x.ref);
++ const authorityRefs=authorityOriginals.map(x=>x.ref);
++ const proof={schema:'native-proof-descriptions-v2',contract:PROGRAM_SOURCE_CONTRACT,descriptions:PROGRAM_GUARDS.map(guard=>({guard,auditRef:audit,sourceRefs:[audit,...reviewRefs,...(['G0','G12'].includes(guard)?authorityRefs:authorityRefs.filter(r=>r.id==='program-source-guards-rebaseline-v1'))]}))},plans={evidencePolicy:policy,schema:'native-plans-v2',domains:['externalFeed','externalCodedRecording'],generator:'massFrames',sourceRate:48000,sourceChannels:2,generatorAuditRef:audit,outerReserveBytes:legacyPolicy?(nativeObjectCount===9?65536:32768):domain==='program'?458752:196608};
+  const entries=[];for(const [id,value] of Object.entries({profile,proof,closure:compactImplementationCatalog(closure),plans,nativeCatalog,...(programRequest?{'program-request':programRequest}:{})})){const b=json(value);files.set('/app/workers/restream/native-binding/runtime/'+id+'.json',b);entries.push({id,relativePath:id+'.json',bytes:b.length,sha256:sha(b),dependsOn:[]});}
+  const manifest=json({schema:'native-runtime-deps-v1',entries,entrypoints:{profile:'profile',proofDescriptions:'proof',verifierClosure:'closure',plans:'plans',nativeCatalog:'nativeCatalog'}});files.set('/app/workers/restream/native-binding/runtime/manifest.json',manifest);
+  const controllerPath=domain==='program'?'scripts/event-marker-native-ecs-controller.mjs':'scripts/event-marker-native-ci-controller.mjs',controllerBytes=await readFile(new URL('../../'+controllerPath,import.meta.url)),controller={...nativeArtifact('implementationCode',controllerPath,controllerBytes),imagePath:'/app/'+controllerPath};
+  const packaging=JSON.parse(await readFile(new URL('../../workers/restream/packaging-manifest.json',import.meta.url))),sourceMap=new Map(closure.files.map(f=>[f.path,{kind:f.kind,id:f.path,imagePath:'/app/'+f.path,bytes:f.bytes,sha256:f.sha256}]));for(const path of producerSourcePaths(execution,packaging)){const b=await readFile(new URL('../../'+path,import.meta.url));files.set('/app/'+path,b);if(!sourceMap.has(path))sourceMap.set(path,{...nativeArtifact(/\.(json|lock)$/.test(path)?'runtimeData':'implementationCode',path,b),imagePath:packaging.includes(path)?'/app/'+path:null});}
+- const sourceFiles=[...sourceMap.values()],candidate=makeNativeCandidate({sourceFiles,auditRefs:[audit,amendment],profileSHA:sha(json(profile)),runtimeManifestSHA:sha(manifest),observerClosureSHA:sha(json(compactImplementationCatalog(closure))),controller:sourceMap.get(controllerPath),environmentClass:domain==='program'?'ecs':'ci',execution});
++ const sourceFiles=[...sourceMap.values()],candidate=makeNativeCandidate({sourceFiles,auditRefs:[audit,...authorityRefs,...reviewRefs],profileSHA:sha(json(profile)),runtimeManifestSHA:sha(manifest),observerClosureSHA:sha(json(compactImplementationCatalog(closure))),controller:sourceMap.get(controllerPath),environmentClass:domain==='program'?'ecs':'ci',execution});
+  const config=json({architecture:'amd64',os:'linux',rootfs:{type:'layers',diff_ids:['sha256:'+sha(Buffer.from('SIMULATED-layer'))]}}),imageManifest=json({schemaVersion:2,config:{digest:'sha256:'+sha(config),size:config.length},layers:[{digest:'sha256:'+sha(Buffer.from('SIMULATED-compressed-layer')),size:25}]}),imageFacts=imageFactsFromEcr({manifest:imageManifest,config,manifestDigest:'sha256:'+sha(imageManifest),reference:'SIMULATED.invalid/image@sha256:'+sha(imageManifest),outerImageEvidenceId:'image'}),workload={originalCommand:domain==='program'?['node','scripts/event-marker-program-collector.mjs','--run-id','task6-simulated']:['--signal=TERM','--kill-after=1s','360s','sh','-c',NATIVE132_COMMAND],containerName,allocation:{}},prepared=prepareEcsNativeLaunch({candidate,imageFacts,workload,semanticEnvironment:profile.environment,nonce:'SIMULATED-program',deadline:Date.now()+120000,parameters:{cluster:'SIMULATED',taskDefinition,count:1,overrides:{containerOverrides:[{name:containerName,command:workload.originalCommand}]}}}),intent=prepared.intent.bytes;
+  files.set('/run/vrdex-native/context.json',prepared.context.bytes);
+  const dependencies=control=>openNativeBindingDependencies({...control,environment:{...profile.environment,...(JSON.parse(JSON.parse(files.get('/run/vrdex-native/context.json')).intent.utf8).transport.kind==='file'?{VRDEX_NATIVE_BINDING_CONTEXT:'/run/vrdex-native/context.json'}:{VRDEX_NATIVE_BINDING_CONTEXT_B64:files.get('/run/vrdex-native/context.json').toString('base64')})},read:async path=>{if(!files.has(path))throw Object.assign(Error('SIMULATED missing'),{code:'ENOENT'});const b=Buffer.from(files.get(path));b.bindingIdentity={path,regular:true,symlink:false,dev:'85',ino:String([...files.keys()].indexOf(path)+1),bytes:b.length,nlink:1,mtimeMs:0,ctimeMs:0,eof:true};return b;}});
+  const frames=programRequest?.train.frames??31,samples=programRequest?.train.samples??frames*1600,units=Math.ceil(samples/1024)+1;
+  const children=new Map(),commands=[],transport=fakeProgramTransport({frames,audioUnits:units,keyInterval:30}),inventory=inventoryProgramTransport(transport.bytes,{byteCap:transport.bytes.length}),replay=replayProgramDemux(inventory,{fps:30,fileIdentity:{regular:true,seekable:true,nlink:1,position:0,bytes:transport.bytes.length}}),logs=fakeProgramNativeLogs(inventory,{frames,samples});
+  const maps=Buffer.from(objects.flatMap((o,i)=>Array.from({length:mapsVolume?5:1},(_,j)=>{const digest=sha(Buffer.from('SIMULATED segment '+i+':'+j)),start=mapsVolume?0x700000000000+(i*5+j)*0x100000+parseInt(digest.slice(0,5),16):4096+i*4096;return `${start.toString(16)}-${(start+4096).toString(16)} ${j===0?'r-xp':'r--p'} ${mapsVolume?digest.slice(8,16):'00000000'} 103:01 ${mapsVolume?parseInt(digest.slice(16,24),16):i+1} ${o.path}\n`;})).join('')),mapsCapture=captureRawMembers(maps,{producerCap:1048576,remainingBytes:196608}),layout={nativeCatalogBytes:json(nativeCatalog).length,mapsOriginalBytes:maps.length,mapsStoredBytesPerRead:mapsCapture.compressedBytes,mapsMemberBytes:mapsCapture.members.map(m=>m.bytes),mapsReads:[]};
+  const observerIO={kernel:()=> 'SIMULATED',realpath:async path=>path,stat:async path=>{const m=/^\/proc\/(\d+)\/fd\/(\d+)$/.exec(path),child=m&&children.get(Number(m[1]));return m?.[2]==='8'?realStat(child.file):{isFile:()=>false,nlink:1,size:0,dev:0,ino:1000+Number(m?.[2]),mtimeMs:0,ctimeMs:0};},lstat:async path=>({isFile:()=>true,isSymbolicLink:()=>false,size:files.get(path).length,dev:85,ino:objects.findIndex(o=>o.path===path)+1,mtimeMs:0,ctimeMs:0}),read:async path=>{
+   if(files.has(path))return files.get(path);if(path==='/proc/self/mountinfo')return mountinfo;const m=/^\/proc\/(\d+)\/(.*)$/.exec(path),child=m&&children.get(Number(m[1]));if(!child)throw Object.assign(Error('SIMULATED exited'),{code:'ENOENT'});
+   if(m[2]==='maps')layout.mapsReads.push({pid:child.pid,bytes:maps.length,storedBytes:mapsCapture.compressedBytes});return {stat:stat(child.pid),maps,cmdline:Buffer.from('/usr/bin/ffmpeg\0'+child.args.join('\0')+'\0'),environ:Buffer.from('PATH=/usr/bin\0'),mountinfo}[m[2]];
+  },readlink:async path=>{if(path.endsWith('/root'))return '/';if(path.endsWith('/exe'))return '/usr/bin/ffmpeg';if(path.includes('/ns/'))return path.endsWith('mnt')?'mnt:[1]':'pid:[2]';const m=/^\/proc\/(\d+)\/fd\/(\d+)$/.exec(path),child=m&&children.get(Number(m[1]));if(!child)throw Object.assign(Error('SIMULATED missing fd'),{code:'ENOENT'});return m[2]==='8'?child.file:`pipe:[${1000+Number(m[2])}]`;},readdir:async path=>{const id=Number(path.split('/')[2]);return children.get(id)?.file?['1','8']:['1'];}};mutateIO(observerIO,{files,children});
+@@ -62,13 +67,13 @@ export async function simulatedProgramRuntime({mutateProfile=()=>{},mutateLogs=(
+  const owner=await createQualificationOwner({scan:async()=>[],signal:()=>{},spawn:(command,args,options)=>{
+   const child=new EventEmitter();child.pid=400+commands.length;child.args=args;child.stdio=options.stdio.map(m=>m==='pipe'?new PassThrough():null);child.stdout=child.stdio[1];child.stderr=child.stdio[2];commands.push({command,args});children.set(child.pid,child);
+   const finish=()=>setImmediate(()=>{child.emit('close',0,null);children.delete(child.pid);});
+   if(args.some(a=>a.startsWith('anoisesrc='))){setImmediate(()=>{child.stdout.end(Buffer.alloc(samples*2));child.stderr.end();finish();});return child;}
+   if(command==='ffprobe'){setImmediate(()=>{const result=args.includes('-show_packets')?{packets:replay.packets.map(p=>({stream_index:p.stream,pts:p.pts,dts:p.dts,pts_time:(p.pts/90000).toFixed(6),dts_time:(p.dts/90000).toFixed(6),size:String(p.bytes),flags:p.flags,...(p.sideData.length?{side_data_list:p.sideData}:{})}))}:info;child.stdout.end(json(result));child.stderr.end();finish();});return child;}
+   const role=args.includes('mpegts')?'encode':'decode';if(role==='decode')child.file=args[args.indexOf('-i')+1];
+   const data={prefix:Buffer.from(prefix(role,child.file)),stderr:logs[role==='encode'?'encoder':'decoder'],progress:logs.progress,rgb:Buffer.alloc(frames*6),pcm:Buffer.alloc(units*1024*2),video:Buffer.from(Array.from({length:frames},(_,i)=>`frame:${i} pts:${1920+3000*i} pts_time:0\nlavfi.signalstats.YAVG=0\n`).join('')),audio:Buffer.from(Array.from({length:units},(_,i)=>`frame:${i} pts:${1024*i} pts_time:0\nlavfi.astats.Overall.Number_of_samples=1024\n`).join(''))};mutateLogs(data,role);
+   const emit=()=>{child.stderr.write(data.prefix);setTimeout(()=>{if(role==='encode')child.stdout.end(transport.bytes);else for(const [fd,k] of [[3,'rgb'],[4,'pcm'],[5,'video'],[6,'audio']])child.stdio[fd].end(data[k]);child.stderr.end(data.stderr);child.stdio[role==='encode'?5:7].end(data.progress);setTimeout(finish,5);},10);};
+   if(role==='encode'){let done=0;for(const fd of [3,4]){child.stdio[fd]=new Writable({write(_b,_e,cb){cb();}});child.stdio[fd].once('finish',()=>{if(++done===2)emit();});}}else setImmediate(emit);return child;
+  }});
+- const outerOriginals=new Map([['K',candidate.bytes],['I',intent],['C',prepared.context.bytes],['Q',prepared.launch.bytes],['image',json(imageFacts)],['image-config',config],['image-manifest',imageManifest],[audit.id,Buffer.from('S')],[amendment.id,amendmentBody],[controllerPath,controllerBytes],...sourceFiles.map(f=>[f.id,files.get('/app/'+f.id)])]);
++ const outerOriginals=new Map([['K',candidate.bytes],['I',intent],['C',prepared.context.bytes],['Q',prepared.launch.bytes],['image',json(imageFacts)],['image-config',config],['image-manifest',imageManifest],[audit.id,Buffer.from('S')],...authorityOriginals.flatMap(x=>[[x.ref.id,x.body],[x.path,x.body]]),...reviewOriginals.map(x=>[x.ref.id,x.body]),[controllerPath,controllerBytes],...sourceFiles.map(f=>[f.id,files.get('/app/'+f.id)])]);
+  return {dependencies,observerIO,resolveImplementation:async path=>files.get(path),owner,files,profile,proof,closure,plans,intent,commands,transport,inventory,replay,info,frames,samples,units,outerOriginals,candidate,imageFacts,prepared,audit,layout};
+ }
+diff --git a/tests/scripts/event-marker-data-separation.test.mjs b/tests/scripts/event-marker-data-separation.test.mjs
+index bb975aa..ccab52b 100644
+--- a/tests/scripts/event-marker-data-separation.test.mjs
++++ b/tests/scripts/event-marker-data-separation.test.mjs
+@@ -266,24 +266,23 @@ for (const [path, exports] of Object.entries(expected)) test(`R93 whole DATA own
+       assert.deepEqual(second, first);
+       assert.notEqual(first, second);
+       assert(!Object.isFrozen(first));
+       for (const key of Object.keys(first)) {
+         assert.notEqual(first[key], second[key]);
+         first[key].push(123);
+         assert.deepEqual(second[key], value.returns[key]);
+       }
+     } else {
+       if (path === 'scripts/event-marker-program-contract.mjs') {
+-        // R93's three original operands stay exact; R94 explicitly adds one.
+-        const {resultSizing,...base} = module[name];
+-        assert.deepEqual(base,value);
+-        assert.equal(resultSizing,'0a7214700021178996f717487ce09b513fa8ebfcb70dca6a2bed863abb7a5c3c');
++        // Preserve R93's literal historical three-operand expectation separately.
++        assert.deepEqual(value,{"design": "aa6d1308c3ed17a2440004d06ef85a5d47aa47d09034b11fe8ddc01087f13c93", "guards": "a9cdeede2f5be1c9daf79cc9842b60e079e1bc2dff8501b3cc9cf75f4f9073f7", "pins": "8cd6382c44b4c70bde56a20387d8268b8133023c79bd8c5afd90027dbd00e75a"});
++        assert.deepEqual(module[name],{"design": "7463c898c2104ce5897830dafabb1e7b0ec88242f54bdfb45771ce6aa703c6c1", "guards": "54130902985c22ddef115437afe033d4347e66901c17a211295b0e529ad7ef12", "pins": "f5d04c68d66494a2aaa16056a06a15eea907f6254cafe4e567e97c2964e50417", "resultSizing": "0a7214700021178996f717487ce09b513fa8ebfcb70dca6a2bed863abb7a5c3c", "authorityRebaseline": "42b3ad94be9a551b1f8a97e84ebff0ce65aaac4f6e367a323d1db2f442f014c5"});
+       } else assert.deepEqual(module[name], value);
+       assertFrozenTree(module[name]);
+     }
+   }
+   if (path === 'scripts/event-marker-program-contract.mjs') assert.equal(module.PROGRAM_SOURCE_CONTRACT, (await import('../../scripts/event-marker-program-guards.mjs')).PROGRAM_SOURCE_CONTRACT);
+   if (!path.startsWith('workers/')) assert(!/\b(?:import|require)\s*[( {'"]/.test(await readFile(join(root,path),'utf8')));
+ });
+ test('R93 package includes all five whole DATA owners uniquely; workers import production settings', async () => {
+   const manifest = JSON.parse(await readFile(join(root,'workers/restream/packaging-manifest.json')));
+   assert.equal(manifest.length, 134);
+diff --git a/tests/scripts/event-marker-native-controller.test.mjs b/tests/scripts/event-marker-native-controller.test.mjs
+index aaddb39..84997e4 100644
+--- a/tests/scripts/event-marker-native-controller.test.mjs
++++ b/tests/scripts/event-marker-native-controller.test.mjs
+@@ -8,21 +8,21 @@ import { materializeNativeBundle } from '../../scripts/event-marker-native-bundl
+ import { captureNativeMetadata } from '../../scripts/event-marker-native-metadata.mjs';
+ import { captureNativePrelude } from '../../scripts/event-marker-native-prelude.mjs';
+ import { acquirePositiveProgram } from '../../scripts/event-marker-program-acquire.mjs';
+ import { createAcquisitionDeadline } from '../../scripts/event-marker-native-binding.mjs';
+ import { simulatedProgramRuntime } from '../fixtures/marker-positive-program.mjs';
+ import { mkdtemp,readFile,rm } from 'node:fs/promises';
+ import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
+ import { randomUUID } from 'node:crypto';
+ const sha=b=>createHash('sha256').update(b).digest('hex'),json=x=>Buffer.from(JSON.stringify(x));
+-function inputs(){const controller={kind:'implementationCode',id:'SIMULATED-controller',imagePath:'/app/SIMULATED-controller',bytes:1,sha256:sha(Buffer.from('S'))},audit={kind:'audit',id:'SIMULATED-audit',bytes:1,sha256:sha(Buffer.from('A'))},candidate=makeNativeCandidate({sourceFiles:[controller],auditRefs:[audit],profileSHA:'a'.repeat(64),runtimeManifestSHA:'b'.repeat(64),observerClosureSHA:'c'.repeat(64),controller,environmentClass:'ecs'});return {candidate,imageFacts:{kind:'ecrManifestConfig',configSHA:'d'.repeat(64),configBytes:200,diffIdsSHA:sha(json([])),outerImageEvidenceId:'image',reference:'example.invalid/image@sha256:'+'e'.repeat(64)},workload:{containerName:'worker',originalCommand:['node','scripts/acquire-program.mjs'],allocation:{}},semanticEnvironment:{PATH:'/usr/bin'},nonce:'SIMULATED',deadline:12345};}
++function inputs(){const controller={kind:'implementationCode',id:'SIMULATED-controller',imagePath:'/app/SIMULATED-controller',bytes:1,sha256:sha(Buffer.from('S'))},audit={kind:'audit',id:'SIMULATED-audit',bytes:1,sha256:sha(Buffer.from('A'))},candidate=makeNativeCandidate({sourceFiles:[controller],auditRefs:[audit,...programContract.PROGRAM_AUTHORITY_REFS.map(({key,...ref})=>ref)],profileSHA:'a'.repeat(64),runtimeManifestSHA:'b'.repeat(64),observerClosureSHA:'c'.repeat(64),controller,environmentClass:'ecs'});return {candidate,imageFacts:{kind:'ecrManifestConfig',configSHA:'d'.repeat(64),configBytes:200,diffIdsSHA:sha(json([])),outerImageEvidenceId:'image',reference:'example.invalid/image@sha256:'+'e'.repeat(64)},workload:{containerName:'worker',originalCommand:['node','scripts/acquire-program.mjs'],allocation:{}},semanticEnvironment:{PATH:'/usr/bin'},nonce:'SIMULATED',deadline:12345};}
+ test('I→C→Q has no future approval/launch hashes and retains exact SDK bytes',()=>{
+  const args=inputs(),parameters={cluster:'SIMULATED',taskDefinition:'SIMULATED:1',overrides:{containerOverrides:[{name:'worker',command:args.workload.originalCommand,environment:[]}]}},prepared=prepareEcsNativeLaunch({...args,parameters}),q=JSON.parse(prepared.launch.bytes),i=JSON.parse(prepared.intent.bytes),c=JSON.parse(prepared.context.bytes);
+  assert.equal(c.intent.utf8,prepared.intent.bytes.toString());assert.deepEqual(JSON.parse(prepared.sdkInput),q.parameters);assert.equal(q.parametersSHA256,sha(prepared.sdkInput));assert.equal(q.parameters.overrides.containerOverrides[0].environment[0].value,prepared.context.bytes.toString('base64'));assert(prepared.context.bytes.length<=4096);assert(!Object.hasOwn(i,'approval'));assert(!Object.hasOwn(i,'launchSHA'));assert.equal(parameters.overrides.containerOverrides[0].environment.length,0);
+  for(const change of [x=>x.overrides.containerOverrides[0].environment.push({name:'VRDEX_NATIVE_BINDING_CONTEXT_B64',value:'e30='}),x=>x.overrides.containerOverrides[0].command=['wrong'],x=>x.overrides.containerOverrides[0].environment.push({name:'BIG',value:'x'.repeat(8192)})]){const x=structuredClone(parameters);change(x);assert.throws(()=>prepareEcsNativeLaunch({...args,parameters:x}),/native_controller_/);}
+ });
+ test('CI producer inserts one exact read-only context mount before immutable image without changing workload command',()=>{
+  const args=inputs();args.imageFacts={...args.imageFacts,kind:'localUnpublishedImage',localImageId:'sha256:'+'f'.repeat(64)};const originalArguments=['create','--name','SIMULATED',args.imageFacts.localImageId,...args.workload.originalCommand],prepared=prepareCiCreate({...args,originalArguments,contextPath:'/tmp/SIMULATED/context.json'}),q=JSON.parse(prepared.launch.bytes);
+  assert.deepEqual(q.args.slice(-args.workload.originalCommand.length),args.workload.originalCommand);assert(q.args.includes('type=bind,source=/tmp/SIMULATED/context.json,target=/run/vrdex-native/context.json,readonly'));
+  assert.throws(()=>makeNativeIntent({...args,semanticEnvironment:{LD_PRELOAD:'bad'},transport:{}}),/environment/);
+ });
+@@ -66,25 +66,38 @@ test('absent binding produces honest prelude and single-program negative receipt
+ test('PP27-10 CI producer finite inventory and actual native132 domain reach the common outer checker',async()=>{
+  const { replayNative132Outer }=await import('../../scripts/event-marker-native132-replay.mjs'),runtime=await simulatedProgramRuntime({domain:'native132'}),directory=await mkdtemp(join(tmpdir(),'marker-ci-prelude-')),written=new Map(),bodies=new Map(),copies=[],names=JSON.parse(await readFile('.github/scripts/restream-native-names.json'));
+  const layer=Buffer.from('SIMULATED CI layer'),config=json({architecture:'amd64',os:'linux',rootfs:{type:'layers',diff_ids:['sha256:'+sha(layer)]}}),image='sha256:'+sha(config),manifest=json([{Config:sha(config)+'.json',RepoTags:[],Layers:['layer/layer.tar']}]),save=tar([['manifest.json',manifest],[sha(config)+'.json',config],['layer/layer.tar',layer]]),inspect=json([{Id:image,RootFS:{Layers:['sha256:'+sha(layer)]}}]),terminal={exitCode:0,signal:null,stdoutEOF:true,stderrEOF:true,error:null},stream=async(args,{consume})=>{let raw;if(args[0]==='image')raw=save;else{assert.equal(args[0],'cp');const path=args[1].split('/tmp/event-capacity-ci-native/')[1];assert(path&&!path.endsWith('/.'));copies.push(path);raw=tar([[path.split('/').at(-1),bodies.get(path)]]);}return {result:await consume((async function*(){for(let i=0;i<raw.length;i+=137)yield raw.subarray(i,i+137);})(),terminal),terminal,stderr:Buffer.alloc(0)};};
+  const producer=createCiNativeProducer({read:async path=>path==='provenance/native-binding/K.json'?runtime.candidate.bytes:runtime.files.get('/app/'+path),write:async(name,b)=>written.set(name,Buffer.from(b)),stream}),command=JSON.parse(runtime.intent).workload.originalCommand;
+  try{await producer.prepare({image,originalArguments:['create','--entrypoint','timeout',image,...command],invoke:async()=>({code:0,signal:null,failure:null,stdout:inspect.toString()}),deadline:performance.now()+120000});runtime.files.set('/run/vrdex-native/context.json',written.get('C.json'));await captureNativePrelude(directory,{dependencies:runtime.dependencies});
+   for(const name of await (await import('node:fs/promises')).readdir(directory))bodies.set('native-binding/'+name,await readFile(join(directory,name)));
+   const outcome=list=>list.map(test=>({test,outcome:'passed'})),receipt={schemaVersion:1,terminal:true,passed:true,case:'all',deterministic:true,tests:{testsRun:42,passed:true,outcomes:outcome(names.python),cancellationMs:1,owner:{testsRun:90,passed:true,outcomes:outcome(names.node)}},cleanup:{closed:true,liveChildren:0,liveGroups:0}},raw=json(receipt);bodies.set('receipt.json',raw);producer.created('SIMULATED-id');producer.attached({code:0,signal:null,failure:null,stdout:raw.toString()});producer.inspected(json([{Id:'SIMULATED-id',Image:image,State:{ExitCode:0,Running:false}}]));await producer.readback({id:'SIMULATED-id',deadline:performance.now()+120000});producer.cleaned({schema:'native-docker-cleanup-v1',remove:{code:0,signal:null,failure:null},ownedName:{stdout:'',code:0,signal:null,failure:null},ownedId:{stdout:'',code:0,signal:null,failure:null}});await producer.finish({passed:true});
+   assert.equal(copies[0],'native-binding/inventory.json');assert.equal(copies[1],'receipt.json');assert.equal(copies.length,JSON.parse(bodies.get('native-binding/inventory.json')).files.length+2);
+   const originals=new Map(runtime.outerOriginals);for(const [name,b] of written)originals.set(name.replace(/\.(json|tar)$/,''),b);for(const [name,b] of bodies)originals.set(name,b);for(const [name,b] of written)if(name.startsWith('engine-archive-'))originals.set(name.slice(0,-4),b);
+   const k=JSON.parse(runtime.candidate.bytes),approval={schema:'native-root-approval-v1',decision:'approve-trustedStackMeasurement',candidateSHA:runtime.candidate.ref.sha256,profileSHA:k.profileSHA,environmentClass:'ci',ledgerId:'SIMULATED-LEDGER',recordId:'SIMULATED-A',auditRefs:k.auditRefs,issuedAtUTC:'2026-01-01T00:00:00Z'},options={outerResolver:async id=>originals.get(id),resolveImplementation:runtime.resolveImplementation,rootLedger:{lookup:async()=>({original:json(approval),ledgerId:approval.ledgerId,recordId:approval.recordId})}},result=await replayNative132Outer(options);assert.equal(result.kind,'ValidatedNative132Transport');assert.equal(result.measurementAdmitted,false);assert.equal(result.nativeTestsPassed,true);
++  // Malformed K is reserialized and rehashed. Both launch preparations and
++  // independent native132 replay reject it; no stale constructor stamp helps.
++  const originalK=originals.get('K');for(const ref of programContract.PROGRAM_AUTHORITY_REFS)for(const change of [a=>a.filter(r=>r.id!==ref.id),a=>a.map(r=>r.id===ref.id?{...r,range:null}:r)]){const changed={...k,auditRefs:change(k.auditRefs)},bytes=json(changed),candidate={bytes,ref:{kind:'audit',id:'K',bytes:bytes.length,sha256:sha(bytes)}},args={...inputs(),candidate};assert.throws(()=>prepareCiCreate(args),/native_authority_/);assert.throws(()=>prepareEcsNativeLaunch({...args,parameters:{}}),/native_authority_/);originals.set('K',bytes);await assert.rejects(replayNative132Outer(options),/candidate_join/);originals.set('K',originalK);}
++  for(const ref of k.auditRefs){const body=originals.get(ref.id);originals.set(ref.id,Buffer.from('SIMULATED late original'));await assert.rejects(replayNative132Outer(options),/candidate_member/);originals.set(ref.id,body);const prior=approval.auditRefs;approval.auditRefs=prior.filter(r=>r.id!==ref.id);await assert.rejects(replayNative132Outer(options),/root_approval/);approval.auditRefs=prior;}
+   const L=originals.get('L'),ledger=JSON.parse(L),readback=JSON.parse(originals.get(ledger.readbackRef.id)),combined=readback.copies.reduce((n,c)=>n+c.archiveRef.bytes,0),ordinaryIds=['K','I','C','Q','L','image',ledger.readbackRef.id,ledger.inventoryRef.id,ledger.containerReadbackRef.id,ledger.cleanupRef.id];assert.equal(result.outerJoins.domainNumericBytes,combined);assert.equal(result.outerJoins.chargedBytes,combined+json(approval).length+ordinaryIds.reduce((n,id)=>n+originals.get(id).length,0));
+   const renamed=structuredClone(readback);for(const [i,c] of renamed.copies.entries()){const id='validated-copy-'+i;originals.set(id,originals.get(c.archiveRef.id));c.archiveRef.id=id;}const renamedRaw=json(renamed),priorReadback=originals.get(ledger.readbackRef.id);originals.set(ledger.readbackRef.id,renamedRaw);const changedLedger={...ledger,readbackRef:{...ledger.readbackRef,bytes:renamedRaw.length,sha256:sha(renamedRaw)}};originals.set('L',json(changedLedger));const exactOnce=await replayNative132Outer(options);assert.equal(exactOnce.outerJoins.domainNumericBytes,combined);assert.equal(exactOnce.outerJoins.chargedBytes,result.outerJoins.chargedBytes+renamedRaw.length-priorReadback.length+originals.get('L').length-L.length);originals.set(ledger.readbackRef.id,priorReadback);originals.set('L',L);
+   originals.set('L',json({...JSON.parse(L),domain:'program'}));await assert.rejects(replayNative132Outer(options),/domain/);originals.set('L',L);const inv=originals.get('native-binding/inventory.json');originals.set('native-binding/inventory.json',json({...JSON.parse(inv),files:[]}));await assert.rejects(replayNative132Outer(options));
+  }finally{await rm(directory,{recursive:true,force:true});}
+ });
+ 
+ test('R96 explicit native132 bundle preparation keeps its old reservation and requires its reviewed command',async()=>{
+  const runtime=await simulatedProgramRuntime({domain:'native132'}),k=JSON.parse(runtime.candidate.bytes),bundle={schema:'native-reviewed-bundle-v1',environmentClass:'ci',execution:k.execution,workload:JSON.parse(runtime.intent).workload,runtimeFiles:[...runtime.files].filter(([p])=>p.startsWith('/app/workers/restream/native-binding/runtime/')).map(([p,b])=>({relativePath:p.split('/').at(-1),base64:b.toString('base64'),bytes:b.length,sha256:sha(b)}))},readSource=p=>runtime.outerOriginals.get(p);Object.assign(bundle,{sourceFiles:k.sourceFiles,auditRefs:k.auditRefs,controller:k.controller});
+  const result=await materializeNativeBundle(bundle,{readSource});assert.equal(result.candidate.ref.sha256,runtime.candidate.ref.sha256);assert.equal(runtime.plans.outerReserveBytes,196608);
+  const missing=structuredClone(bundle);delete missing.workload;await assert.rejects(materializeNativeBundle(missing,{readSource}),/marker_policy_command/);
+  const bad=structuredClone(bundle),plan=JSON.parse(Buffer.from(bad.runtimeFiles.find(f=>f.relativePath==='plans.json').base64,'base64'));plan.outerReserveBytes=458752;
+  const body=json(plan),p=bad.runtimeFiles.find(f=>f.relativePath==='plans.json');Object.assign(p,{base64:body.toString('base64'),bytes:body.length,sha256:sha(body)});
+  const mf=bad.runtimeFiles.find(f=>f.relativePath==='manifest.json'),m=JSON.parse(Buffer.from(mf.base64,'base64'));Object.assign(m.entries.find(e=>e.id==='plans'),{bytes:p.bytes,sha256:p.sha256});const raw=json(m);Object.assign(mf,{base64:raw.toString('base64'),bytes:raw.length,sha256:sha(raw)});
+  await assert.rejects(materializeNativeBundle(bad,{readSource}),/marker_program_outer_reserve/);
+ });
++
++import * as programContract from '../../scripts/event-marker-program-contract.mjs';
++test('fixed originals validate before any output',async()=>{
++ const runtime=await simulatedProgramRuntime(),k=JSON.parse(runtime.candidate.bytes),bundle={schema:'native-reviewed-bundle-v1',environmentClass:'ecs',execution:k.execution,workload:JSON.parse(runtime.intent).workload,runtimeFiles:[...runtime.files].filter(([p])=>p.startsWith('/app/workers/restream/native-binding/runtime/')).map(([p,b])=>({relativePath:p.split('/').at(-1),base64:b.toString('base64'),bytes:b.length,sha256:sha(b)})),sourceFiles:k.sourceFiles,auditRefs:k.auditRefs,controller:k.controller};
++ const rows=[['program-source-design-rebaseline-v1','docs/engineering/authority/program-source-design-rebaseline-v1.md'],['program-source-guards-rebaseline-v1','docs/engineering/authority/program-source-guards-rebaseline-v1.md'],['program-native-pins-rebaseline-v1','docs/engineering/authority/program-native-pins-rebaseline-v1.md'],['program-result-sizing-r94-v1','tests/fixtures/program-result-sizing-r94-v1.txt'],['program-authority-rebaseline-v1','docs/engineering/authority/program-authority-rebaseline-v1.md']];
++ for(const [index,[id,path]] of rows.entries())for(const changed of [undefined,Buffer.from('SIMULATED changed authority'),Buffer.from(runtime.outerOriginals.get(id)).fill(0,0,1)]){let writes=0;const reads=[];await assert.rejects(materializeNativeBundle(bundle,{readSource:async p=>{reads.push(p);return p===path?changed:runtime.outerOriginals.get(p);},write:async()=>writes++}),/native_bundle_authority_original/);assert.equal(writes,0,id);assert.deepEqual(reads,rows.slice(0,index+1).map(([,p])=>p));}
++ let reads=0,writes=0;await assert.rejects(materializeNativeBundle({...bundle,auditRefs:[...bundle.auditRefs,bundle.auditRefs[0]]},{readSource:async()=>{reads++;},write:async()=>writes++}),/native_authority_audit_catalog/);assert.equal(reads,0);assert.equal(writes,0);
++ const result=await materializeNativeBundle(bundle,{readSource:p=>runtime.outerOriginals.get(p)});assert.deepEqual(result.authorityOriginals.map(x=>x.ref),programContract.PROGRAM_AUTHORITY_REFS.map(({key,...ref})=>ref));assert(result.authorityOriginals.every(({ref,bytes})=>bytes instanceof Uint8Array&&bytes.length===ref.bytes&&sha(bytes)===ref.sha256));assert.equal(result.runtimeFiles.length,bundle.runtimeFiles.length);
++});
+diff --git a/tests/scripts/event-marker-positive-program-fix1.test.mjs b/tests/scripts/event-marker-positive-program-fix1.test.mjs
+index a9730ab..dd45dae 100644
+--- a/tests/scripts/event-marker-positive-program-fix1.test.mjs
++++ b/tests/scripts/event-marker-positive-program-fix1.test.mjs
+@@ -15,21 +15,21 @@ import { captureNativePrelude } from '../../scripts/event-marker-native-prelude.
+ import { acquirePositiveProgram } from '../../scripts/event-marker-program-acquire.mjs';
+ import { consumeDockerStream } from '../../scripts/event-marker-native-ci-controller.mjs';
+ import { captureEngineObject,validateBindingInventory } from '../../scripts/event-marker-engine-readback.mjs';
+ import { scanDockerSave } from '../../scripts/event-marker-native-controller.mjs';
+ import { deriveEvidencePolicy,LEGACY_POLICY,NATIVE_POLICY } from '../../scripts/event-marker-evidence-policy.mjs';
+ import { collectPositiveProgram,programDestination } from '../../scripts/event-marker-program-collector.mjs';
+ import { retrieveProgramOriginals } from '../../scripts/event-marker-root-retrieval.mjs';
+ const json=v=>Buffer.from(JSON.stringify(v)),temp=()=>mkdtemp(join(tmpdir(),'marker-fix1-'));
+ function tar(name,body,type=48){const h=Buffer.alloc(512);h.write(name);h.write(body.length.toString(8).padStart(11,'0')+'\0',124);h.fill(32,148,156);h[156]=type;h.write(h.reduce((a,b)=>a+b,0).toString(8).padStart(6,'0')+'\0 ',148);return Buffer.concat([h,body,Buffer.alloc((512-body.length%512)%512),Buffer.alloc(1024)]);}
+ async function* chunks(b){for(let i=0;i<b.length;i+=97)yield b.subarray(i,i+97);}
+-test('PP27-02 mandatory audit/range and selected producer closure derive from acquired operands',async()=>{const runtime=await simulatedProgramRuntime(),binding=await runtime.dependencies({registerImplementationAssets:files=>({kind:'implementationCode-v1',bytes:files.reduce((n,f)=>n+f.bytes,0),invocation:'simulated',recordKey:'simulated-program',event:'encode'})}),deps=inspectAcquiredDependencies(binding),refs=requiredAuthorityReferences(deps);assert(refs.length>40);requireAuthorityMembership(deps,JSON.parse(runtime.candidate.bytes).auditRefs);assert.throws(()=>requireAuthorityMembership(deps,[]),/required_reference/);for(const change of [r=>r.bytes++,r=>r.kind='runtime',r=>r.range={start:1,length:1}]){const bad=structuredClone(deps);change(bad.profile.sourceAuditRef);assert.throws(()=>requireAuthorityMembership(bad,[runtime.audit]),/native_authority_/);}const paths=producerSourcePaths(JSON.parse(runtime.candidate.bytes).execution,JSON.parse(await readFile('workers/restream/packaging-manifest.json')));for(const p of ['scripts/event-marker-program-collector.mjs','scripts/event-marker-root-retrieval.py','workers/restream/Dockerfile'])assert(paths.includes(p));});
++test('PP27-02 mandatory audit/range and selected producer closure derive from acquired operands',async()=>{const runtime=await simulatedProgramRuntime(),binding=await runtime.dependencies({registerImplementationAssets:files=>({kind:'implementationCode-v1',bytes:files.reduce((n,f)=>n+f.bytes,0),invocation:'simulated',recordKey:'simulated-program',event:'encode'})}),deps=inspectAcquiredDependencies(binding),refs=requiredAuthorityReferences(deps);assert(refs.length>40);requireAuthorityMembership(deps,JSON.parse(runtime.candidate.bytes).auditRefs);assert.throws(()=>requireAuthorityMembership(deps,[]),/native_authority_required_reference/);for(const change of [r=>r.bytes++,r=>r.kind='runtime',r=>r.range={start:1,length:1}]){const bad=structuredClone(deps);change(bad.profile.sourceAuditRef);assert.throws(()=>requireAuthorityMembership(bad,[runtime.audit]),/native_authority_/);}const paths=producerSourcePaths(JSON.parse(runtime.candidate.bytes).execution,JSON.parse(await readFile('workers/restream/packaging-manifest.json')));for(const p of ['scripts/event-marker-program-collector.mjs','scripts/event-marker-root-retrieval.py','workers/restream/Dockerfile'])assert(paths.includes(p));});
+ test('PP27-04 finite mount and alias operands reject stable material binds and mismatched context sources',async()=>{const runtime=await simulatedProgramRuntime(),view=runtime.profile.platform.view,raw=Buffer.from('1 0 0:85 / / rw - overlay overlay rw\n'),rows=validateMountView(raw,view,{});assertMaterialPath('/usr/bin/ffmpeg',rows,view);for(const target of ['/usr','/app','/unexpected'])assert.throws(()=>validateMountView(Buffer.concat([raw,Buffer.from(`2 1 8:1 /bind ${target} rw - ext4 /dev/x rw\n`)]),view,{}),/unapproved_mount/);assert.throws(()=>assertCatalogAlias('/alias',{path:'/actual',aliases:['/alias'],links:[]}),/alias_relation/);assertCatalogAlias('/alias',{path:'/actual',aliases:['/alias'],links:[{path:'/alias',target:'/actual'}]});const rule={mount:'/run/vrdex-native/context.json',filesystem:'ext4',root:{kind:'controller-context'},options:['ro'],required:true,source:null},v={...view,mounts:[...view.mounts,rule]},context=Buffer.concat([raw,Buffer.from('2 1 8:1 /tmp/owned/context.json /run/vrdex-native/context.json ro - ext4 /dev/x rw\n')]);validateMountView(context,v,{kind:'file',path:rule.mount,hostPath:'/tmp/owned/context.json'});assert.throws(()=>validateMountView(context,v,{kind:'file',path:rule.mount,hostPath:'/tmp/other/context.json'}),/context_mount/);});
+ test('PP27-06 both front doors retain full, partial and empty failed originals with immutable primary',async()=>{for(const front of ['prelude','program']){const directory=front==='program'?'/tmp/marker-program-fix1-'+randomUUID():await temp(),bytes=Buffer.from('SIMULATED bad original'),error=Object.assign(Error('SIMULATED primary acquisition'),{bindingArtifacts:[{id:'bad',bytes:bytes.length,sha256:sha(bytes),data:bytes.toString('base64'),authentication:{state:'mismatch',expectedSHA256:'0'.repeat(64)},completeness:'partial'},{id:'empty',bytes:0,sha256:sha(Buffer.alloc(0)),data:'',authentication:{state:'missing'},completeness:'empty'}]});try{const dependencies=async()=>{throw error;};if(front==='prelude')await captureNativePrelude(directory,{dependencies});else await assert.rejects(acquirePositiveProgram({directory,io:{dependencies},ownerFactory:async()=>({close:async()=>{throw Error('SIMULATED cleanup');}})}),e=>e===error);const files=await readdir(directory),catalog=JSON.parse(await readFile(join(directory,files.find(p=>p.endsWith('-binding-failed.json')))));assert.equal(catalog.artifacts.length,2);assert.equal(catalog.artifacts[1].bytes,0);assert.equal((await readFile(join(directory,files.find(p=>p.endsWith('-binding-failed-0.bin'))))).toString(),bytes.toString());assert.equal(error.bindingFailure.primary.error.message,'SIMULATED primary acquisition');}finally{await rm(directory,{recursive:true,force:true});}}});
+ test('PP27-07 acquisition and finalization share one absolute deadline without an owner-close extension',async()=>{const directory='/tmp/marker-program-late-'+randomUUID(),control=createAcquisitionDeadline(1600);let release;const mkdir=()=>new Promise(r=>{release=r;});try{await assert.rejects(acquirePositiveProgram({directory,io:{control,fileSystem:{mkdir}},ownerFactory:async()=>{throw Error('owner must not start');}}),/timeout|deadline/);release();}finally{await rm(directory,{recursive:true,force:true});}});
+ test('PP27-08 parser failure kills and reaps the owned process, preserving primary and cleanup evidence',async()=>{let child,kills=0;const parser=Error('SIMULATED parser invalid'),spawnProcess=()=>{child=new EventEmitter();child.pid=123;child.stdout=new PassThrough();child.stderr=new PassThrough();return child;};await assert.rejects(consumeDockerStream(['SIMULATED'],{timeoutMs:2000,spawnProcess,kill:()=>{kills++;setImmediate(()=>child.emit('close',null,'SIGKILL'));},consume:async()=>{throw parser;}}),error=>{assert.equal(error,parser);assert.equal(error.nativeOwner.reaped,true);return true;});assert.equal(kills,1);const abort=new AbortController();abort.abort();await assert.rejects(consumeDockerStream(['SIMULATED'],{timeoutMs:2000,signal:abort.signal,spawnProcess,kill:()=>setImmediate(()=>child.emit('close',null,'SIGKILL')),consume:async chunks=>{for await(const _ of chunks){}}}),/cancelled/);});
+ test('PP27-09 candidates, member metadata, each parser and combined framed archive have independent limits',async()=>{await assert.rejects(scanDockerSave(chunks(tar('manifest.json',Buffer.alloc(65537))),{imageId:'SIMULATED',inspect:Buffer.from('[]'),terminal:{}}),/candidate_cap/);const directories=Buffer.concat([...Array.from({length:1025},(_,i)=>tar('d'+i+'/',Buffer.alloc(0),53).subarray(0,512)),Buffer.alloc(1024)]);await assert.rejects(scanDockerSave(chunks(directories),{imageId:'SIMULATED',inspect:Buffer.from('[]'),terminal:{}}),/parser_cap|member_cap/);let combined=0;const raw=tar('original.bin',Buffer.alloc(196608)),charge=n=>{combined+=n;if(combined>8388608)throw Error('combined_cap');};for(let i=0;i<42;i++)await captureEngineObject(chunks(raw),{path:'original.bin',cap:196608},charge);await assert.rejects(captureEngineObject(chunks(raw),{path:'original.bin',cap:196608},charge),/combined_cap/);await assert.rejects(captureEngineObject(chunks(tar('unexpected',Buffer.from('x'))),{path:'original.bin',cap:196608},()=>{}),/archive_inventory/);assert.throws(()=>validateBindingInventory(json({schema:'native-binding-inventory-v1',files:[{path:'native-binding/evil',bytes:1,sha256:'a'.repeat(64),role:'pcm'}]})),/inventory_member/);});
+ test('PP27-11 R90 selects only private acquired policy and preserves invocation-wide and failure boundaries',async()=>{const directory=await temp();try{const runtime=await simulatedProgramRuntime(),store=createInvocationStore(createArtifactStore(directory),{id:'simulated',kind:'mass'});assert.throws(()=>store.selectNativePolicy({kind:'AcquiredDependencies',policy:NATIVE_POLICY.id}),/invocation_policy/);const binding=await runtime.dependencies({registerImplementationAssets:f=>store.registerImplementationAssets(f,'simulated-program','encode')});store.selectNativePolicy(binding);for(let i=0;i<8;i++)await store.write('simulated-n'+i,Buffer.alloc(196608,i),196608,'runtimeBinding');assert.equal(store.numericBytes,NATIVE_POLICY.normal);await assert.rejects(store.write('simulated-over',Buffer.from('x'),1,'runtimeBinding'),/invocation_byte_cap/);assert.throws(()=>store.checkFinal([Buffer.from('x')]),/invocation_byte_cap/);const failed=await store.writeFailure('simulated-failure',{primary:{error:{message:'SIMULATED'}},secondary:[]});assert.equal(store.checkFinal([Buffer.alloc(65536-failed.bytes)]).numericBytes,NATIVE_POLICY.final);assert.throws(()=>store.selectNativePolicy(binding),/invocation_policy/);assert.throws(()=>store.checkProgramOuterFinal('simulated-program',1),/invocation_byte_cap/);const deps=inspectAcquiredDependencies(binding);for(const operand of ['profile','plans']){const changed=structuredClone(deps);delete changed[operand].evidencePolicy;assert.throws(()=>deriveEvidencePolicy(changed,{id:'simulated',kind:'mass'}),/selection/);}assert.equal(deriveEvidencePolicy({},{}),LEGACY_POLICY);assert.throws(()=>deriveEvidencePolicy(deps,{id:'other',kind:'mass'}),/owned_invocation/);}finally{await rm(directory,{recursive:true,force:true});}});
+ test('single PROGRAM collector uploads only after two physical censuses and uses its distinct fixed terminal',async()=>{const run='task6-simulated',receipt={schema:'program-local-receipt-v1',scope:'single-canary-train-program-only',invocationId:'mass-320-48000stereo-073',groupId:'canary-000',pairedQualification:false,capacityAccepted:false,cleanup:{closed:true,liveChildren:0,liveGroups:0},state:'local-conditional-pending-outer'},raw=json(receipt),files=[{name:'receipt.json',bytes:raw.length,sha256:sha(raw)}],events=[];const terminal=await collectPositiveProgram(run,{read:async()=>raw,inventory:async()=>files,write:async()=>events.push('terminal'),ownerFactory:async()=>({run:async(command,args)=>{assert.equal(command,'node');assert.equal(args[0],'scripts/event-marker-program-acquire.mjs');events.push('native');},close:async()=>{events.push('two-censuses');return {closed:true,emptyCensuses:2};}}),upload:async(_o,file,url)=>{assert(events.includes('two-censuses'));assert.equal(url,programDestination(run)+file.name);events.push('upload');}});assert.equal(terminal.schema,'single-program-terminal-v1');assert.equal(terminal.programLocalComplete,true);assert.equal(terminal.capacityAccepted,false);assert.equal(terminal.pairedQualification,false);assert(!('workPassed' in terminal));assert.throws(()=>programDestination('https://elsewhere'),/run/);});
+ 
+ test('PP27-05 unchanged canary single-PROGRAM CLI reuses acquired DATA and retains the full guarded result',async()=>{
+  const {enumerateQualification}=await import('../../scripts/marker-qualification/authority.mjs'),{compileTrain}=await import('../../scripts/marker-qualification/trains.mjs'),{replayProgramOriginal}=await import('../../scripts/marker-qualification/program-replay.mjs'),invocation=enumerateQualification().invocations.find(i=>i.id==='mass-320-48000stereo-073'),train=compileTrain(invocation),request={schema:'positive-program-acquisition-v1',invocationId:invocation.id,groupId:'canary-000',settings:{videoPreset:'480p30',audioBitrateKbps:320},train},runtime=await simulatedProgramRuntime({programRequest:request,nativeObjectCount:216,mapsVolume:true,nativeCatalogFloorBytes:48662}),directory='/tmp/marker-program-full-source-'+randomUUID();let acquisitions=0;
+diff --git a/tests/scripts/event-marker-program-result-sizing.test.mjs b/tests/scripts/event-marker-program-result-sizing.test.mjs
+index 1326537..b22063b 100644
+--- a/tests/scripts/event-marker-program-result-sizing.test.mjs
++++ b/tests/scripts/event-marker-program-result-sizing.test.mjs
+@@ -59,21 +59,21 @@ test('R94 exact UTF8 plus LF result cap, one-byte excess, one identity, transact
+ test('R94 selected result cannot relabel runtime bytes and cancellation restores the held allowance',async()=>{
+  const v=await scopedStore();try{v.store.reserveProgramOuter(v.key,458752);const raw=await structuralResult(v,1000),runtime=await v.store.write(v.key+'-runtime.json',raw,196608,'runtimeBinding'),before=v.store.programBudget(v.key);await assert.rejects(v.store.writeProgramOuter(v.key,v.key+'-result.json',raw),/artifact_role/);assert.equal(runtime.bytes,raw.length);assert.equal(v.store.programBudget(v.key).reservedOuterBytes,before.reservedOuterBytes);
+  const cancelled=Error('SIMULATED_result_cancel');await assert.rejects(v.store.writeProgramOuter(v.key,v.key+'-result.json',raw,{check(){throw cancelled;}}),e=>e===cancelled);assert.equal(v.store.programBudget(v.key).reservedOuterBytes,before.reservedOuterBytes);
+  }finally{await rm(v.directory,{recursive:true,force:true});}
+ });
+ test('R94 required G0 and G12 amendment is exact, full, and independent of optional K membership',async()=>{
+  const v=await scopedStore();try{const deps={...structuredClone(inspectAcquiredDependencies(v.binding)),profile:JSON.parse(v.runtime.files.get('/app/workers/restream/native-binding/runtime/profile.json')),nativeCatalog:JSON.parse(v.runtime.files.get('/app/workers/restream/native-binding/runtime/nativeCatalog.json'))};validateProgramDependencies(deps);
+  for(const guard of ['G0','G12'])for(const mutate of [refs=>refs.filter(r=>r.id!=='program-result-sizing-r94-v1'),refs=>refs.map(r=>r.id==='program-result-sizing-r94-v1'?{...r,id:'optional-policy'}:r),refs=>refs.map(r=>r.id==='program-result-sizing-r94-v1'?{...r,bytes:r.bytes-1}:r),refs=>refs.map(r=>r.id==='program-result-sizing-r94-v1'?{...r,sha256:'0'.repeat(64)}:r),refs=>refs.map(r=>r.id==='program-result-sizing-r94-v1'?{...r,range:{start:0,length:1}}:r)]){const changed=structuredClone(deps);changed.proof.descriptions.find(d=>d.guard===guard).sourceRefs=mutate(changed.proof.descriptions.find(d=>d.guard===guard).sourceRefs);assert.throws(()=>validateProgramDependencies(changed),/result_sizing_authority/);}
+  for(const mutate of [d=>delete d.proof.contract.resultSizing,d=>d.proof.contract.resultSizing='0'.repeat(64)]){const d=structuredClone(deps);mutate(d);assert.throws(()=>validateProgramDependencies(d),/guard_contract/);}
+  for(const mutate of [d=>d.intent.execution.producer='ci-native132-v1',d=>d.intent.execution.retrieval='engine-binding-v1',d=>d.plans.evidencePolicy=LEGACY_POLICY.id,d=>d.intent.execution.invocation.id='wrong']){const d=structuredClone(deps);mutate(d);assert.throws(()=>programResultLimits(d,{id:'simulated',kind:'mass'}),/marker_policy/);}
+- assert.equal(PROGRAM_SOURCE_CONTRACT.design,'aa6d1308c3ed17a2440004d06ef85a5d47aa47d09034b11fe8ddc01087f13c93');assert.equal(PROGRAM_SOURCE_CONTRACT.guards,'a9cdeede2f5be1c9daf79cc9842b60e079e1bc2dff8501b3cc9cf75f4f9073f7');assert.equal(PROGRAM_SOURCE_CONTRACT.pins,'8cd6382c44b4c70bde56a20387d8268b8133023c79bd8c5afd90027dbd00e75a');
++ assert.equal(PROGRAM_SOURCE_CONTRACT.design,'7463c898c2104ce5897830dafabb1e7b0ec88242f54bdfb45771ce6aa703c6c1');assert.equal(PROGRAM_SOURCE_CONTRACT.guards,'54130902985c22ddef115437afe033d4347e66901c17a211295b0e529ad7ef12');assert.equal(PROGRAM_SOURCE_CONTRACT.pins,'f5d04c68d66494a2aaa16056a06a15eea907f6254cafe4e567e97c2964e50417');
+  }finally{await rm(v.directory,{recursive:true,force:true});}
+ });
+ test('R94 full ordinary O and combined boundaries, exact-once result charge, failure headroom, and A intake',async()=>{
+  const v=await positiveProgram();try{
+   const originalSize=json(v.result).length;v.result.padding='é';v.result.padding+='x'.repeat(262144-json(v.result).length);assert.equal(json(v.result).length,262144);
+   const outer=await simulatedOuter(v),base=await boundary(v,outer),R=262144;assert(base.chargedBytes>R);const O=base.chargedBytes-R,approval=JSON.parse(outer.ledger.original);approval.padding='';approval.padding='x'.repeat(196608-O-(Buffer.byteLength(JSON.stringify(approval))-outer.ledger.original.length));outer.ledger.original=Buffer.from(JSON.stringify(approval));assert(outer.ledger.original.length<=196608);
+   const exact=await boundary(v,outer);assert.equal(exact.chargedBytes,458752);const budget={...outer.manifest.budget,numericBytes:NATIVE_POLICY.normal-458752,artifactBytes:16777216-65536-458752};assert.equal((await boundary(v,outer,budget)).chargedBytes,458752);
+   for(const changed of [{...budget,numericBytes:budget.numericBytes+1},{...budget,artifactBytes:budget.artifactBytes+1},{...budget,reservedOuterBytes:458753},{...budget,reservedOuterBytes:458751}])await assert.rejects(boundary(v,outer,changed),/outer_budget/);
+   outer.ledger.original=Buffer.concat([outer.ledger.original,Buffer.from(' ')]);await assert.rejects(boundary(v,outer),/outer_budget/);
+   for(const bad of [Buffer.alloc(196609),{},'{}',new Uint16Array(2)]){outer.ledger.original=bad;await assert.rejects(boundary(v,outer),/external_approval/);}
+@@ -104,22 +104,22 @@ test('R94 owned acquisition cancels during read and closes the actual file handl
+ });
+ test('R94 bounded Root A owner checks metadata before acquisition and preserves full O charging',async()=>{
+  const v=await positiveProgram(),directory=await mkdtemp(join(tmpdir(),'r94-root-a-'));try{const outer=await simulatedOuter(v),base=await boundary(v,outer),file=join(directory,'approval.json');await writeFile(file,outer.ledger.original);const ref={id:'A',bytes:outer.ledger.original.length,sha256:sha(outer.ledger.original)};let reads=0;
+  outer.options.rootLedger.lookup=async(_candidate,{cap})=>{assert.equal(cap,196608);assert(ref.bytes>0&&ref.bytes<=cap);reads++;return {...outer.ledger,ref,original:await readBounded(file,ref.bytes)};};assert.equal((await boundary(v,outer)).chargedBytes,base.chargedBytes);assert.equal(reads,1);
+  ref.bytes=196609;await assert.rejects(boundary(v,outer));assert.equal(reads,1);
+  ref.bytes=1;await assert.rejects(boundary(v,outer),/marker_binding_file/);assert.equal(reads,2);
+  }finally{await rm(v.directory,{recursive:true,force:true});await rm(directory,{recursive:true,force:true});}
+ });
+ test('R94 exact owned result refuses runtime relabel at outer boundary; copies and every audit body remain required',async()=>{
+  const v=await positiveProgram();try{const outer=await simulatedOuter(v),base=await boundary(v,outer),saved=new Map(outer.originals),ledger=outer.ledger.original;
+- for(const id of ['program-result-sizing-r94-v1','SIMULATED-APPROVAL-ONLY'])for(const replacement of [undefined,Buffer.from('changed')]){outer.originals.set(id,replacement);await assert.rejects(boundary(v,outer),/candidate_member/);outer.originals.set(id,saved.get(id));}
+- const approval=JSON.parse(ledger);approval.auditRefs=approval.auditRefs.filter(r=>r.id!=='program-result-sizing-r94-v1');outer.ledger.original=Buffer.from(JSON.stringify(approval));await assert.rejects(boundary(v,outer),/root_approval/);outer.ledger.original=ledger;
++ for(const id of JSON.parse(v.runtime.candidate.bytes).auditRefs.map(r=>r.id))for(const replacement of [undefined,Buffer.from('changed'),Buffer.from(saved.get(id)).fill(0,0,1)]){outer.originals.set(id,replacement);await assert.rejects(boundary(v,outer),/candidate_member/);outer.originals.set(id,saved.get(id));}
++ for(const ref of JSON.parse(v.runtime.candidate.bytes).auditRefs)for(const change of [a=>a.filter(r=>r.id!==ref.id),...[(r)=>({...r,id:'SIMULATED-S'}),(r)=>({...r,kind:'runtime'}),(r)=>({...r,bytes:r.bytes+1}),(r)=>({...r,sha256:'0'.repeat(64)}),(r)=>({...r,range:null})].map(mutate=>a=>a.map(r=>r.id===ref.id?mutate(r):r))]){const approval=JSON.parse(ledger);approval.auditRefs=change(approval.auditRefs);outer.ledger.original=Buffer.from(JSON.stringify(approval));await assert.rejects(boundary(v,outer),/root_approval/);outer.ledger.original=ledger;}
+  const receipt=JSON.parse(outer.originals.get('receipt.json')),L=JSON.parse(outer.originals.get('L')),runtime=outer.manifest.budget.uses.find(r=>r[0]==='runtimeBinding'),body=await readFile(v.store.path(runtime[1]));outer.originals.set(v.key+'-result.json',body);receipt.resultRef={name:v.key+'-result.json',role:'observation',bytes:body.length,sha256:sha(body)};L.receiptRef=outer.put('receipt.json',receipt);outer.put('L',L);await assert.rejects(boundary(v,outer),/result_identity/);
+  outer.originals.clear();for(const [id,b] of saved)outer.originals.set(id,b);
+  const changedL=JSON.parse(outer.originals.get('L')),old=outer.originals.get(changedL.runTaskResponseRef.id),duplicate=outer.originals.get(changedL.taskReadbackRef.id),oldL=outer.originals.get('L');outer.originals.set(changedL.runTaskResponseRef.id,duplicate);changedL.runTaskResponseRef={...changedL.runTaskResponseRef,bytes:duplicate.length,sha256:sha(duplicate)};outer.put('L',changedL);const copied=await boundary(v,outer);assert.equal(copied.chargedBytes,base.chargedBytes-old.length+duplicate.length+outer.originals.get('L').length-oldL.length);
+  const resultBytes=outer.originals.get(v.key+'-result.json'),before=v.store.numericBytes;await v.store.write(v.key+'-result-copy.json',resultBytes,196608,'observation');assert.equal(v.store.numericBytes,before+resultBytes.length);assert.equal(v.store.programBudget(v.key).reservedOuterBytes,458752-resultBytes.length);
+  }finally{await rm(v.directory,{recursive:true,force:true});}
+ });
+ test('R94 final receipt cancellation follows real private replay and closes the owned fixture before rejecting',async()=>{
+  const directory='/tmp/marker-program-r94-final-'+randomUUID(),id='mass-320-48000stereo-073',request={schema:'positive-program-acquisition-v1',invocationId:id,groupId:'canary-000',settings:{videoPreset:'480p30',audioBitrateKbps:320},train:{sourceRate:48000,samples:31*1600,frames:31,slots:[{index:0,start:1,end:2,sourceStart:1,visualFrame:0,family:'missing',params:{seed:42,kind:'silence'}}]}},runtime=await simulatedProgramRuntime({programRequest:request}),control=createAcquisitionDeadline(30000),primary=Error('SIMULATED_final_receipt_cancel');let closed,writes=0;
+  const check=control.check,run=control.run;let cancelled=false;const ownedControl={...control,check(){if(cancelled)throw primary;check();},run(operation){return run(async()=>{if(cancelled)throw primary;const value=await operation();if(cancelled)throw primary;return value;});}};
+  const close=runtime.owner.close;runtime.owner.close=async(...args)=>{closed=await close(...args);return closed;};
+--- /dev/null	2026-10-26 16:01:03.525711914 +0000
++++ /workspace/VRDex/tests/scripts/event-marker-program-authority.test.mjs	2026-10-26 20:28:17.808101071 +0000
+@@ -0,0 +1,106 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { readFile } from 'node:fs/promises';
++import { execFileSync } from 'node:child_process';
++import { createHash } from 'node:crypto';
++import * as contract from '../../scripts/event-marker-program-contract.mjs';
++import * as authority from '../../scripts/event-marker-authority-closure.mjs';
++import { validateProgramDependencies as validateDependencies } from '../../scripts/event-marker-program-guards.mjs';
++import { inspectAcquiredDependencies } from '../../scripts/event-marker-native-binding.mjs';
++import { makeNativeCandidate,makeNativeIntent,prepareCiCreate,verifyNativeOuterJoins,nativeArtifact } from '../../scripts/event-marker-native-controller.mjs';
++import { prepareEcsNativeLaunch } from '../../scripts/event-marker-native-ecs-controller.mjs';
++import { simulatedProgramRuntime } from '../fixtures/marker-positive-program.mjs';
++const validateProgramDependencies=d=>{const value=structuredClone(d);delete value.profile.objects;return validateDependencies(value);};
++const sha=b=>createHash('sha256').update(b).digest('hex');
++const rows=[
++  {
++    "key": "design",
++    "path": "docs/engineering/authority/program-source-design-rebaseline-v1.md",
++    "kind": "audit",
++    "id": "program-source-design-rebaseline-v1",
++    "bytes": 17953,
++    "sha256": "7463c898c2104ce5897830dafabb1e7b0ec88242f54bdfb45771ce6aa703c6c1"
++  },
++  {
++    "key": "guards",
++    "path": "docs/engineering/authority/program-source-guards-rebaseline-v1.md",
++    "kind": "audit",
++    "id": "program-source-guards-rebaseline-v1",
++    "bytes": 21732,
++    "sha256": "54130902985c22ddef115437afe033d4347e66901c17a211295b0e529ad7ef12"
++  },
++  {
++    "key": "pins",
++    "path": "docs/engineering/authority/program-native-pins-rebaseline-v1.md",
++    "kind": "audit",
++    "id": "program-native-pins-rebaseline-v1",
++    "bytes": 15483,
++    "sha256": "f5d04c68d66494a2aaa16056a06a15eea907f6254cafe4e567e97c2964e50417"
++  },
++  {
++    "key": "resultSizing",
++    "path": "tests/fixtures/program-result-sizing-r94-v1.txt",
++    "kind": "audit",
++    "id": "program-result-sizing-r94-v1",
++    "bytes": 41830,
++    "sha256": "0a7214700021178996f717487ce09b513fa8ebfcb70dca6a2bed863abb7a5c3c"
++  },
++  {
++    "key": "authorityRebaseline",
++    "path": "docs/engineering/authority/program-authority-rebaseline-v1.md",
++    "kind": "audit",
++    "id": "program-authority-rebaseline-v1",
++    "bytes": 16626,
++    "sha256": "42b3ad94be9a551b1f8a97e84ebff0ce65aaac4f6e367a323d1db2f442f014c5"
++  }
++];
++const refs=rows.map(({path,key,...ref})=>ref);
++const acquire=async()=>{const runtime=await simulatedProgramRuntime(),binding=await runtime.dependencies({registerImplementationAssets:files=>({kind:'implementationCode-v1',bytes:files.reduce((n,f)=>n+f.bytes,0),invocation:'simulated',recordKey:'simulated-program',event:'encode'})});return {runtime,deps:{...structuredClone(inspectAcquiredDependencies(binding)),profile:structuredClone(inspectAcquiredDependencies(binding).profile),nativeCatalog:JSON.parse(runtime.files.get('/app/workers/restream/native-binding/runtime/nativeCatalog.json'))}};};
++const mutations=[r=>({...r,id:'SIMULATED-generic-S'}),r=>({...r,kind:'runtime'}),r=>({...r,bytes:r.bytes-1}),r=>({...r,sha256:'0'.repeat(64)}),... [undefined,null,{},0,'', {start:0,length:0},{start:0,length:1}].map(range=>r=>({...r,range})),r=>({...r,range:{start:0,length:r.bytes}})];
++test('tracked originals match frozen five-field authority',async()=>{
++ assert.deepEqual(Object.keys(contract.PROGRAM_SOURCE_CONTRACT),rows.map(r=>r.key));
++ assert.deepEqual(contract.PROGRAM_AUTHORITY_REFS,rows.map(({path,...r})=>r));
++ assert(Object.isFrozen(contract.PROGRAM_SOURCE_CONTRACT));assert(Object.isFrozen(contract.PROGRAM_AUTHORITY_REFS));assert(contract.PROGRAM_AUTHORITY_REFS.every(Object.isFrozen));
++ for(const row of rows){execFileSync('git',['ls-files','--error-unmatch','--',row.path]);const body=await readFile(row.path);assert.equal(body.length,row.bytes);assert.equal(sha(body),row.sha256);assert.equal(contract.PROGRAM_SOURCE_CONTRACT[row.key],row.sha256);assert.notEqual(sha(Buffer.concat([body,Buffer.from('x')])),row.sha256);}
++});
++test('every mandatory reference requires whole identity',async()=>{
++ assert.equal(typeof authority.isFullAuthorityReference,'function');assert.equal(typeof authority.requireMandatoryAuthorityMembership,'function');
++ const {deps,runtime}=await acquire(),audits=JSON.parse(runtime.candidate.bytes).auditRefs;
++ authority.requireMandatoryAuthorityMembership(audits);
++ for(const ref of refs){assert(authority.isFullAuthorityReference(ref,ref));assert.equal(authority.isFullAuthorityReference({...ref,range:null},ref),false);
++  assert.throws(()=>authority.requireMandatoryAuthorityMembership(audits.filter(r=>r.id!==ref.id)));
++  for(const mutate of mutations){assert.equal(authority.isFullAuthorityReference(mutate(ref),ref),false);assert.throws(()=>authority.requireMandatoryAuthorityMembership(audits.map(r=>r.id===ref.id?mutate(r):r)));}
++  for(const guard of ['G0','G12'])for(const mutate of [()=>null,...mutations]){const d=structuredClone(deps),description=d.proof.descriptions.find(x=>x.guard===guard);description.sourceRefs=description.sourceRefs.flatMap(r=>r.id===ref.id?(mutate(r)?[mutate(r)]:[]):[r]);assert.throws(()=>validateProgramDependencies(d),guard+':'+ref.id);}
++  assert.throws(()=>authority.requireMandatoryAuthorityMembership([...audits,ref]));assert.throws(()=>authority.requireMandatoryAuthorityMembership([...audits,{...ref,bytes:ref.bytes+1}]));
++ }
++ for(let i=1;i<=11;i++){const d=structuredClone(deps),description=d.proof.descriptions[i];description.sourceRefs=description.sourceRefs.filter(r=>r.id!==refs[1].id);assert.throws(()=>validateProgramDependencies(d));}
++ const conflicting=structuredClone(deps);conflicting.proof.descriptions[0].sourceRefs.push({...refs[0],bytes:refs[0].bytes+1});assert.throws(()=>authority.requiredAuthorityReferences(conflicting),/conflict/);
++ const supplemented=structuredClone(deps);supplemented.proof.descriptions[0].sourceRefs.push({...refs[0],range:{start:0,length:1}});validateProgramDependencies(supplemented);authority.requireAuthorityMembership(supplemented,audits);
++ assert.throws(()=>authority.requireMandatoryAuthorityMembership([refs[0],refs[0]]));
++});
++test('old and mixed contracts fail all front doors',async()=>{
++ const {deps,runtime}=await acquire(),k=JSON.parse(runtime.candidate.bytes),intent=JSON.parse(runtime.intent),args={candidate:runtime.candidate,imageFacts:runtime.imageFacts,workload:intent.workload,semanticEnvironment:intent.semanticEnvironment,nonce:'SIMULATED',deadline:1,transport:{}};
++ for(const mutate of [c=>delete c.authorityRebaseline,c=>delete c.resultSizing,c=>{delete c.resultSizing;delete c.authorityRebaseline;},c=>c.design='aa6d1308c3ed17a2440004d06ef85a5d47aa47d09034b11fe8ddc01087f13c93',c=>c.extra='0'.repeat(64)]){const d=structuredClone(deps);mutate(d.proof.contract);assert.throws(()=>validateProgramDependencies(d));const bad=structuredClone(k);mutate(bad.sourceContract);const bytes=Buffer.from(JSON.stringify(bad)),candidate={bytes,ref:nativeArtifact('audit','K',bytes)};assert.throws(()=>makeNativeIntent({...args,candidate}));assert.throws(()=>prepareCiCreate({...args,candidate}));assert.throws(()=>prepareEcsNativeLaunch({...args,candidate,parameters:{}}));}
++ for(const ref of refs)for(const change of [a=>a.filter(r=>r.id!==ref.id),a=>a.map(r=>r.id===ref.id?{...r,range:null}:r)]){const auditRefs=change(k.auditRefs);assert.throws(()=>makeNativeCandidate({...k,auditRefs}));const bytes=Buffer.from(JSON.stringify({...k,auditRefs})),candidate={bytes,ref:nativeArtifact('audit','K',bytes)};assert.throws(()=>makeNativeIntent({...args,candidate}));assert.throws(()=>prepareCiCreate({...args,candidate}));assert.throws(()=>prepareEcsNativeLaunch({...args,candidate,parameters:{}}));}
++});
++test('required reviews cannot be optional attachments',async()=>{
++ const {deps,runtime}=await acquire(),audits=JSON.parse(runtime.candidate.bytes).auditRefs,required=authority.requiredAuthorityReferences(deps),reviewRefs=required.filter(r=>/^SIMULATED-(?:review|adoption|semantic)/.test(r.id));assert(reviewRefs.length>=3);
++ for(const ref of reviewRefs){assert.throws(()=>authority.requireAuthorityMembership(deps,audits.filter(r=>r.id!==ref.id)));assert(runtime.outerOriginals.has(ref.id));}
++ const reduced=structuredClone(deps);for(const d of reduced.proof.descriptions)d.sourceRefs=d.sourceRefs.filter(r=>!reviewRefs.some(x=>x.id===r.id));assert.notEqual(sha(Buffer.from(JSON.stringify(reduced.proof))),sha(Buffer.from(JSON.stringify(deps.proof))));assert.notEqual(sha(Buffer.from(JSON.stringify(reduced.proof))),deps.manifest.entries.find(r=>r.id==='proof').sha256);const body=Buffer.from(JSON.stringify(reduced.proof)),manifest=structuredClone(deps.manifest);Object.assign(manifest.entries.find(r=>r.id==='proof'),{bytes:body.length,sha256:sha(body)});const k=JSON.parse(runtime.candidate.bytes),changed=makeNativeCandidate({...k,runtimeManifestSHA:sha(Buffer.from(JSON.stringify(manifest)))});assert.deepEqual(JSON.parse(changed.bytes).auditRefs,k.auditRefs);assert.notEqual(changed.ref.sha256,runtime.candidate.ref.sha256);
++});
++test('membership retains repeated logical uses',async()=>{
++ const {deps,runtime}=await acquire(),repeatedId=refs[1].id,occurrences=deps.proof.descriptions.reduce((n,d)=>n+[d.auditRef,...d.sourceRefs].filter(r=>r.id===repeatedId).length,0);
++ assert.equal(authority.requiredAuthorityReferences(deps).filter(r=>r.id===repeatedId).length,occurrences);assert.equal(occurrences,13);authority.requireAuthorityMembership(deps,JSON.parse(runtime.candidate.bytes).auditRefs);
++});
++
++// Rehash all attacker-controlled K/I/C joins and reacquire the real private
++// dependency handle. This reaches catalog validation rather than failing an
++// incidental stale digest. No simulated launch or approval is made eligible.
++test('outer replay rejects malformed rehashed authority before source or audit reads',async()=>{
++ const runtime=await simulatedProgramRuntime(),originalK=JSON.parse(runtime.candidate.bytes),originalI=JSON.parse(runtime.intent),originalC=JSON.parse(runtime.prepared.context.bytes);
++ const changes=[...refs.flatMap(ref=>[k=>k.auditRefs=k.auditRefs.filter(r=>r.id!==ref.id),...mutations.filter(mutate=>{const changed=mutate(ref);return !Object.hasOwn(changed,'range')||changed.range!==undefined;}).map(mutate=>k=>k.auditRefs=k.auditRefs.map(r=>r.id===ref.id?mutate(r):r))]),k=>k.auditRefs.push(k.auditRefs[0]),k=>delete k.sourceContract.authorityRebaseline,k=>k.sourceContract.design='aa6d1308c3ed17a2440004d06ef85a5d47aa47d09034b11fe8ddc01087f13c93',k=>k.sourceContract.extra='0'.repeat(64)];
++ for(const change of changes){const k=structuredClone(originalK);change(k);const K=Buffer.from(JSON.stringify(k)),i={...originalI,candidateManifestSHA:sha(K),candidateManifestBytes:K.length},I=Buffer.from(JSON.stringify(i)),c={...originalC,intent:{utf8:I.toString(),bytes:I.length,sha256:sha(I)}},C=Buffer.from(JSON.stringify(c));runtime.files.set('/run/vrdex-native/context.json',C);
++  const binding=await runtime.dependencies({registerImplementationAssets:files=>({kind:'implementationCode-v1',bytes:files.reduce((n,f)=>n+f.bytes,0),invocation:'simulated',recordKey:'simulated-program',event:'encode'})}),documents=new Map([['K',K],['I',I],['C',C],['Q',runtime.prepared.launch.bytes],['L',Buffer.from('{}')],['image',runtime.outerOriginals.get('image')]]),reads=[];
++  await assert.rejects(verifyNativeOuterJoins({binding,outerResolver:async id=>{reads.push(id);return documents.get(id);}}),/native_authority_|candidate_join/);assert.deepEqual(reads,['K','I','C','Q','L','image']);
++ }
++});

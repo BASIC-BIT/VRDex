@@ -285,6 +285,7 @@ const workspace: WorkspaceData = {
   visibility: null,
   integration: null,
   connectionState: "active",
+  eventConnectorsEnabled: false,
   readableCategories: [
     "current_population",
     "population_history",

@@ -16,6 +16,9 @@ It manages shared application variables for the existing Vercel project:
 - `TEMPORAL_INPUT_HASH_KEY`
 - `TWITCH_CLIENT_ID` when both optional Twitch variables are set
 - `TWITCH_CLIENT_SECRET` when both optional Twitch variables are set
+- `GOOGLE_CONNECTOR_CLIENT_ID` and `GOOGLE_CONNECTOR_CLIENT_SECRET` when both optional Google connector variables are set
+- `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` when both optional Langfuse keys are set, plus `LANGFUSE_BASE_URL` when it is also set
+- `VRDEX_DISCORD_POSTER_TOKEN` when the optional `discord_poster_token` is set
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` when the matching Clerk pair is set, per environment
 
 The PostHog project key is client-exposed once deployed, but keep the value out of git so forks and self-hosted installs do not accidentally send analytics into the BASIC BIT project.
@@ -34,7 +37,11 @@ Store the result in the ignored `terraform.tfvars`. Rotate it by updating that
 value and applying this stack. Rotation invalidates outstanding idempotency
 comparisons but does not expose prior input.
 
+CI reads this key from the `TERRAFORM_TEMPORAL_INPUT_HASH_KEY` repository secret. Without that secret the Terraform workflow skips Plan and Apply for this stack and the job still reports success, so after changing this stack confirm that the Plan and Apply steps ran on main. The first apply ran on 2026-10-30; anything set by hand on Vercel before that stays outside this stack unless it is imported.
+
 The Twitch values are server-only credentials for an app owned by the VRDex operator. Rotate the secret in the Twitch developer console, update the ignored `terraform.tfvars`, and apply this stack. Omitting either Terraform input leaves both Twitch environment variables unmanaged and the UI simply omits provider-confirmed live state.
+
+The Google connector values are the Google Calendar connector's OAuth client, owned by the VRDex operator and also set on Convex. Bootstrap, redirect URIs, and rotation are in `docs/deployment/convex-environments.md`. The Terraform workflow supplies both from the `TERRAFORM_GOOGLE_CONNECTOR_CLIENT_ID` and `TERRAFORM_GOOGLE_CONNECTOR_CLIENT_SECRET` GitHub secrets, so a local apply must pass the same values or a run that omits them removes both from Vercel. Omitting either input leaves both unmanaged, and connecting a Google calendar fails.
 
 The Clerk values are the app's authentication credentials, and unlike every other variable here they are **not** one value applied to each target: Clerk instances are per-environment, so `clerk_production_*` carries the live pair and `clerk_preview_*` carries the development instance's test pair, which is reused for preview and the `staging` custom environment. `apps/web/scripts/check-vercel-env.mjs` fails a production build that has no keys or a non-`pk_live_` publishable key, so a wrong-tier value fails loudly rather than authenticating against the wrong instance.
 
@@ -47,7 +54,7 @@ Profile asset storage variables are owned by `infra/terraform/profile-assets`, n
 1. Copy `terraform.tfvars.example` to `terraform.tfvars`.
 2. Set `posthog_public_key` from the PostHog project settings for project `447783` or from the sensitive `infra/terraform/posthog` output `posthog_project_api_token`.
 3. Generate and set an independent `temporal_input_hash_key` using the CSPRNG command above.
-4. Optionally set `twitch_client_id` and `twitch_client_secret` from the operator-owned Twitch application.
+4. Optionally set `twitch_client_id` and `twitch_client_secret` from the operator-owned Twitch application. Optionally set `google_connector_client_id` and `google_connector_client_secret` from the Google Calendar connector's OAuth client. Optionally set `langfuse_public_key` and `langfuse_secret_key` (and `langfuse_base_url` for self-hosted Langfuse) to enable event intake tracing. Optionally set `discord_poster_token` for Discord intake posters. Ownership and rotation are in `docs/deployment/convex-environments.md`.
 5. Optionally set the Clerk pairs from each instance's API keys page. Import the existing Vercel values first; see "Existing Variables".
 6. If managing the Vercel `staging` custom environment, add its custom environment ID to `staging_custom_environment_ids`.
 7. Export a Vercel token for Terraform: `VERCEL_API_TOKEN=<token>`. If reusing the GitHub secret value locally, set `VERCEL_API_TOKEN` to the same value as `VERCEL_TOKEN`.

@@ -22,12 +22,30 @@ origin. It accepts explicit image bytes, never a path or remote source URL, and
 refuses redirects or an origin mismatch.
 
 `OPENAI_API_KEY`, `VRDEX_EVENT_INTAKE_AI_ENABLED`, and `VRDEX_EVENT_INTAKE_MODEL`
-settings belong to the web server; spam settings belong to Convex. Both model
+settings belong to the web server, and to Convex for Discord intake runs; spam
+settings belong to Convex. Both model
 paths remain off by default. The private cleanup worker needs its existing
 `VRDEX_MEDIA_CLEANUP_TOKEN` on both ends. Exact defaults, ownership, retention,
 and secret recreation are documented in
 [event intake sources](../backend/event-intake-sources.md). Self-hosters can
 save, edit, and publish manually without model credentials or poster storage.
+
+Event intake tracing uses three Langfuse variables:
+
+- `LANGFUSE_PUBLIC_KEY`
+- `LANGFUSE_SECRET_KEY` (secret)
+- `LANGFUSE_BASE_URL` (optional, defaults to Langfuse Cloud)
+
+Scope: the Convex deployment (set with `convex env set`) and the web app
+(Vercel Terraform variables `langfuse_public_key`, `langfuse_secret_key`, and
+`langfuse_base_url` in `infra/terraform/vercel`). Owner: BASIC. Rotation: create
+a new key pair in the Langfuse project settings, set it on both, then revoke the
+old pair. Missing keys disable tracing and never fail an extraction.
+
+Each extraction run that reaches the model (extraction enabled and
+`OPENAI_API_KEY` set) also records an `event_intake_run` event. It reaches PostHog
+through `productAnalyticsOutbox` with the existing `POSTHOG_PROJECT_API_KEY`;
+no new PostHog variable is needed.
 
 No hosted write, deployment, migration, model call, or production storage test
 is implied by the local adapter tests.
@@ -54,10 +72,11 @@ is implied by the local adapter tests.
 5. Keep `VRDEX_EVENT_INTAKE_AI_ENABLED=false` and `VRDEX_EVENT_SPAM_MODE=off` until
    a consented provider evaluation has measured quality, false matches/blocks,
    latency, tokens and cost. Set blocking threshold/baseline only after review.
-   Extraction has four turns, three read-only tool calls, 6,000 output tokens per
+   Extraction has six turns, five read-only tool calls, 6,000 output tokens per
    turn and a 20-second timeout per provider request. Classification caps output
    at 300 tokens. The shared actor allowance is 20 model attempts per rolling day.
-   These caps bound calls; `costUsd: null` means cost has not been measured.
+   These caps bound calls. Cost comes from the agent's model price table and is
+   `null` only for unpriced models.
 
 For incident response, disable extraction and/or set spam mode off independently;
 manual publication remains available under deterministic preflight. Do not turn
@@ -67,6 +86,243 @@ existing date-only rows. Source retention/cleanup must continue during model
 shutdown. None of these deployment steps was executed by the local checkpoint.
 See [source controls](../backend/event-intake-sources.md) and
 [verification evidence](../testing/event-intake-checkpoint.md).
+
+## Event connectors
+
+`VRDEX_EVENT_CONNECTORS_ENABLED` turns event connectors on when set to `true`.
+Scope: the Convex deployment environment only. Default: unset, which means off.
+Owner: BASIC. It gates the Integrations page, connector creation,
+`enqueueEventSync`, and sync job execution. Turning it off leaves pending jobs in
+place; each closes as `connectors_disabled` when its run claims it. Each kind
+also needs its own sync handler: Google Calendar registers one behind
+`VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED` (below). A connector of a kind with no
+handler fails every export job and fires the connector failure alarm.
+
+`VRDEX_CONNECTOR_VRCHAT_CALENDAR_ENABLED` turns the VRChat calendar connector
+kind on when set to `true`. Scope: the Convex deployment environment only.
+Default: unset, which means off. Owner: BASIC. Non-secret; rotation does not
+apply. While it is off, the Integrations page hides the Connect control and the
+group's Calendar feature toggle (the stored feature is untouched), connector
+creation throws `CONNECTOR_UNAVAILABLE`, polls are not enqueued, VRChat calendar
+sync jobs fail with `CONNECTOR_KIND_DISABLED` and enqueue no club operations, and
+operations already queued are rejected with `connector_inactive`. Enable it only after
+the collector release-readiness check shows a collector running the worker that
+executes calendar operations.
+
+`VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` turns on the Discord event board when
+set to `true`: Discord board jobs, the daily board refresh, and the board
+Connect button. Scope: the Convex deployment environment only. Default: unset,
+which means off; board jobs then fail with `CONNECTOR_KIND_DISABLED`. It also
+needs `VRDEX_EVENT_CONNECTORS_ENABLED`, `DISCORD_BOT_TOKEN`, and `SITE_URL`.
+Owner: the deployment operator (BASIC). Not a secret; recreate it with
+`npx convex env set`, and roll back by setting it to `false`. Pause or
+disconnect existing boards first: while it is `false`, their queued jobs fail
+toward the five-failure connector alarm.
+
+Connector OAuth tokens are stored encrypted with AES-256-GCM in the
+`v1:iv:tag:ciphertext` format, keyed by `VRDEX_CONNECTOR_TOKEN_KEY` (secret).
+
+Scope: the Convex deployment environment only; never set it on the web app.
+Owner: the deployment operator (BASIC). Value: 32 random bytes, base64 encoded,
+generated with `openssl rand -base64 32` and set with
+`npx convex env set VRDEX_CONNECTOR_TOKEN_KEY`. The value lives only in the
+Convex environment, never in git or Terraform state.
+
+Rotation: replacing the value makes every stored connector token unreadable, so
+each OAuth connector must be disconnected and connected again from the
+Integrations page; Reconnect only shows on a connector in `needs_reauth`, and
+these stay `active`. The same key signs Google Calendar watch channels, so
+existing channels stop authenticating until the new connection opens one. The
+`v1:` prefix leaves room for a dual-key rotation later.
+
+### Google Calendar connector
+
+`VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED` turns the Google Calendar connector on
+when set to `true`, together with `VRDEX_EVENT_CONNECTORS_ENABLED`. Scope: the
+Convex deployment environment only. Default: unset, which means off. Owner:
+BASIC. Pause or disconnect every Google Calendar connector before turning it
+off: with live connectors their jobs fail and the connector failure alarm fires.
+
+Crons, all inert with either flag off: a 15-minute poll, a daily watch renewal,
+and a daily sweep. The sweep queues a `reconcile` for each active importing
+connector, which moves the 60-day recurring import window forward, and marks
+`revoked` any Google credential over a day old with no live connector, which is
+what an abandoned Connect leaves. Disconnecting the last connector on a
+credential revokes it the same way. Revoking is local: the grant stays live at
+Google until the organiser removes it there.
+
+`GOOGLE_CONNECTOR_CLIENT_ID` and `GOOGLE_CONNECTOR_CLIENT_SECRET` (secret) are
+VRDex's Google OAuth client. Scope: both the Convex deployment (token refresh)
+and the web app (the code exchange in `/api/connectors/google/callback`). Owner:
+BASIC, who owns the OAuth client in Google Cloud. Set them on Convex with
+`npx convex env set`, on both the production and the shared development
+deployment, and on Vercel through the `TERRAFORM_GOOGLE_CONNECTOR_CLIENT_ID`
+and `TERRAFORM_GOOGLE_CONNECTOR_CLIENT_SECRET` GitHub secrets, which the
+Terraform workflow passes to `infra/terraform/vercel`.
+
+Rotation: add a new client secret to the OAuth client in the Google Cloud
+console, set it on Convex, update the GitHub secret and run the Terraform
+workflow for the `vercel` stack, redeploy the web app, then delete the old
+secret in the console. The client ID does not change, so stored
+refresh tokens keep working.
+
+The client lives in the `vrdex-production` Google Cloud project, under the
+`basicbit.net` organization and the `basic@basicbit.net` identity. It is
+`VRDex Calendar Connector`, separate from the project's existing
+`VRDex Production` client, and was created on 2026-10-30. Its ID and secret are
+set on both Convex deployments, in GitHub, and on Vercel through the `vercel`
+stack. The flag is on for both Convex deployments as of 2026-10-30. Google
+verification is not done, and nothing has run against real Google yet.
+
+The project's consent screen is External and already published, so no test users
+are needed and Testing's seven-day refresh token expiry does not apply. Until
+Google verifies `calendar.events`, a sensitive scope, connecting shows an
+unverified app warning and at most 100 users can ever grant it across the
+project's lifetime. That cap cannot be reset, so keep connecting limited to
+BASIC's own community until verification passes. Verification needs the home page
+and privacy policy links on the Branding page, a scope justification on Data
+Access, and a demo video recorded against staging.
+
+Bootstrap, once per Google Cloud project:
+
+1. Create or choose a Google Cloud project and enable the Google Calendar API.
+2. Configure the OAuth consent screen as External and declare exactly two scopes
+   on Data Access, `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
+   and `https://www.googleapis.com/auth/calendar.events`.
+3. Create an OAuth client of type Web application and register one authorized
+   redirect URI per web origin: the origin followed by
+   `/api/connectors/google/callback`. Production is
+   `https://vrdex.net/api/connectors/google/callback`, staging is
+   `https://staging.vrdex.net/api/connectors/google/callback`, and local
+   development is `http://localhost:3000/api/connectors/google/callback`.
+   Vercel preview URLs are not registered, so connecting fails there.
+4. Set the client ID and secret on Convex and in GitHub, as above, then set
+   `VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED`.
+
+### Ops alerts
+
+`VRDEX_OPS_ALERT_EMAIL` is the recipient of `[VRDex ops]` alert emails.
+Scope: the Convex deployment environment only. Optional; default
+`basic@basicbit.net`. Owner: BASIC. Change it with
+`npx convex env set VRDEX_OPS_ALERT_EMAIL`; there is no rotation beyond
+replacing the address.
+
+Each alert key sends at most one email per six hours while it stays failing,
+and one `Resolved` email when it recovers. A failure after a recovery alerts
+again at once. Current alarms:
+
+- `connector-failures:` plus the connector ID: a connector's fifth and every
+  later consecutive finally failed sync job, including jobs failed by recovery
+  as `lease_expired` or `stalled`, so a long streak re-alerts every six hours.
+  Retries, skips, and `superseded` closes do not count. A VRChat calendar job
+  waiting more than six hours on one operation also alerts under this key, at
+  once. The next completed job for that connector, or removing the connector,
+  resolves it, except that a `bidirectional` connector's `import_poll`,
+  `import_item`, and `reconcile` jobs neither clear the count nor resolve the
+  alert: a successful read says nothing about writes.
+- `discord-intake:` plus the connector ID: a connector's three most recently
+  started intake runs all failed. The email names the connector and community
+  IDs and the failure codes only. The next finished run, or removing or
+  disconnecting the connector, resolves it.
+- `discord-intake-posters`: the poster bridge to the web app failed. See
+  [Discord intake](#discord-intake).
+- `product-analytics-delivery`: a product analytics outbox row stops retrying
+  after five failed deliveries to PostHog. The email names the row ID, event
+  name, attempt count, and creation time only. The next delivered row resolves
+  it.
+- `series_materialize_failed:` plus the series ID: the daily
+  `materialize event series` cron (06:20 UTC) failed to create a recurring
+  series' upcoming nights.
+  The body names the series ID and the error. Each series runs on its own, so
+  the others still materialise. The next successful run for that series
+  resolves it.
+- `series_materialize_failed:all`: that cron could not list the active series,
+  so no series ran. The body names the error. The next run that lists them
+  resolves it.
+- `google_reauth:` plus the credential ID: Google refused a credential's grant,
+  so its connectors went to `needs_reauth`. The email names the connector and
+  community profile IDs. Reconnecting or removing the last parked connector on
+  that credential resolves it.
+- `google_watch_renewal_stale:` plus the connector ID: an active importing
+  connector's Google watch has expired or has gone seven days without renewing.
+  The email names the connector and community profile IDs, the watch times, and
+  the last error code. The daily renewal resolves it once the connector is no
+  longer stale.
+
+Gateway alarms in later plans use the same path.
+
+Alerts send through the SES settings in
+[Transactional Email Environment](#transactional-email-environment):
+`AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, and the existing SES credential chain.
+Without them the `internal.opsAlertEmail.send` action throws, so a lost alert
+shows as a failed function in the Convex logs.
+
+## Discord intake
+
+`VRDEX_DISCORD_INTAKE_ENABLED` turns Discord announcement intake on when set to
+`true`. Scope: the Convex deployment environment only. Default: unset, which
+means off. Owner: BASIC. It gates the `/discord-intake/*` HTTP routes, which
+answer 503 while it is off, intake runs, and the Integrations page's Discord
+connect flow, which is hidden and refuses while it is off.
+
+`DISCORD_INTAKE_SECRET` is the bearer token the Discord gateway presents on
+every `/discord-intake/*` request (secret). Scope: the Convex deployment
+environment and the gateway. Owner: BASIC. Value: at least 32 random bytes,
+generated with `openssl rand -base64 32`, set with
+`npx convex env set DISCORD_INTAKE_SECRET` and stored in the gateway's Secrets
+Manager entry. With the flag on and no secret set, every route answers 401.
+
+Rotation: set the new value on Convex and on the gateway in one window. Relays
+fail with 401 between the two writes, and the gateway does not retry those
+posts.
+
+`VRDEX_DISCORD_POSTER_TOKEN` is the bearer token intake runs present to the web
+app's internal poster bridge, `POST /api/internal/discord-intake/poster`, which
+copies Discord attachments into private poster storage (secret). Only the web
+server holds the bucket role. Scope: the Convex deployment environment and the
+web app (Vercel Terraform variable `discord_poster_token` in
+`infra/terraform/vercel`). Owner: BASIC. Value: at least 32 random bytes,
+generated with `openssl rand -base64 32`. Unset on either side, runs store no
+posters and continue with the post text. A run that has posters and stores none
+emails the `discord-intake-posters` ops alert, naming the failure code; the next
+run that stores one resolves it. Rotation: write the new value to the web app
+first, then to Convex; runs in between store no posters, continue text-only, and
+can raise that alert.
+
+`DISCORD_APPLICATION_ID` is the application ID of the Discord gateway's bot; the
+Integrations page builds the bot invite from it. Not secret. Scope: the Convex
+deployment environment. Owner: BASIC. Set it with
+`npx convex env set DISCORD_APPLICATION_ID`; it changes only when the gateway
+moves to another Discord application.
+
+`DISCORD_BOT_TOKEN` on Convex must be the token of that same gateway application.
+The Integrations page lists channels and proves a channel's guild as this bot,
+so a token from another application reports the gateway's bot as missing from
+every server. Rotate it with the gateway's token, in one window. These calls
+always go to `discord.com`: `DISCORD_API_BASE_URL` does not apply to them.
+
+Staging's `DISCORD_BOT_TOKEN` is the hosted adapter stub's token (see
+[Hosted E2E Helpers](#hosted-e2e-helpers)), which real Discord rejects, and the
+stub cannot stand in here. The site channel listing and connect do not work
+against the stub, so `VRDEX_DISCORD_INTAKE_ENABLED` stays off on staging until a
+real staging bot exists.
+
+Runs reuse `SITE_URL` as the poster bridge origin. They also read
+`OPENAI_API_KEY`, `VRDEX_EVENT_INTAKE_AI_ENABLED`, and
+`VRDEX_EVENT_INTAKE_MODEL` from the Convex deployment, so set those on Convex as
+well as the web app before turning Discord intake on, plus the Langfuse
+variables above when runs should be traced. With extraction off, every run
+fails with `extraction_unavailable`.
+
+## Recurring events
+
+`VRDEX_RECURRING_EVENTS_ENABLED` turns recurring events on when set to `true`.
+Scope: the Convex deployment environment, all deployments. Default: unset,
+which means off. Owner: BASIC. It is not a secret, so there is nothing to
+rotate; change it with `npx convex env set VRDEX_RECURRING_EVENTS_ENABLED true`.
+It gates creating and editing series and the daily `materialize event series`
+cron. Turning it off stops new series and stops the cron. Nights already
+created stay in place as events and keep their `seriesId` and series link.
 
 ## Locked Decision
 
@@ -389,7 +645,7 @@ Development/staging Convex env names:
 - `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord credentials for the purpose-scoped community-verification round-trip. These are **not** sign-in credentials — Clerk holds those — but `convex/discordVerification.ts` still requires them
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`
 - `DISCORD_OAUTH_AUTHORIZE_URL`: optional consent-screen override, for pointing the OAuth round-trip at a stub instead of Discord. Defaults to `https://discord.com/oauth2/authorize`. The browser follows it carrying the `state` that authorizes the round-trip, so it must be https unless it is loopback
-- `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment
+- `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment. It is not a real bot token, so the site Discord connect flow does not work on staging; see [Discord intake](#discord-intake). The Discord board connector also uses it from Convex in any deployment where `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` is on
 - `VRCHAT_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCLINKING_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching the hosted app environment
@@ -404,6 +660,7 @@ Production Convex auth env names:
 - `CLERK_JWT_ISSUER_DOMAIN=https://<clerk-frontend-api>`: production Clerk Frontend API origin, read by `convex/auth.config.ts`. Must match the issuer of the `convex` JWT template on the production Clerk instance
 - `SITE_URL=https://vrdex.net`: builds the Discord verification callback URL
 - `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: production Discord credentials for the purpose-scoped community-verification round-trip. Still required by `convex/discordVerification.ts`; they are no longer sign-in credentials
+- `DISCORD_BOT_TOKEN` (secret): bot token of the production Discord application, read by `convex/_discordRest.ts` for the Discord board connector and by `convex/profileClaims.ts` for the bot claim path. Needed once `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` is on. Scope: the production Convex environment. Owner: BASIC. Rotate or recreate it by resetting the token in the Discord Developer Portal and setting the new value with `npx convex env set DISCORD_BOT_TOKEN`. Resetting the token revokes the old value for every service that uses it, so update each holder
 
 Retired when Clerk replaced Convex Auth, and safe to delete from every Convex
 deployment once the cutover is verified:

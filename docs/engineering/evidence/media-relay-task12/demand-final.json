@@ -1,0 +1,14 @@
+{
+  "startedAt": "2026-10-29T02:36:05.923Z",
+  "durationMs": 186949,
+  "polls": 93,
+  "cachedSegmentHits": 641,
+  "idleStoppedAfterMs": 174610,
+  "physicalPhone": false,
+  "finalConnections": 0,
+  "epochs": [
+    1
+  ],
+  "demandWrites": 19,
+  "provenance": "Final shared playable-readiness policy; page JS suspended, separate HTTP demand; cached segments and no-store manifests."
+}

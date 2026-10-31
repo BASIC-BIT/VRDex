@@ -1,0 +1,19 @@
+# SDK inspection checkpoint retention review
+
+2026-10-27. Independent review of these frozen subjects:
+
+| Subject | SHA256 |
+| --- | --- |
+| README.md | `fb189ff21d59cff5197e09f1b85b86fce980ba97cc6de39e868206a74fc202b5` |
+| retention.json | `72892947b0657f3a38d2ef1742e0aea2f5b6dcda9074f124b683b816a928a8c5` |
+| sdk-inspection-checkpoint.zip | `ae0e7303b89970f4e8dd220ee1f4b457aa554e7ccde3fefd2e25eb0b91d7f913` |
+
+**SPEC: PASS for retention. QUALITY: PASS for retention.** No blocking retention finding. This verdict covers the checkpoint and its claims, not SDK compatibility or permission to launch its retained packets.
+
+Independently verified the ZIP's 554,036 bytes, exactly 210 unique members and exact agreement with retention.json's allowlist. All 210 member lengths and SHA256 values match; no absolute/traversal member names or symlinks were found. Expanded members total 1,674,952 bytes. The bounded scope is 89 reviewed-helper entries (85 content subjects plus four closing records), 80 preserved originals, 10 preparation-negative files, 21 runtime-negative files, five review files and five design/assessment files. This is an explicit diagnostic checkpoint, not a workspace snapshot. The next capture amendment/code is absent; the retained verifier still has original SHA256 `e5025cdf3e9c9388a1fc9bc8cca5fd878e89aa87b3a7d6b8ec258e4112ddc854`.
+
+Independent private-key, AWS access-key, GitHub-token and signed-URL pattern screens found no matches. No credential/environment-file member paths were present; actual project/build environment-variable arrays are empty, and parsed JSON contained no populated credential-value candidates in the screened credential fields. Both base64 fixture archives were examined as data: each has 37 tiny generated source files plus metadata; all source files begin with `# generated source only`, totaling 1,874 source bytes. Their decoded contents also pass the four-pattern screen. Fixture packets, embedded fixture material and local test evidence remain labelled; no real SDK source archive is present. This is bounded screening evidence, not a universal secret-detection guarantee.
+
+README claims agree with retained evidence: final generated test output records 53 tests and OK, and the scoped follow-up review resolves its earlier findings. These tests were not rerun. The preparation namespace closed without a project/build; the runtime namespace emitted `model_shape` with zero archive bytes. The original `stream_observation` rejection and later 13,592 ms metadata-lag assessment remain distinct. Both cleanup originals contain two post-cleanup absence censuses. The runtime negative receipt also preserves the cleanup intent-ledger sequencing gap rather than concealing it. The $0.005 figure is explicitly an estimate, not an invoice. No source-possession, SDK-support, image/native, capacity or production-admission success is claimed.
+
+No source edits, tests, provider/network calls, SDK/native/corpus reads or subagents were used. Only this review file was written. Root may use this scoped verdict for the already-authorized PR checkpoint publication; no new approval requirement is introduced.

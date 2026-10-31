@@ -9,7 +9,8 @@ Website and MCP callers must never supply actor identity in request JSON.
 `completePosterUpload`, `readPoster`, and `selectPosterArtwork`. The authority
 callback resolves the current signed-in actor or current contribution-scoped
 OAuth credential on every operation. The short-lived MCP bridge uses the same
-presigned POST as the website. No remote source URL fetch is supported.
+presigned POST as the website. Website and MCP callers cannot supply a remote
+source URL; only the Discord bridge below fetches one, from the Discord CDN.
 
 Uploads declare SHA-256, MIME and exact bytes before signing. Accept PNG, JPEG or
 WebP, at most 12 MiB. Completion checks MIME, digest, byte count and full decoding
@@ -18,8 +19,17 @@ with the existing profile image validator. Its 8192-pixel source dimension and
 key. Digest-checked bytes are copied to a distinct immutable key before completion.
 The signer constrains exact bytes, MIME, and private cache controls. The source
 record reserves both copies before signing, with 20 active sources and 120 MiB
-of reserved private bytes per actor. Failed signing/completion leaves a cleanup
-obligation. Expired transfer capabilities cannot complete.
+of reserved private bytes per actor. Sources on a connector's draft neither count
+toward nor are capped by that quota; the connector's daily run cap bounds them.
+Failed signing/completion leaves a cleanup obligation. Expired transfer
+capabilities cannot complete.
+
+Discord intake runs reach the bucket through the token-gated web route
+`/api/internal/discord-intake/poster`. Its store step downloads a Discord CDN
+attachment and follows the same upload, freeze, and validate path. Its read step
+writes the prepared poster to a new key under `profile-assets/quarantine/`, which
+the bucket lifecycle expires after two days, and returns a 60-second signed GET
+link, because a prepared poster can exceed the web host's 4.5 MB response cap.
 
 Keys live under `profile-assets/event-posters/`, within the existing Terraform
 S3 role prefix. S3 block-public-access remains required. Private reads require the
@@ -140,19 +150,26 @@ deletion even after an earlier sweep confirmed it. Published artwork is unaffect
 
 ## Extraction and classification
 
+The agent lives in `packages/event-intake-agent` (`@vrdex/event-intake-agent`).
 `createEventIntakeExtractor` binds authenticated draft/source admission and public
-search callbacks; `extractEventIntake` returns only `{event,lineup,evidence,questions}`.
-The strict nullable candidate schema is shared in `packages/api-contracts`.
-Nothing in this loop writes confirmed draft fields or publishes an event.
+search callbacks; `extractEventIntake` returns only
+`{event,lineup,evidence,questions,decision}`. `decision` is `new`, `update` with
+an event slug, or `not_event` with a reason; web and MCP runs pass no run
+context and always get `new`. The strict nullable candidate schema is shared in
+`packages/api-contracts`. Nothing in this loop writes confirmed draft fields or
+publishes an event.
 
 The Responses loop sends optional source text and one authorized, sanitized
 inline poster in one discovery run. Its prepared image data URL has a 20 MB
 limit before the provider call. It uses `store:false`, no
 provider file upload, strict structured output, no mutation tools, at most
-three tool calls and four model turns. The callbacks return at most five public
+five tool calls and six model turns. The callbacks return at most five public
 people or communities, or zero/one/multiple
-UTC instants. Candidate slugs must appear in the corresponding actual lookup
-results. Evidence records its text, poster, lookup or calculation origin.
+UTC instants. The read-only `list_events` and `get_event` tools are offered only
+with run context. Candidate slugs must appear in the corresponding actual lookup
+results, and an `update` slug only from `list_events`; any other update falls
+back to `new` with a question. Evidence records its text, poster, lookup,
+calculation or connector origin.
 Tentative values, up to 40 private evidence entries, and unresolved questions
 survive draft resume without changing accepted fields. Editing source text or
 the poster clears those discovery results while retaining accepted fields.
@@ -166,6 +183,9 @@ Refusals, incomplete/malformed output, provider errors and absent credentials
 return an empty candidate with a reason code. Manual editing and publication
 remain available. Extraction and classification share an actor limit of 20 model
 attempts per rolling day. Classifier quota exhaustion behaves as an outage.
+Extraction runs report to sinks instead of a console metric: Langfuse traces
+each model turn when its keys are set, and an `event_intake_run` product
+analytics event records the outcome, turns, tool calls, tokens and cost.
 
 Publication classification defaults to `off`. `shadow` records sample/outage
 reports without blocking. `block_high_confidence` additionally requires an explicit
@@ -196,6 +216,7 @@ No provider changes or deployment were made for Task 6.
 | `OPENAI_API_KEY` | Web extraction; Convex classification only when enabled | Unset |
 | `VRDEX_EVENT_INTAKE_AI_ENABLED` | Web | `false` |
 | `VRDEX_EVENT_INTAKE_MODEL` | Web | `gpt-5.6-luna` |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` | Web and Convex, optional tracing | Unset (Langfuse Cloud host) |
 | `VRDEX_EVENT_SPAM_MODE` | Convex | `off` |
 | `VRDEX_EVENT_SPAM_MODEL` | Convex | `gpt-5.6-luna` |
 | `VRDEX_EVENT_SPAM_BLOCK_THRESHOLD` | Convex | Unset |

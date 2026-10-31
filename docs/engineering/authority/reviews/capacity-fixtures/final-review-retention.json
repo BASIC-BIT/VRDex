@@ -1,0 +1,15 @@
+{
+  "schema": "capacity-fixture-final-review-v1",
+  "sourceHead": "032307dd76ed56a977c7b6458fc5df8587f1f775",
+  "review": {
+    "path": "docs/engineering/authority/reviews/capacity-unit-test-seam-final-source-review.md",
+    "bytes": 18583,
+    "sha256": "cf43f9033818e16d4a7ada387770cc50808bf3cbce6635c862baa6e8e8728ba4"
+  },
+  "subjectsArchive": {
+    "path": "docs/engineering/authority/reviews/capacity-fixtures/final-review-subjects.zip",
+    "bytes": 196659,
+    "sha256": "4c30cd14572b83a36736f3c476d1b3e642f7d11890713f53df1606c9a7daa41a"
+  },
+  "scope": "Final source/documentation review only; actual production admission and original native/capacity gates remain open."
+}

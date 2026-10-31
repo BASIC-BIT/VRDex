@@ -1,0 +1,21 @@
+# Response guard checkpoint retention review
+
+2026-10-27. **SPEC: PASS. QUALITY: PASS for source-evidence retention.** No blocking retention finding. This is not a new implementation, SDK-support or launch verdict.
+
+| Frozen subject | SHA256 |
+| --- | --- |
+| reviewed-source.zip | `f603eb520c2ad502e972228d9ebf74b4e0aa4bb4c238745f529fd7d25c8a749d` |
+| subjects.json | `7d3ec56623bc10aa2a2a0323411deac8c3b166772d2b36f54fb1bfeeff715802` |
+| retention.json | `988c63e7b6fc3819ac221fdaa14d4ecba7e0b1df6835c913c1221524cec0c1c9` |
+| README.md | `ceb75adca5d78304fae3005e16250ff552d42cd2ee8ce779b0703a232d3e98d9` |
+| build.py, inspected but not executed | `8d49b9198ca01774545ac489ca58169fcfdd0a5faf3e00829056591b85fc6b3a` |
+
+Independently verified866,942 ZIP bytes,193 unique members and exact agreement with the192-subject allowlist plus its embedded manifest. Every member size/hash matches; embedded/external subjects.json are identical and match retention.json. Expanded total is2,583,319 bytes. No traversal/absolute member paths or symlinks were found. The builder selects only the two named guard freeze trees and specific reports/reviews/designs; the frozen archive is not a broad workspace snapshot. Regeneration would require verifying its new exact inventory/hash again.
+
+Both primary manifests validate completely:91 initial references and93 corrected references, including phase-correct `../task-1-report.md` targets. Initial report hash is `8bbe1de5788638a3eb93c3a69bdc5dfb138725f8dbe83b6149b2f12a1b64e424`; corrected report hash is `00db13cc60f7c4ae02d55c7ca2d2e95cb00f19c4663f479185b4e237ac9aa858`. The copied historical manifest remains byte-identical to the original. Another255 preservation/source-inventory references match already-verified member hashes and sizes.
+
+Current transport is49,188 bytes, hash `9beb963400c72a4f6e8b91c1573bfba609c3acb1aba215428c190fc1234622e5`; final scoped review hash is `44a34a7a1de5f4e5576fd4258ccb3c7e86093897b54b530693aec0993fa64626`. Retained logs support82 initial full-suite tests, three failing runner regressions, and23 passing covering tests after correction. README accurately avoids a full85-test claim and keeps unsupported_sdk_path and future runtime/accounting gates explicit. No test was rerun.
+
+Six nested fixture ZIPs contain only owned transport source, generated input.json and buildspec.yml; no captured SDK source or native payload is included. Bounded credential/private-key/token/signed-URL screening of retained bytes and decoded fixture members found zero hits. No credential/environment file paths or actual SDK capture paths were present. This is bounded screening, not a universal secret-detection claim. Private managed SDK captures remain outside this public checkpoint.
+
+Separate review accounting conservatively charges30MiB within the new32MiB read allowance; report/meter disk remains below4MiB. This source-retention work is outside qualification/provider C accounting. Only review and meter were written. No source edits, tests, builder execution, provider/network calls, SDK execution/import, native/corpus reads or subagents occurred. Root can proceed with the authorized documentation checks and checkpoint publication.

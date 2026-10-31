@@ -28,16 +28,20 @@ export const beginPosterUpload = internalMutation({
     const declaration = EventPosterDeclarationSchema.parse({ contentType: args.contentType, byteLength: args.byteLength, sha256: args.sha256 });
     const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, args.draftId);
     if (draft.publishedReceiptId) throw new Error("DRAFT_PUBLISHED");
-    const active = (await Promise.all((["pending", "ready", "deleting"] as const).map(state => ctx.db.query("eventPosterSources").withIndex("by_actor_state", q => q.eq("actorUserId", args.actorUserId).eq("state", state)).take(101)))).flat();
     const reservedBytes = declaration.byteLength * 2;
-    if (active.length >= 20 || active.reduce((sum, row) => sum + row.reservedBytes, 0) + reservedBytes > 120 * 1024 * 1024) throw new Error("POSTER_QUOTA");
+    // Connector posters neither count toward nor are capped by the authority's own quota; the connector's daily run cap bounds them.
+    if (!draft.connectorId) {
+      const active = (await Promise.all((["pending", "ready", "deleting"] as const).map(state => ctx.db.query("eventPosterSources").withIndex("by_actor_connector_state", q => q.eq("actorUserId", args.actorUserId).eq("connectorId", undefined).eq("state", state)).take(101)))).flat();
+      if (active.length >= 20 || active.reduce((sum, row) => sum + row.reservedBytes, 0) + reservedBytes > 120 * 1024 * 1024) throw new Error("POSTER_QUOTA");
+    }
     const now = Date.now();
     const token = crypto.randomUUID();
     const storageKey = `profile-assets/event-posters/private/${token}/source`;
     const uploadStorageKey = `profile-assets/event-posters/private/${token}/upload`;
     const uploadExpiresAt = now + 10 * 60_000;
     const posterAssetId = await ctx.db.insert("eventPosterSources", { purpose: "event_poster", actorUserId: args.actorUserId, draftId: args.draftId, ...declaration,
-      reservedBytes, storageKey, uploadStorageKey, state: "pending", uploadedAt: now, lastActivityAt: draft.updatedAt, expiresAt: uploadExpiresAt + DAY, uploadExpiresAt });
+      reservedBytes, storageKey, uploadStorageKey, state: "pending", uploadedAt: now, lastActivityAt: draft.updatedAt, expiresAt: uploadExpiresAt + DAY, uploadExpiresAt,
+      ...(draft.connectorId ? { connectorId: draft.connectorId } : {}) });
     return { posterAssetId, storageKey, uploadStorageKey, expiresAt: uploadExpiresAt, ...declaration };
   },
 });
@@ -113,14 +117,15 @@ export const publicArtwork = query({ args: { artworkAssetId: v.string() }, retur
   if (artwork?.state !== "published" || !event || event.publicationState !== "published" || event.moderationRemovedAt !== undefined || event.posterImageUrl !== `/api/v0/events/${event._id}/artwork/${artwork._id}` || !community || !canReadProfile("public", community)) return null;
   return { eventId: event._id, storageKey: artwork.storageKey, contentType: "image/webp", byteLength: artwork.byteLength };
 } });
-export const authorizeExtraction = internalMutation({ args: { ...actor, draftId: v.id("eventIntakeDrafts"), posterAssetId: v.optional(v.id("eventPosterSources")), reserveQuota: v.optional(v.boolean()) }, returns: v.any(), handler: async (ctx, args) => {
+export const authorizeExtraction = internalMutation({ args: { ...actor, draftId: v.id("eventIntakeDrafts"), posterAssetId: v.optional(v.id("eventPosterSources")), reserveQuota: v.optional(v.boolean()), connectorId: v.optional(v.id("eventConnectors")) }, returns: v.any(), handler: async (ctx, args) => {
   const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, args.draftId);
   if (draft.publishedReceiptId) throw new Error("DRAFT_PUBLISHED");
+  if (args.connectorId && (draft.connectorId !== args.connectorId || (await ctx.db.get(args.connectorId))?.state !== "active")) throw new Error("CONNECTOR_DRAFT_MISMATCH");
   if (args.posterAssetId) {
     const source = await ownSource(ctx.db, args.actorUserId, args.posterAssetId);
     if (source.draftId !== draft._id || source.state !== "ready") throw new Error("POSTER_NOT_READY");
   }
-  if (args.reserveQuota !== false) {
+  if (args.reserveQuota !== false && !args.connectorId) {
     const recent = await ctx.db.query("eventIntakeModelAttempts").withIndex("by_actor_createdAt", q => q.eq("actorUserId", args.actorUserId).gte("createdAt", Date.now() - DAY)).take(20);
     if (recent.length >= 20) throw new Error("EXTRACTION_QUOTA");
     await ctx.db.insert("eventIntakeModelAttempts", { actorUserId: args.actorUserId, draftId: draft._id, createdAt: Date.now() });

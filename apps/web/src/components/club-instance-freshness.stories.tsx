@@ -119,7 +119,7 @@ function SessionFixture({ mode = "owner", variant = "normal" }: { mode?: "owner"
     community: { _id: "club-one" as Id<"profiles">, slug: "afterhours", displayName: "Afterhours" },
     actor: { kind: mode === "owner" && !revoked ? "owner" : "staff", roleIds: [], permissions: mode !== "history" && !revoked ? ["manage_instances"] : [] },
     roles: [], assignments: [], hasMoreAssignments: false, actionLog: [], visibility: null,
-    integration: null, connectionState: "active", readableCategories: ["instance_history"],
+    integration: null, connectionState: "active", eventConnectorsEnabled: false, readableCategories: ["instance_history"],
   };
   return <ConvexProvider client={client}>
     <div className="mx-auto max-w-6xl p-5">

@@ -33,6 +33,28 @@ locals {
     TWITCH_CLIENT_SECRET = var.twitch_client_secret
   } : {}
 
+  manage_google_connector = nonsensitive(var.google_connector_client_id != null && var.google_connector_client_secret != null)
+  google_connector_keys   = local.manage_google_connector ? toset(["GOOGLE_CONNECTOR_CLIENT_ID", "GOOGLE_CONNECTOR_CLIENT_SECRET"]) : toset([])
+
+  google_connector_values = local.manage_google_connector ? {
+    GOOGLE_CONNECTOR_CLIENT_ID     = var.google_connector_client_id
+    GOOGLE_CONNECTOR_CLIENT_SECRET = var.google_connector_client_secret
+  } : {}
+
+  manage_langfuse = nonsensitive(var.langfuse_public_key != null && var.langfuse_secret_key != null)
+  langfuse_keys = local.manage_langfuse ? setunion(
+    toset(["LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"]),
+    var.langfuse_base_url != null ? toset(["LANGFUSE_BASE_URL"]) : toset([]),
+  ) : toset([])
+
+  langfuse_values = local.manage_langfuse ? {
+    LANGFUSE_PUBLIC_KEY = var.langfuse_public_key
+    LANGFUSE_SECRET_KEY = var.langfuse_secret_key
+    LANGFUSE_BASE_URL   = var.langfuse_base_url
+  } : {}
+
+  manage_discord_poster_token = nonsensitive(var.discord_poster_token != null)
+
   # Each environment gets its own Clerk instance's pair, so these are managed as
   # two independent groups rather than one value set across targets.
   manage_clerk_production = nonsensitive(
@@ -177,6 +199,102 @@ resource "vercel_project_environment_variable" "twitch_staging_custom" {
   custom_environment_ids = [each.value.custom_environment_id]
   sensitive              = true
   comment                = "Server-only Twitch app credentials for cached public profile live status."
+}
+
+resource "vercel_project_environment_variable" "google_connector_standard" {
+  for_each = {
+    for pair in setproduct(local.google_connector_keys, keys(local.standard_twitch_targets)) : "${pair[0]}_${pair[1]}" => {
+      key    = pair[0]
+      target = local.standard_twitch_targets[pair[1]]
+      value  = local.google_connector_values[pair[0]]
+    }
+  }
+
+  project_id = data.vercel_project.web.id
+  team_id    = var.vercel_team_id
+  key        = each.value.key
+  value      = each.value.value
+  target     = each.value.target
+  sensitive  = true
+  comment    = "Server-only Google OAuth client for the Google Calendar connector."
+}
+
+resource "vercel_project_environment_variable" "google_connector_staging_custom" {
+  for_each = {
+    for pair in setproduct(local.google_connector_keys, var.staging_custom_environment_ids) : "${pair[0]}_${pair[1]}" => {
+      key                   = pair[0]
+      custom_environment_id = pair[1]
+      value                 = local.google_connector_values[pair[0]]
+    }
+  }
+
+  project_id             = data.vercel_project.web.id
+  team_id                = var.vercel_team_id
+  key                    = each.value.key
+  value                  = each.value.value
+  custom_environment_ids = [each.value.custom_environment_id]
+  sensitive              = true
+  comment                = "Server-only Google OAuth client for the Google Calendar connector."
+}
+
+resource "vercel_project_environment_variable" "langfuse_standard" {
+  for_each = {
+    for pair in setproduct(local.langfuse_keys, keys(local.standard_twitch_targets)) : "${pair[0]}_${pair[1]}" => {
+      key    = pair[0]
+      target = local.standard_twitch_targets[pair[1]]
+      value  = local.langfuse_values[pair[0]]
+    }
+  }
+
+  project_id = data.vercel_project.web.id
+  team_id    = var.vercel_team_id
+  key        = each.value.key
+  value      = each.value.value
+  target     = each.value.target
+  sensitive  = true
+  comment    = "Server-only Langfuse keys for event intake tracing."
+}
+
+resource "vercel_project_environment_variable" "langfuse_staging_custom" {
+  for_each = {
+    for pair in setproduct(local.langfuse_keys, var.staging_custom_environment_ids) : "${pair[0]}_${pair[1]}" => {
+      key                   = pair[0]
+      custom_environment_id = pair[1]
+      value                 = local.langfuse_values[pair[0]]
+    }
+  }
+
+  project_id             = data.vercel_project.web.id
+  team_id                = var.vercel_team_id
+  key                    = each.value.key
+  value                  = each.value.value
+  custom_environment_ids = [each.value.custom_environment_id]
+  sensitive              = true
+  comment                = "Server-only Langfuse keys for event intake tracing."
+}
+
+resource "vercel_project_environment_variable" "discord_poster_token_standard" {
+  for_each = { for name, target in local.standard_twitch_targets : name => target if local.manage_discord_poster_token }
+
+  project_id = data.vercel_project.web.id
+  team_id    = var.vercel_team_id
+  key        = "VRDEX_DISCORD_POSTER_TOKEN"
+  value      = var.discord_poster_token
+  target     = each.value
+  sensitive  = true
+  comment    = "Bearer token Convex Discord intake runs present to the internal poster bridge."
+}
+
+resource "vercel_project_environment_variable" "discord_poster_token_staging_custom" {
+  for_each = local.manage_discord_poster_token ? var.staging_custom_environment_ids : toset([])
+
+  project_id             = data.vercel_project.web.id
+  team_id                = var.vercel_team_id
+  key                    = "VRDEX_DISCORD_POSTER_TOKEN"
+  value                  = var.discord_poster_token
+  custom_environment_ids = [each.value]
+  sensitive              = true
+  comment                = "Bearer token Convex Discord intake runs present to the internal poster bridge."
 }
 
 resource "vercel_project_environment_variable" "clerk_production" {

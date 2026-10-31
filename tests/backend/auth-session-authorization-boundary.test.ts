@@ -96,6 +96,15 @@ describe("browser auth-session authorization boundary", () => {
         ],
       ],
       [
+        // Board channel picker: the guarded internalQuery checks the session,
+        // connector authority, and guild control proof before the Discord GET.
+        "convex/eventSyncKinds/discordBoard.ts",
+        [
+          "internal.eventSyncKinds.discordBoard.authorizeBoardTarget",
+          "requireActiveBrowserSessionSubject(ctx)",
+        ],
+      ],
+      [
         "convex/eventIntake.ts",
         ["internal.eventIntake.currentIntakeActor", "requireUser(ctx)"],
       ],
@@ -112,6 +121,17 @@ describe("browser auth-session authorization boundary", () => {
           "internal.discordVerification.createVerificationState",
           "requireVerifiedActiveBrowserSession(ctx)",
         ],
+      ],
+      [
+        // Site connect flow: both public actions run this guarded query, which
+        // reads the browser session, before their first Discord GET.
+        "convex/discordIntake.ts",
+        ["internal.discordIntake.authorizeSiteConnect", "requireActiveBrowserSessionSubject(ctx)"],
+      ],
+      [
+        // Lists the owner's calendars; the owner check reads the browser session before Google is called.
+        "convex/googleCalendarConnector.ts",
+        ["internal.googleCalendarConnector.ownCredential", "requireActiveBrowserSessionSubject(ctx)"],
       ],
       [
         "convex/profileClaims.ts",
@@ -182,6 +202,15 @@ describe("browser auth-session authorization boundary", () => {
       [
         "apps/web/src/app/api/developer/tokens/route.ts",
         "api.apiTokens.createPersonalToken",
+      ],
+      [
+        // The session only names the actor; authority over the community is checked in Convex.
+        "apps/web/src/app/api/connectors/google/callback/route.ts",
+        "internal.googleCalendarConnector.storeCredential",
+      ],
+      [
+        "apps/web/src/app/api/connectors/google/start/route.ts",
+        "internal.googleCalendarConnector.authorizeConnect",
       ],
       [
         "apps/web/src/app/api/discord/verify/callback/route.ts",

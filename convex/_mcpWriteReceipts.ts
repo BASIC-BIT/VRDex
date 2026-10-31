@@ -16,6 +16,7 @@ const mcpEventWriteResultValidator = v.object({
   eventPath: v.string(),
   shortLinkCode: v.optional(v.string()),
   shortLinkPath: v.optional(v.string()),
+  seriesId: v.optional(v.id("eventSeries")),
 });
 
 const mcpProfileWriteResultValidator = v.object({
@@ -53,6 +54,7 @@ export type McpEventWriteResult = {
   eventPath: string;
   shortLinkCode?: string;
   shortLinkPath?: string;
+  seriesId?: Id<"eventSeries">;
 };
 
 export type McpProfileWriteResult = {

@@ -1,10 +1,16 @@
 // Server/bridge only. Deliberately excluded from the worker/proof image.
 import { VIDEO_PROFILES } from "./broadcast-profiles.mjs";
 import { parseAllocation } from "./worker-allocation.mjs";
+/** @typedef {{videoPreset: import("./broadcast-profiles.mjs").VideoPreset, simulcastEnabled: boolean}} CapacityInput */
+/** @typedef {(input: CapacityInput) => import("./worker-allocation.mjs").WorkerAllocation} CapacityResolver */
 /** Passing candidate receipts populate this map after actual-image measurement. */
 const MEASURED_ALLOCATIONS = Object.freeze({});
-/** Pure fixture seam for unit tests. No environment or client resource authority. */
+/** Pure fixture seam for unit tests. No environment or client resource authority.
+ * @param {Readonly<Record<string, import("./worker-allocation.mjs").WorkerAllocation>>} entries
+ * @returns {CapacityResolver}
+ */
 export function createCapacityResolver(entries) {
+  /** @param {CapacityInput} input */
   return function resolve(input) {
     if (
       !input ||
@@ -18,8 +24,10 @@ export function createCapacityResolver(entries) {
     return Object.freeze(parseAllocation(entry));
   };
 }
+/** @type {CapacityResolver} */
 export const resolveWorkerAllocation =
   createCapacityResolver(MEASURED_ALLOCATIONS);
+/** @param {CapacityResolver} [resolve] */
 export function validateMeasuredSnapshot(
   snapshot,
   resolve = resolveWorkerAllocation,

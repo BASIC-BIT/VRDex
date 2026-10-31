@@ -206,7 +206,13 @@ describe("optional browser and visual evidence contract", () => {
     assert.equal(account.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS, "${{ needs.visual-selection.outputs.visuals }}");
   });
   it("requires real current-branch claim coverage on a local backend without exposing keys to forks", () => {
+    assert.equal(workflow.jobs["playwright-data-flow"]["timeout-minutes"], 30, "Budget includes existing flows, composed media coverage, and artifacts");
     const steps = workflow.jobs["playwright-data-flow"].steps;
+    const audioPrepare = steps.findIndex((step: { name?: string }) => step.name === "Prepare local browser audio backend");
+    const media = steps.findIndex((step: { name?: string }) => step.name === "Run isolated composed media acceptance");
+    const audioCleanup = steps.findIndex((step: { name?: string }) => step.name === "Stop job-owned browser audio backend");
+    assert.ok(audioPrepare >= 0 && audioPrepare < media && audioCleanup > media);
+    assert.equal(steps[audioCleanup].if, "always()");
     const claim = steps.find((step: { id?: string }) => step.id === "claim-auth");
     assert.ok(claim, "The current-branch signed-in claim regression must have a CI execution target");
     assert.equal(claim.if, "github.event.pull_request.head.repo.fork == false");
@@ -249,4 +255,18 @@ describe("optional browser and visual evidence contract", () => {
     assert.equal(job.concurrency.group, workflow.jobs["pr-verification-report"].concurrency.group);
     assert.doesNotMatch(JSON.stringify(job), /actions\/checkout|workflow_dispatch|createWorkflowDispatch/);
   });
+});
+
+it("baseline runs credential-free relay package and Terraform mock verification", () => {
+  const workflow = parseYaml(readFileSync(".github/workflows/baseline-checks.yml","utf8"));
+  const steps = workflow.jobs["verify-api-mcp"].steps;
+  const commands = steps.map((step: {run?: string}) => step.run ?? "").join("\n");
+  assert.match(commands,/pnpm --filter @vrdex\/media-relay typecheck/);
+  assert.match(commands,/pnpm --filter @vrdex\/media-relay test/);
+  assert.match(commands,/terraform -chdir=infra\/terraform\/media-relay init -backend=false/);
+  assert.match(commands,/terraform -chdir=infra\/terraform\/media-relay validate/);
+  assert.match(commands,/terraform -chdir=infra\/terraform\/media-relay test/);
+  assert.doesNotMatch(JSON.stringify(steps),/configure-aws-credentials|secrets\.|terraform[^\n]*(?: apply| plan )/);
+  assert.equal(workflow.permissions.contents,"read");
+  assert.match(readFileSync("infra/terraform/media-relay/tests/relay.tftest.hcl","utf8"),/mock_provider "aws"/);
 });
