@@ -126,6 +126,9 @@ function revisionFixture(correction: boolean, sourceMode?: string, staff = false
       if (expected !== version) throw new ConvexError({ code: "VERSION_CONFLICT" });
       if (name === "eventIntakeHeld:publish") {
         sessionStorage.setItem("fixture-published", JSON.stringify(fields));
+        // A resolved draft reads as null for any manager but its actor.
+        draft = null as unknown as typeof draft;
+        listeners.forEach(listener => listener());
         return { outcome: "published", eventId: "fixture-event", eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions" };
       }
       if (sessionStorage.getItem("fixture-save-fail") === "true") throw new Error("Fixture save failed");

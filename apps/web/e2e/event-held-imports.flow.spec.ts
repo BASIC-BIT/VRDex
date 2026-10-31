@@ -23,7 +23,9 @@ test("a date-only connector draft publishes from the editor @flow @fixture", asy
   await publish(page);
   await expect.poll(() => stored(page, "event-intake-review-command")).toBe("eventIntakeHeld:publish");
   expect(await stored(page, "event-intake-revision-submission")).toBe(heldSubmission);
-  expect(JSON.parse((await stored(page, "fixture-published"))!)).toMatchObject({ communitySlug: "afterglow", title: "Held night", eventDate: "2027-07-15", timeTba: true });
+  const saved = JSON.parse((await stored(page, "fixture-published"))!);
+  expect(saved).toMatchObject({ communitySlug: "afterglow", title: "Held night", eventDate: "2027-07-15" });
+  expect(saved).not.toHaveProperty("timeTba");
   await expect(page).toHaveURL(/playwright-afterglow-harbor-sessions$/);
 });
 
@@ -66,6 +68,15 @@ test("a source text edit keeps a connector draft's import @flow @fixture", async
   await expect(page.getByRole("status")).toHaveText("Draft saved");
   expect(JSON.parse((await stored(page, "event-intake-revision-submission"))!).patch).toMatchObject({ sourceText: "Held night moved", tentative: { title: "Held night" } });
 });
+
+for (const mode of ["held-date-only", "held-tentative-start"]) {
+  test(`Save draft on ${mode} does not persist the derived Time TBA @flow @fixture`, async ({ page }) => {
+    await page.goto(`/playwright/event-intake?revision=${mode}`);
+    await page.getByRole("button", { name: "Save draft", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("Draft saved");
+    expect(JSON.parse((await stored(page, "event-intake-revision-submission"))!).patch).not.toHaveProperty("timeTba");
+  });
+}
 
 test("a personal draft still needs a start @flow @fixture", async ({ page }) => {
   await page.goto("/playwright/event-intake?revision=draft");

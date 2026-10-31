@@ -413,13 +413,16 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
   const save = useMutation(api.eventIntake.saveEventIntakeDraft);
   const publish = useAction(api.eventIntake.publishEventIntake);
   const publishHeld = useMutation(api.eventIntakeHeld.publish);
+  const [publishingHeld, setPublishingHeld] = useState(false);
   const saved = useRef<{ draftId: Id<"eventIntakeDrafts">; version: number; fields: string } | null>(null);
   const request = useRef<{ key: string; version: number } | null>(null);
   async function saveFields(fields: EventIntakeFields, initialVersion: number) {
     const serialized = JSON.stringify(fields);
     if (saved.current?.fields === serialized) return saved.current;
     const current = saved.current ?? (loaded ? { draftId: loaded._id, version: initialVersion } : null);
-    const result = await save({ ...(current ? { draftId: current.draftId, expectedVersion: current.version } : {}), patch: fields });
+    // Time TBA on a connector draft with no start is the form's reading, not a staff decision: publication derives it again.
+    const derivedTimeTba = loaded?.connectorId && loaded.fields.timeTba == null && !fields.start;
+    const result = await save({ ...(current ? { draftId: current.draftId, expectedVersion: current.version } : {}), patch: derivedTimeTba ? { ...fields, timeTba: undefined } : fields });
     saved.current = { ...result, fields: serialized };
     window.history.replaceState(window.history.state, "", `/events/new?draft=${result.draftId}`);
     return saved.current;
@@ -469,7 +472,8 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
     return { fields: next, candidate };
   };
   if (draftId && loaded === undefined) return <>{heading}<p aria-busy="true">Loading draft…</p></>;
-  if (draftId && loaded === null) return <>{heading}<Notice>Unavailable</Notice></>;
+  // A published held draft reads as null for any manager but its actor; the form still has a redirect to run.
+  if (draftId && loaded === null && !publishingHeld) return <>{heading}<Notice>Unavailable</Notice></>;
   // A connector import with no clock is date-only, the same reading row Publish takes.
   const connectorFields = loaded?.connectorId ? { ...loaded.fields, timeTba: loaded.fields.timeTba ?? !(loaded.fields.start ?? loaded.fields.tentative?.start) } : undefined;
   return <EventIntakeFieldsForm heading={heading} savedTimezonePreference={viewer?.user.defaultEventTimezone} newDraft={!draftId} connectorDraft={Boolean(loaded?.connectorId)} initialFields={connectorFields ?? loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { if (published.current) await correctPublished(fields); else await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
@@ -477,8 +481,11 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
     const current = await saveFields(fields, revision);
     if (loaded?.connectorId) {
       // The community's listing, not the viewer's contribution: nothing to correct afterwards.
-      const { eventId, eventPath } = await publishHeld({ draftId: current.draftId, expectedVersion: current.version });
-      return { kind: "published", eventId, eventPath };
+      setPublishingHeld(true);
+      try {
+        const { eventId, eventPath } = await publishHeld({ draftId: current.draftId, expectedVersion: current.version });
+        return { kind: "published", eventId, eventPath };
+      } catch (error) { setPublishingHeld(false); throw error; }
     }
     if (request.current?.version !== current.version) request.current = { version: current.version, key: crypto.randomUUID() };
     const result = await publish({ draftId: current.draftId, expectedVersion: current.version, idempotencyKey: request.current.key });

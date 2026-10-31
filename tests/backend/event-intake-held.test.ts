@@ -557,13 +557,24 @@ it("editor publish takes only what the staffer saved", async () => {
   });
 });
 
-it("an editor save with no start keeps the event's clock on a proposed update", async () => {
+for (const expectedVersion of [1, undefined]) it(`a saved draft with no Time TBA keeps the event's clock (${expectedVersion ? "editor" : "row"} publish)`, async () => {
   const { t, ids, as, draft, googleLink } = await fixture();
-  const draftId = await draft({ title: "Reviewed", eventDate: "2027-07-15", timeTba: true }, { connectorId: ids.google });
+  const draftId = await draft({ title: "Reviewed", eventDate: "2027-07-15", tentative: { title: "Extracted" }, evidence: [evidence("event.title")] }, { connectorId: ids.google });
   await googleLink({ draftId, eventId: ids.event });
-  await as("staff").mutation(api.eventIntakeHeld.publish, { draftId, expectedVersion: 1 });
+  await as("staff").mutation(api.eventIntakeHeld.publish, { draftId, expectedVersion });
   const event = (await t.run(({ db }) => db.get(ids.event)))!;
   assert.deepEqual([event.title, event.scheduleKind, event.startAt], ["Reviewed", "timed", Date.UTC(2027, 6, 15, 20)]);
+});
+
+it("editor publish reads a new item's missing Time TBA from its saved start", async () => {
+  const { t, as, draft } = await fixture();
+  const dated = await draft({ title: "Dated", eventDate: "2027-07-20" });
+  const timed = await draft({ title: "Timed", eventDate: "2027-07-21", timezone: "UTC", start: nine });
+  const schedule = async (draftId: Id<"eventIntakeDrafts">) => {
+    const { eventId } = await as("staff").mutation(api.eventIntakeHeld.publish, { draftId, expectedVersion: 1 });
+    return (await t.run(({ db }) => db.get(eventId)))?.scheduleKind;
+  };
+  assert.deepEqual([await schedule(dated), await schedule(timed)], ["date_only", "timed"]);
 });
 
 it("a saved Time TBA clears the event's clock on a proposed update", async () => {
