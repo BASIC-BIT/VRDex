@@ -5,6 +5,7 @@ import { api, internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
 import { heldImportRows } from "../../convex/_eventIntakeHeld";
+import { eventDateForInstant } from "../../convex/_eventSchedule";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const modules = {
@@ -46,9 +47,9 @@ function fakeDiscord(test: TestContext, respond: (call: Call) => Response | unde
 const said = (calls: Call[]) => calls.map((call) => `${call.method} ${call.path}`);
 
 const communityBase = { slug: "afterglow-social", displayName: "Afterglow Social", sortName: "afterglow social", profileType: "community", community: { categoryTags: [] }, aliases: [], tags: [], claimState: "unclaimed", creationSource: "self", publicationState: "published", publicSurfacingState: "public", updatedAt: 1 } satisfies Omit<Doc<"profiles">, "_id" | "_creationTime">;
-function eventBase(startAt: number) {
+function eventBase(startAt: number, timezone = "UTC") {
   return { title: "Afterglow Harbor Sessions", sortTitle: "afterglow harbor sessions", summary: "Deep house by the water.", venueLabel: "The Lighthouse", posterImageUrl: "https://media.example.test/poster.png",
-    scheduleKind: "timed", startAt, sortAt: startAt, eventDate: iso(startAt).slice(0, 10), endAt: startAt + 3 * HOUR, timezone: "UTC",
+    scheduleKind: "timed", startAt, sortAt: startAt, eventDate: eventDateForInstant(startAt, timezone), endAt: startAt + 3 * HOUR, timezone,
     eventStatus: "scheduled", publicationState: "published", sourceType: "community", sourceLabel: "Fixture", updatedAt: 1 } as const;
 }
 type Seed = Partial<Doc<"events">> & { link?: string; linkState?: Doc<"eventSyncLinks">["state"] };
@@ -62,7 +63,7 @@ async function seed(t: ReturnType<typeof convexTest>, events: Seed[], connector:
     const connectorId = await ctx.db.insert("eventConnectors", { communityProfileId, kind: "discord_scheduled_events", direction: "bidirectional", mode: "hold", authorityUserId: userId, target: { guildId: GUILD }, state: "active", createdAt: now, updatedAt: now, ...connector });
     const eventIds: Id<"events">[] = [];
     for (const [index, { link, linkState, ...event }] of events.entries()) {
-      const eventId = await ctx.db.insert("events", { ...eventBase(event.startAt ?? now + 2 * DAY), slug: `night-${index}`, communityProfileId, ...event });
+      const eventId = await ctx.db.insert("events", { ...eventBase(event.startAt ?? now + 2 * DAY, event.timezone), slug: `night-${index}`, communityProfileId, ...event });
       if (link) await ctx.db.insert("eventSyncLinks", { connectorId, eventId, externalId: link, state: linkState ?? "linked", createdAt: now, updatedAt: now });
       eventIds.push(eventId);
     }
