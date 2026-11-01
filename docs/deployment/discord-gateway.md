@@ -296,7 +296,7 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
 
    With the flag on and no gateway yet, `checkHeartbeat` usually emails one stale alert within five minutes, then one resolved email once heartbeats arrive. That pair is expected and proves the email path. If the first heartbeat lands before the next check, no pair arrives at all. Keep this step and step 10 close together.
 
-   The flag is global: it reveals the Integrations connect flow to every community, and `/vrdex connect` defaults to `hold`, so the [Rollout](#rollout) prerequisite applies to the first connect by anyone.
+   The flag is global: it reveals the Integrations connect flow to every community.
 
 10. **Create the service.** This also creates the running-task alarm, which may send the alarm and OK email pair described under [Alarms](#alarms). Run it from an updated `main`, so the merged tfvars apply. The image is the one step 6 released. Check the plan for a task definition replacement: with the image unchanged it means `linuxParameters` shows a perpetual diff, and every manual apply then rolls the task.
 
@@ -319,8 +319,6 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
 ## Rollout
 
 The first binding is BASIC's own community, in `hold` mode, moving to `autopublish` after a week of clean runs.
-
-Prerequisite: `hold` mode needs staff publishing of a held draft to write the event back to its link and source rows. Today that publish leaves them on the draft, so the next edit of that post files a second draft. Do not bind a channel in `hold` until that ships.
 
 ## Local Control Demo
 
