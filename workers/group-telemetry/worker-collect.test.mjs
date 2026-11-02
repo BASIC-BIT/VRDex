@@ -151,18 +151,22 @@ test("membership catch-up completes real audit passes at the default budget and 
   const userId = "usr_00000000-0000-0000-0000-000000000001";
   let scan = { scanId: "scan", startAt: 1, endAt: 940000, nextOffset: 0, nextPage: 0, phase: "collect", complete: false };
   let requests = 0, reservations = 0, redundantScans = 0;
+  let targetPinned = false;
   h.sandbox.secret.vrchatUserId = userId;
   h.sandbox.refreshClubAuthority = async ({ assignment, integrationBudget }) => {
     assert.equal(integrationBudget.tryConsume(2, h.clock()), true);
+    h.advance(2000);
+    if (!targetPinned) { scan.endAt = h.clock() - 60000; targetPinned = true; }
     return { authority: {
       groupId: assignment.vrchatGroupId, userId, membershipStatus: "member", observedAt: h.clock(), permissions: ["group-audit-view"],
     } };
   };
   h.sandbox.pauseWithHeartbeats = async ms => h.advance(ms);
   h.sandbox.collectMembershipPage = args => collectMembershipPage({ ...args, clock: h.clock });
-  h.sandbox.provider.request = async () => { requests++; h.advance(10); return { results: [], hasNext: false }; };
+  h.sandbox.provider.request = async () => { requests++; h.advance(300); return { results: [], hasNext: false }; };
   const send = h.sandbox.control.send;
   h.sandbox.control.send = async (op, args) => {
+    if (op.startsWith("membership_scan_") || op === "budget") h.advance(500);
     if (op === "membership_scan_resume") return { ...scan };
     if (op === "membership_scan_begin") redundantScans++;
     if (op === "membership_scan_page") scan.phase = scan.phase === "collect" ? "verify" : "finalize";

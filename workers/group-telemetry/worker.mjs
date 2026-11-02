@@ -418,7 +418,8 @@ async function collect(assignment) {
       let authority = refreshed.authority;
       // Leave time for the next ownership-proof poll before its two-minute freshness limit.
       for (let page = 0; page < 32 && !stopping && Date.now() < membershipDeadline; page++) {
-        if (authority && Date.now() - authority.observedAt > 60_000) authority = (await refreshReadiness()).authority;
+        // Leave room for control-plane and provider latency before the hard one-minute boundary.
+        if (authority && Date.now() - authority.observedAt > 30_000) authority = (await refreshReadiness()).authority;
         const result = await collectMembershipPage({
           assignment,
           authority,
