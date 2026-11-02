@@ -105,6 +105,7 @@ function harness({
     advance: (ms) => {
       now += ms;
     },
+    clock: () => now,
     pass: async () => {
       await collect({
         integrationId: "club",
@@ -145,20 +146,25 @@ test("membership catch-up advances durable pages until caught up in one lease", 
   assert.deepEqual(h.failures, []);
 });
 
-test("membership catch-up completes both real audit passes and finalization with per-page budgets", async () => {
-  const h = harness();
+test("membership catch-up completes real audit passes at the default budget and freezes its target", async () => {
+  const h = harness({ requestsPerMinute: 4 });
   const userId = "usr_00000000-0000-0000-0000-000000000001";
   let scan = { scanId: "scan", startAt: 1, endAt: 940000, nextOffset: 0, nextPage: 0, phase: "collect", complete: false };
-  let requests = 0, reservations = 0;
+  let requests = 0, reservations = 0, redundantScans = 0;
   h.sandbox.secret.vrchatUserId = userId;
-  h.sandbox.refreshClubAuthority = async ({ assignment }) => ({ authority: {
-    groupId: assignment.vrchatGroupId, userId, membershipStatus: "member", observedAt: 1000000, permissions: ["group-audit-view"],
-  } });
-  h.sandbox.collectMembershipPage = args => collectMembershipPage({ ...args, clock: () => 1000000 });
-  h.sandbox.provider.request = async () => { requests++; return { results: [], hasNext: false }; };
+  h.sandbox.refreshClubAuthority = async ({ assignment, integrationBudget }) => {
+    assert.equal(integrationBudget.tryConsume(2, h.clock()), true);
+    return { authority: {
+      groupId: assignment.vrchatGroupId, userId, membershipStatus: "member", observedAt: h.clock(), permissions: ["group-audit-view"],
+    } };
+  };
+  h.sandbox.pauseWithHeartbeats = async ms => h.advance(ms);
+  h.sandbox.collectMembershipPage = args => collectMembershipPage({ ...args, clock: h.clock });
+  h.sandbox.provider.request = async () => { requests++; h.advance(10); return { results: [], hasNext: false }; };
   const send = h.sandbox.control.send;
   h.sandbox.control.send = async (op, args) => {
     if (op === "membership_scan_resume") return { ...scan };
+    if (op === "membership_scan_begin") redundantScans++;
     if (op === "membership_scan_page") scan.phase = scan.phase === "collect" ? "verify" : "finalize";
     if (op === "membership_scan_finalize") scan.complete = true;
     if (op === "budget" && args.requestCount === 1) reservations++;
@@ -168,6 +174,7 @@ test("membership catch-up completes both real audit passes and finalization with
   assert.equal(scan.complete, true);
   assert.equal(requests, 2);
   assert.equal(reservations, 2);
+  assert.equal(redundantScans, 0);
   assert.deepEqual(h.failures, []);
 });
 

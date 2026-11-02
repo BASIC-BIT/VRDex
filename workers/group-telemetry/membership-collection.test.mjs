@@ -44,6 +44,29 @@ test("provider failure never marks a page exhausted and budget denial never read
   assert.equal((await collectMembershipPage(denied.args)).collected, false);
   assert.equal(denied.reads.length, 0);
 });
+
+test("changed submission conditions during reservation prevent audit transport", async () => {
+  for (const reason of ["shutdown", "deadline", "authority", "window", "capacity"]) {
+    const { args, sends, reads } = fixture();
+    let now = 100000, stopping = false;
+    args.clock = () => now;
+    args.shouldStop = () => stopping;
+    args.deadline = 200000;
+    const send = args.control.send;
+    args.control.send = async (op, body) => {
+      const result = await send(op, body);
+      if (op === "budget") {
+        if (reason === "shutdown") stopping = true;
+        else if (reason === "capacity") args.accountBudget.tryConsume(10, now);
+        else now = reason === "deadline" ? 200000 : reason === "window" ? 120000 : 160001;
+      }
+      return result;
+    };
+    assert.equal((await collectMembershipPage(args)).collected, false, reason);
+    assert.equal(reads.length, 0, reason);
+    assert.equal(sends.some(value => value.op === "membership_scan_page"), false);
+  }
+});
 test("disabled analytics or stale grants do not touch audit collection", async () => {
   for (const stale of [true, false]) {
     const { args, sends } = fixture();

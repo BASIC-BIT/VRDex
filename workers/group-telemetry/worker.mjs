@@ -413,17 +413,27 @@ async function collect(assignment) {
     if (telemetryError) throw telemetryError;
     if (stopping || Date.now() >= deadline) return;
     if (assignment.namedMembershipCollectionEnabled !== false) {
-      // Each durable page reserves its own budget and yields immediately when capacity is unavailable.
+      const catchupEndAt = Date.now() - 60_000;
+      let authority = refreshed.authority;
+      // Reuse the bounded lease across budget windows without moving the catch-up target.
       for (let page = 0; page < 32 && !stopping && Date.now() < deadline; page++) {
+        if (authority && Date.now() - authority.observedAt > 60_000) authority = (await refreshReadiness()).authority;
         const result = await collectMembershipPage({
           assignment,
-          authority: refreshed.authority,
+          authority,
           provider,
           control,
           expectedUserId: secret.vrchatUserId,
           accountBudget,
           integrationBudget,
+          shouldStop: () => stopping,
+          deadline,
+          catchupEndAt,
         });
+        if (Number.isFinite(result?.retryAt) && result.retryAt > Date.now()) {
+          await pauseWithHeartbeats(Math.min(result.retryAt - Date.now(), Math.max(0, deadline - Date.now())));
+          continue;
+        }
         if (!result?.collected) break;
       }
     }
