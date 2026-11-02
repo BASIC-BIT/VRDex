@@ -14,7 +14,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { Readable } from "node:stream";
 import { type S3Client } from "@aws-sdk/client-s3";
 import { createSourceRelay } from "../../../../workers/restream/source-relay.mjs";
 import { createPackager } from "../worker/packager";
@@ -160,13 +159,7 @@ export async function runLocalProof(options: ProofOptions) {
           case "PutObjectCommand": {
             metrics.storageOperations.PUT++;
             putsByKey.set(key, (putsByKey.get(key) ?? 0) + 1);
-            const body = input.Body;
-            const chunks: Buffer[] = [];
-            if (typeof body === "string") chunks.push(Buffer.from(body));
-            else
-              for await (const chunk of body as Readable)
-                chunks.push(Buffer.from(chunk));
-            const data = Buffer.concat(chunks);
+            const data = Buffer.from(input.Body as string | Buffer);
             objects.set(key, data);
             metrics.uploadedBytes += data.length;
             return {};

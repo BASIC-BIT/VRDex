@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import {
   PutObjectCommand,
@@ -56,7 +55,7 @@ export function createAwsStorage(
   >();
   async function put(
     objectKey: string,
-    body: string | ReturnType<typeof createReadStream>,
+    body: string | Buffer,
     length: number,
     hash: string,
     signal: AbortSignal,
@@ -65,7 +64,6 @@ export function createAwsStorage(
     const abortSignal = deadline(signal, 4500);
     const previous = completed.get(objectKey);
     if (previous && Date.now() - previous.at < 600000) {
-      if (typeof body !== "string") body.destroy();
       if (previous.hash !== hash || previous.length !== length)
         throw Error("Immutable media conflict");
       completed.delete(objectKey);
@@ -100,8 +98,6 @@ export function createAwsStorage(
         existing.ContentLength !== length
       )
         throw Error("Immutable media conflict");
-    } finally {
-      if (typeof body !== "string") body.destroy();
     }
     completed.delete(objectKey);
     completed.set(objectKey, { hash, length, at: Date.now() });
@@ -116,14 +112,14 @@ export function createAwsStorage(
       const size = (await stat(filePath)).size;
       if (size < 1 || size > 32 * 1024 * 1024)
         throw Error("Segment size exceeded");
-      const hash = createHash("sha256");
-      const input = createReadStream(filePath, { signal });
-      for await (const chunk of input) hash.update(chunk);
+      // Buffered, not streamed: a stream built on an aborted signal raises an
+      // unlistened 'error' that kills the worker. Size is capped above.
+      const body = await readFile(filePath, { signal });
       await put(
         objectKey,
-        createReadStream(filePath, { signal }),
-        size,
-        hash.digest("hex"),
+        body,
+        body.length,
+        createHash("sha256").update(body).digest("hex"),
         signal,
         "video/mp2t",
       );
