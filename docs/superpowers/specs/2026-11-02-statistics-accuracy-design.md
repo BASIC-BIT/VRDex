@@ -1,6 +1,6 @@
 # Consistent community statistics and historical repair
 
-Status: proposed design for BASIC's review. No implementation, deployment, or backfill is authorized by this document.
+Status: approved by BASIC on November 2, 2026. The implementation plan follows this design. Production deployment and backfill execution require separate approval.
 
 ## Outcome and decisions
 
@@ -29,7 +29,7 @@ Corrected persisted buckets update in place. During the rebuild, some historical
 2. Share the interval rules while retaining existing query adapters and chart reduction. Recommended. It fixes all three issues without replacing the analytics subsystem or adding a dependency.
 3. Shorten quiet polling so samples usually remain under five minutes. Increases provider traffic and does not repair old cadence gaps. Keep as a future operational option if six-minute interpolation proves unsuitable.
 
-These are recommendations, not choices already approved by BASIC.
+The shared-policy approach and six-minute tolerance were approved by BASIC on November 2, 2026. The alternatives remain here to explain the tradeoffs.
 
 ## Calculation contract
 
@@ -96,7 +96,7 @@ No provider endpoint, credential, membership collection, billing, or account-per
 2. Persist one current rollup per stable bucket identity: integration, grain and bucket start; additionally event ID for event recaps. Update that row in place and stamp the new calculation version. Event lookup must find the prior-version row instead of inserting a second visible recap. If preexisting duplicate/ambiguous legacy identities are found, report them for resolution rather than guessing or deleting rows.
 3. Fence streaming recap jobs by calculation version. Add version metadata compatibly for existing jobs. Cancel/restart a legacy job from current event boundaries and confirmed associations; an old continuation must not overwrite a corrected rollup. Recheck event schedule/association changes before committing each recap, preserving existing invalidation behavior.
 4. Build a dry-run inventory of retained hourly/day buckets and confirmed event recaps, with their integration/epoch mapping, raw-data availability, version, and proposed numeric differences. Include historical scopes that remain unambiguously mapped. List ambiguous legacy/epoch boundaries as blocked, not repaired. Do not expose hidden historical scopes through current public readers.
-5. After approved execution, process indexed work in bounded resumable batches. Use the installed `@convex-dev/migrations` runner in `convex/migrations.ts` for persisted-bucket enumeration and checkpointing, retaining its default batch size of 50. Reuse recomputation entry points and the event job machinery. Fix the integration/range/version in the approved inventory. Enqueuing a recap does not mark it repaired: completion requires a matching v2 rollup and no pending/failed job for that target. Retrying a bucket is idempotent; serialize or transactionally deduplicate competing work for the same identity. Normal cron recomputation must write the same version and calculation.
+5. After approved execution, process indexed work in bounded resumable batches. Use the installed `@convex-dev/migrations` runner in `convex/migrations.ts` to checkpoint the approved persisted-bucket target inventory, retaining its default batch size of 50. Reuse recomputation entry points and the event job machinery. Fix the integration/range/version in the approved inventory. Enqueuing a recap does not mark it repaired: completion requires a matching v2 rollup and no pending/failed job for that target. Retrying a bucket is idempotent; serialize or transactionally deduplicate competing work for the same identity. Normal cron recomputation must write the same version and calculation.
 6. Canary BITRATE and Faceless first. Compare corrected rollups with an independent raw-observation calculation and confirm query/UI agreement. Expand to the remaining inventoried scopes only after the canary passes.
 
 Do not reset a presentation epoch, change publication settings, overwrite raw counts, or reconstruct missing pre-414 guests. Rollback of calculations means replaying a specified prior calculation over retained raw data; it is not merely changing a version string. Keep the dry-run/change summary so that affected buckets are identifiable.
@@ -114,7 +114,7 @@ Do not reset a presentation epoch, change publication settings, overwrite raw co
 
 ## Review boundary and evidence
 
-Requested now: review the shared-policy approach, six-minute tolerance, and historical rebuild design. An implementation plan follows design acceptance. Deployment and production rebuild execution remain separate decisions.
+Design accepted November 2, 2026. The implementation plan must preserve the shared-policy approach, six-minute tolerance, and historical rebuild boundaries. Deployment and production rebuild execution remain separate decisions.
 
 A fresh builder review found no planning-blocking questions. Its review was limited to the design and relevant source; it did not run tests or production checks.
 
