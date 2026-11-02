@@ -240,3 +240,24 @@ Deploy the backend compatibility changes before a worker advertising `explicit_g
 The existing `AutomaticEnrollmentBacklog` metric now includes explicit admission processing and cleanup, even when free enrollment is disabled. `collector_heartbeat.automaticEnrollmentBacklog` drives the existing three-period one-minute alarm. Its actions use the alerts SNS topic; the configured email subscription defaults to `basic@basicbit.net`. Missing heartbeat, control-plane failure and authentication-required alarms retain their existing actions. Verify enabled alarm actions, confirmed SNS email subscription and actual delivery during a separately authorized rollout. No Terraform apply or delivery test is established by source tests.
 
 For a backlog alert, inspect exact-head worker capability first, then assigned-account readiness, failures and cleanup provenance. Approval and invitation waits with fresh successful inspections should not alert. Never repeat an uncertain membership write or switch bots to bypass it. Cancel and inspect cleanup before rolling back a worker. Keep the compatible backend until grants are cancelled and owned cleanup is confirmed; reverting only the UI does not revoke stored grants.
+
+## Statistics calculation repair
+
+Implementation does not authorize production execution. First deploy the compatible backend through the normal release process. The population collector remains unchanged. Use an exact target and a fixed past range of at most 93 days. Start with BITRATE and Faceless as separate reviewed inventories; only one repair run is active at a time.
+
+```powershell
+node --import tsx scripts/repair-community-statistics.mjs --target prod --mode dry-run --integration INTEGRATION_ID --start 2026-10-31T00:00:00Z --end 2026-11-02T00:00:00Z --inventory bitrate-statistics-review.json
+```
+
+Review the manifest's exact deployment, integration, bounds, blocked targets, and proposed changes before granting apply approval. Inventory and dry run do not change published rollups. Event previews stream read-only input pages. Old guest undercounts cannot be reconstructed by these calculations. Ambiguous epochs, missing raw input, or read-limit failures are blocked rather than treated as zero. A manifest with blocked targets cannot be applied without a revised review.
+
+After explicit execution approval:
+
+```powershell
+node --import tsx scripts/repair-community-statistics.mjs --target prod --mode apply --inventory bitrate-statistics-review.json
+node --import tsx scripts/repair-community-statistics.mjs --target prod --mode status --inventory bitrate-statistics-review.json
+```
+
+Apply persists its run ID into the same manifest. Repeating apply resumes that scope and restarts the migration cursor safely; corrected targets are skipped. A queued recap remains pending. Status reads progress in pages and resolves finished recap targets; migration enumeration completion alone is not repair completion. Inspect failed/pending targets before retrying; do not start a second run to bypass them.
+
+Compare a fixed canary range against independent raw-observation integration, persisted v2 buckets, public series, and the signed-in club UI before expanding. Record numeric changes and remaining blocks. Correction can raise boundary totals and lower outage totals. During the rebuild, old and new buckets coexist in place, with internal calculation-version stamps. Preserve missing coverage, category access and hidden epochs. Rollback requires replaying a specified prior calculation against retained raw observations and reviewing its output; changing a version label alone is not rollback.

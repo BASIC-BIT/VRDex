@@ -1907,7 +1907,7 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
       collector: account ? { accountAlias: account.accountAlias, vrchatUserId: account.vrchatUserId, state: account.state } : null,
     },
     summary: {
-      currentPopulation: current ? metrics.currentPopulation : undefined,
+      currentPopulation: current ? population[0]?.totalPopulation : undefined,
       activeInstanceCount: current ? population[0]?.activeInstanceCount ?? openSessions.length : undefined,
       peakConcurrency: metrics.peakConcurrency,
       playerHours: metrics.playerHours,

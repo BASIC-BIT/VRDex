@@ -2128,6 +2128,20 @@ export default defineSchema({
     .index("by_sessionId_state", ["sessionId", "state"])
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
     .index("by_communityProfileId_createdAt", ["communityProfileId", "createdAt"]),
+  communityTelemetryRepairRuns: defineTable({
+    inventoryId: v.string(), integrationId: v.id("communityVrchatIntegrations"),
+    startAt: v.number(), endAt: v.number(), epochStartedAt: v.number(), version: v.string(),
+    expectedTargets: v.number(), registeredTargets: v.number(),
+    state: v.union(v.literal("assembling"), v.literal("active"), v.literal("complete")), createdAt: v.number(),
+  }).index("by_inventoryId", ["inventoryId"]).index("by_version_state", ["version", "state"]),
+  communityTelemetryRepairTargets: defineTable({
+    runId: v.id("communityTelemetryRepairRuns"), key: v.string(),
+    grain: v.union(v.literal("hour"), v.literal("day"), v.literal("event")),
+    bucketStartAt: v.number(), bucketEndAt: v.number(), eventId: v.optional(v.id("events")),
+    rollupId: v.optional(v.id("communityTelemetryRollups")), jobId: v.optional(v.id("communityTelemetryEventRecapJobs")),
+    state: v.union(v.literal("pending"), v.literal("corrected"), v.literal("blocked"), v.literal("failed")),
+    error: v.optional(v.string()), updatedAt: v.number(),
+  }).index("by_runId_key", ["runId", "key"]).index("by_runId_state", ["runId", "state"]),
   communityTelemetryEventRecapJobs: defineTable({
     calculationVersion: v.optional(v.string()),
     eventId: v.id("events"),
@@ -2172,6 +2186,7 @@ export default defineSchema({
     .index("by_integrationId_eventId_rollupVersion", ["integrationId", "eventId", "rollupVersion"])
     .index("by_communityProfileId_integrationId_grain_bucketStartAt", ["communityProfileId", "integrationId", "grain", "bucketStartAt"])
     .index("by_communityProfileId_grain_bucketStartAt", ["communityProfileId", "grain", "bucketStartAt"])
+    .index("by_eventId_integrationId", ["eventId", "integrationId"])
     .index("by_eventId_rollupVersion", ["eventId", "rollupVersion"]),
   communityTelemetryAuditEvents: defineTable({
     rollupId: v.optional(v.id("communityTelemetryRollups")),

@@ -1,5 +1,13 @@
 # Community group telemetry backend
 
+## Population calculation version 2
+
+`community-telemetry-v2` is a calculation version, independent of the collector protocol version. The pure interval rule in `_clubAnalyticsMath.ts` accepts adjacent eligible observations at most 360,000 ms apart, clips integration to half-open ranges, and rejects a pair if recorded degraded/unknown/stale coverage overlaps it. Membership continuity keeps its independent bound. Normalized series carry optional `breakBefore` metadata across browser and summary pages; a break is not a zero population sample.
+
+Hourly/day recomputation includes the immediate real observations before and after a bucket, within the same epoch and continuity bound. No endpoint is extrapolated. Peaks use actual in-range observations. Adapters retain their existing estimated-sample eligibility. Event jobs sum associated sessions at each provider timestamp before applying the same interval rule, carrying partial timestamps across pages. Old-version recap jobs restart instead of publishing old arithmetic. Version upgrades update stable rollup identities in place.
+
+Repair tooling is internal-only. `communityTelemetryRepair` inventories and previews fixed scopes; the operator script writes a reviewable local manifest. Apply materializes its targets into repair-run/target rows. The installed migrations runner schedules batches of 50 approved targets and is intentionally excluded from `runAll`. Recaps stay pending until their v2 output exists and the job has finished. Ambiguous mappings and missing/over-limit input fail explicitly instead of yielding partial statistics. Raw observations and publication/epoch settings are never changed by repair.
+
 Release gates, disabled defaults, ordered migration, rollback and source-only alert evidence are in the [automatic statistics release runbook](../deployment/automatic-group-statistics-release.md). Disabling admission also denies already allocated new automatic admissions. Uncertain prior attempts can only verify membership with the same account. Active collection and disconnect cleanup retain their existing authorization. Automatic and adopted aggregate-only reads recheck policy at each provider request. Authenticated heartbeats expose a bounded backlog boolean for the existing worker log and SNS alarm path.
 
 ## Scope
