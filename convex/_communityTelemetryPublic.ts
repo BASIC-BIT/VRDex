@@ -1,3 +1,4 @@
+import { MAX_INTERPOLATION_GAP_MS } from "./_communityTelemetry";
 import { ConvexError } from "convex/values";
 import { PublicStatisticsRangeInputSchema } from "../packages/api-contracts/src/schemas";
 import { buildGroupPopulationSeries } from "./_groupPopulationSeries";
@@ -203,8 +204,8 @@ export function publicStatisticsRange(now: number, input?: { startAt: number; en
 
 async function readPopulationSeries(db: DatabaseReader, integrationId: Id<"communityVrchatIntegrations">,
   historyStartAt: number, now: number, range: { startAt: number; endAt: number }) {
-  const floor = Math.max(historyStartAt, range.startAt - 300_000);
-  const ceiling = Math.min(now, range.endAt + 300_000);
+  const floor = Math.max(historyStartAt, range.startAt - MAX_INTERPOLATION_GAP_MS);
+  const ceiling = Math.min(now, range.endAt + MAX_INTERPOLATION_GAP_MS);
   // One bounded page also carries the adjacent samples needed for clipped integration.
   const observations = await db.query("communityPopulationObservations")
     .withIndex("by_integrationId_observedAt", q => q.eq("integrationId", integrationId)

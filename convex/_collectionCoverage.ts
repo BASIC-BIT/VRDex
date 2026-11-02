@@ -1,6 +1,25 @@
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { QUIET_POLL_MAX_MS } from "./_communityTelemetry";
+import type { PopulationGap } from "./_clubAnalyticsMath";
+
+export async function readPopulationGaps(ctx: QueryCtx | MutationCtx, input: {
+  integrationId: Id<"communityVrchatIntegrations">; epochStartedAt: number; startAt: number; endAt: number;
+}): Promise<{ complete: true; gaps: PopulationGap[] } | { complete: false }> {
+  const start = Math.max(input.startAt, input.epochStartedAt);
+  const before = await ctx.db.query("collectionCoverageWindows")
+    .withIndex("by_integrationId_startedAt", q => q.eq("integrationId", input.integrationId)
+      .gte("startedAt", input.epochStartedAt).lt("startedAt", start)).order("desc").first();
+  const rows = await ctx.db.query("collectionCoverageWindows")
+    .withIndex("by_integrationId_startedAt", q => q.eq("integrationId", input.integrationId)
+      .gte("startedAt", start).lt("startedAt", input.endAt)).take(1001);
+  if (rows.length > 1000) return { complete: false };
+  const gaps = [...(before ? [before] : []), ...rows]
+    .filter(row => row.state !== "observed" && row.state !== "estimated")
+    .map(row => ({ startAt: Math.max(start, row.startedAt), endAt: Math.min(input.endAt, row.endedAt ?? input.endAt) }))
+    .filter(gap => gap.endAt > gap.startAt);
+  return { complete: true, gaps };
+}
 
 // Five-minute quiet cadence + four-minute management pass + one minute for
 // dispatch/transport. This is a continuity inference, not a polling SLA.

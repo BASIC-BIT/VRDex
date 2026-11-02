@@ -1,8 +1,9 @@
+import { markPopulationBreaks } from "./_clubAnalyticsMath";
 import { admissionMatches, type StatisticsAdmission } from "./_groupAdmission";
 import { isManagedIntegrationSession, automaticAdmissionEnabled, readCollectionSubject, readIntegrationRollups, readLegacyRollupMapping, readManagedIntegration, saveManagedPublicationChoice } from "./_groupObservationPolicy";
 import { applyAdmissionRequired, hasAutomaticEnrollmentBacklog, statisticsAdmissionDiagnostics } from "./groupObservations";
 import { requireControlProof } from "./_externalControl";
-import { transitionCoverage } from "./_collectionCoverage";
+import { transitionCoverage, readPopulationGaps } from "./_collectionCoverage";
 import { rejectConnectionOperations } from "./clubOperations";
 import { resolveClubActor, readClubVisibility, canReadCategory, requireClubPermission } from "./_clubAccess";
 import { recordGroupMemberObservation } from "./_groupMemberSnapshots";
@@ -1884,7 +1885,11 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
     worldId: "aggregate",
   }));
   const rangeStart = Math.min(...points.map((point) => point.observedAt), now);
-  const metrics = computePopulationMetrics(points, rangeStart, now);
+  const coverageInput = await readPopulationGaps(ctx, { integrationId: integration._id, epochStartedAt, startAt: rangeStart, endAt: now });
+  if (!coverageInput.complete) throw new Error("STATISTICS_RANGE_LIMIT: population coverage exceeds the read limit.");
+  const marked = markPopulationBreaks(points.map(p => ({ at: p.observedAt, value: p.population, coverage: p.coverageState })), coverageInput.gaps);
+  const breaks = new Set(marked.filter(p => p.breakBefore).map(p => p.at));
+  const metrics = computePopulationMetrics(points.map(p => ({ ...p, breakBefore: breaks.has(p.observedAt) })), rangeStart, now);
   const ownedSessions = sessions.filter(session => isManagedIntegrationSession(integration, profile._id, session));
   const openSessions = ownedSessions.filter((session) => session.state === "open");
   const current = (!integration.enabledFeatures || integration.enabledFeatures.includes("analytics")) &&

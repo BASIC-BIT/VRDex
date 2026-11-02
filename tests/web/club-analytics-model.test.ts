@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  observedChartPoints,
   membershipChartPoints,
   membershipRangePoints,
   markMembershipMilestones,
@@ -105,4 +106,9 @@ test("membership milestones mark founding and only a recent actual observation",
   assert.deepEqual(points.filter(p => p.today).map(p => p.at), [3 * day]);
   assert.equal(points.find(p => p.at === 1.5 * day)?.value, null);
   assert.equal(markMembershipMilestones([{ at: 3 * day, value: 12, label: "Jan 4" }], { groupCreatedAt: day, latestObservedAt: 3 * day, startAt: 2 * day, endAt: 4 * day, now: 6 * day }).some(p => p.founding || p.today), false);
+});
+
+test("population chart retains explicit outage breaks without inventing zero samples", () => {
+  const points = observedChartPoints([{at:0,value:10,coverage:"observed"},{at:120000,value:10,coverage:"observed",breakBefore:true}]);
+  assert.deepEqual(points.map(p => p.value), [10,null,10]);
 });
