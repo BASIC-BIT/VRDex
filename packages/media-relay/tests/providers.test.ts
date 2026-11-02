@@ -156,7 +156,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import fs from "node:fs";
-import fsPromises from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 test("successful immutable uploads cache only bounded matching digests", async () => {
   const directory = await mkdtemp(join(tmpdir(), "relay-provider-"));
@@ -169,7 +168,12 @@ test("successful immutable uploads cache only bounded matching digests", async (
     maxAttempts: 1,
     requestHandler: {
       handle: async (request) => {
-        if (request.method === "PUT") puts++;
+        if (request.method === "PUT") {
+          puts++;
+          for await (const _chunk of request.body) {
+            /* physically consume stream */
+          }
+        }
         return {
           response: { statusCode: 200, headers: {}, body: new Uint8Array() },
         };
@@ -219,18 +223,12 @@ test("an abort after hashing is not a process-fatal stream error on a cache hit"
     });
   await upload();
   // Teardown aborts in the gap between reading the segment and uploading it.
-  const { createReadStream } = fs,
-    { readFile } = fsPromises;
+  const { createReadStream } = fs;
   let streams = 0;
   fs.createReadStream = ((...args: Parameters<typeof createReadStream>) => {
     if (++streams === 2) abort.abort();
     return createReadStream(...args);
   }) as typeof createReadStream;
-  fsPromises.readFile = (async (...args: Parameters<typeof readFile>) => {
-    const bytes = await readFile(...args);
-    abort.abort();
-    return bytes;
-  }) as typeof readFile;
   syncBuiltinESMExports();
   try {
     await upload();
@@ -238,7 +236,6 @@ test("an abort after hashing is not a process-fatal stream error on a cache hit"
     await delay(50);
   } finally {
     fs.createReadStream = createReadStream;
-    fsPromises.readFile = readFile;
     syncBuiltinESMExports();
     await rm(directory, { recursive: true, force: true });
   }
