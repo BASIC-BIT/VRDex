@@ -22,6 +22,8 @@ import {
 import { ClubConnection } from "@/app/account/communities/[slug]/club-connection";
 import { ClubAnalytics, ClubAnalyticsContent } from "@/app/account/communities/[slug]/club-analytics";
 import { ClubInstances } from "@/app/account/communities/[slug]/club-instances";
+import { ClubChart } from "@/app/account/communities/[slug]/club-chart";
+import { observedChartPoints } from "@/app/account/communities/[slug]/club-analytics-model";
 import {
   ClubWorkspaceView,
   type WorkspaceData,
@@ -361,6 +363,12 @@ export const AnalyticsWithoutInstanceHistory: Story = {
 };
 export const Instances: Story = {
   render: () => <AnalyticsFixture mode="instances" />,
+};
+export const PopulationOutage: Story = {
+  render: () => <PageShell><PageContainer><ClubChart label="Population" points={observedChartPoints([
+    {at:0,value:10,coverage:"observed"}, {at:120_000,value:12,coverage:"observed"},
+    {at:240_000,value:14,coverage:"observed",breakBefore:true}, {at:360_000,value:11,coverage:"observed"},
+  ])} /></PageContainer></PageShell>,
 };
 export const InvalidInstance: Story = {
   render: () => <AnalyticsFixture mode="instances" initialInstance="foo" />,
