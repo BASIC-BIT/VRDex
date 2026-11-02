@@ -412,26 +412,21 @@ async function collect(assignment) {
     phase = "analytics";
     if (telemetryError) throw telemetryError;
     if (stopping || Date.now() >= deadline) return;
-    const auditProvider = budgetedClubProvider({
-      provider,
-      control,
-      assignment,
-      accountBudget,
-      integrationBudget,
-      pause: pauseWithHeartbeats,
-      shouldStop: () => stopping,
-      deadline,
-    });
-    if (assignment.namedMembershipCollectionEnabled !== false) await collectMembershipPage({
-      assignment,
-      authority: refreshed.authority,
-      provider: auditProvider,
-      control,
-      expectedUserId: secret.vrchatUserId,
-      accountBudget,
-      integrationBudget,
-      requestBudgeted: true,
-    });
+    if (assignment.namedMembershipCollectionEnabled !== false) {
+      // Each durable page reserves its own budget and yields immediately when capacity is unavailable.
+      for (let page = 0; page < 32 && !stopping && Date.now() < deadline; page++) {
+        const result = await collectMembershipPage({
+          assignment,
+          authority: refreshed.authority,
+          provider,
+          control,
+          expectedUserId: secret.vrchatUserId,
+          accountBudget,
+          integrationBudget,
+        });
+        if (!result?.collected) break;
+      }
+    }
   } catch (error) {
     const attempt = (attempts.get(assignment.integrationId) ?? 0) + 1;
     attempts.set(assignment.integrationId, attempt);
