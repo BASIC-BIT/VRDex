@@ -151,7 +151,6 @@ Spec coverage maps to Tasks 1 through 5, including boundary samples, whole-pair 
 
 Recommendation: native execution in this session, in task order, followed by one independent whole-branch review. These tasks share interfaces and have little benefit from concurrent file edits. A subagent-driven sequence remains available if BASIC prefers a separate implementer/reviewer per task. The plan requires human review before implementation under the writing-plans workflow.
 
-
 ## Execution rulings
 
 - Native PowerShell maintains the ledger because the Bash bookkeeping helper could not create its Windows path under the sandbox. No product behavior changes.

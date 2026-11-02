@@ -518,7 +518,8 @@ describe("group telemetry metrics and safety helpers", () => {
     ];
     const metrics = computePopulationMetrics(points, 0, 10 * 60_000);
     assert.equal(metrics.playerMinutes, 15);
-    assert.equal(metrics.peakConcurrency, 30);
+    assert.equal(metrics.peakConcurrency, 20); // The endpoint is outside the half-open range.
+    assert.equal(computePopulationMetrics(points, 0, 10 * 60_000 + 1).peakConcurrency, 30);
     assert.equal(metrics.coverageRatio, 0.1);
   });
 

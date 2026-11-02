@@ -5,7 +5,9 @@ test("population outages remain separate chart segments @storybook-visual", asyn
   await expect(page.getByRole('group',{name:'Population',exact:true})).toBeVisible();
   const line=page.locator('.recharts-line-curve');
   await expect(line).toHaveAttribute('d',/M.*M/);
-  await page.screenshot({path:`../../.cache/artifacts/population-outage-${isMobile?'mobile':'desktop'}.png`,fullPage:true});
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({path:`../../.cache/artifacts/population-outage-${isMobile?'mobile':'desktop'}.png`,fullPage:true});
+  }
   await page.getByRole('button',{name:'Show data table'}).click();
   await expect(page.getByRole('table')).toContainText('12');
   await expect(page.getByRole('table')).toContainText('14');
