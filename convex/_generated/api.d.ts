@@ -178,6 +178,7 @@ import type * as clubPosts from "../clubPosts.js";
 import type * as clubProviderReads from "../clubProviderReads.js";
 import type * as clubStaff from "../clubStaff.js";
 import type * as communityTelemetry from "../communityTelemetry.js";
+import type * as communityTelemetryRepair from "../communityTelemetryRepair.js";
 import type * as contributionBatches from "../contributionBatches.js";
 import type * as contributionCapacity from "../contributionCapacity.js";
 import type * as contributionCleanup from "../contributionCleanup.js";
@@ -437,6 +438,7 @@ declare const fullApi: ApiFromModules<{
   clubProviderReads: typeof clubProviderReads;
   clubStaff: typeof clubStaff;
   communityTelemetry: typeof communityTelemetry;
+  communityTelemetryRepair: typeof communityTelemetryRepair;
   contributionBatches: typeof contributionBatches;
   contributionCapacity: typeof contributionCapacity;
   contributionCleanup: typeof contributionCleanup;

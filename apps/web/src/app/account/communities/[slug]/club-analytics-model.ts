@@ -1,3 +1,5 @@
+import { MAX_OBSERVED_GAP_MS, type SeriesPoint } from "../../../../../../../convex/_clubAnalyticsMath";
+import type { ClubChartPoint } from "./club-chart";
 export type RangeDays = 7 | 30 | 90;
 export type DashboardLocation = {
   from: string;
@@ -217,4 +219,30 @@ export function markMembershipMilestones(
     marked.splice(marked.indexOf(firstObserved), 0, { at: (groupCreatedAt + firstObserved.at) / 2, value: null, label: "", founding: false, today: false });
   }
   return marked;
+}
+
+export function observedChartPoints(points: SeriesPoint[]): ClubChartPoint[] {
+  const result: ClubChartPoint[] = [];
+  for (const point of points) {
+    const previous = result.at(-1);
+    if (previous && (point.breakBefore || point.at - previous.at > MAX_OBSERVED_GAP_MS))
+      result.push({
+        at: previous.at + 1,
+        value: null,
+        label: new Date(previous.at + 1).toLocaleTimeString(undefined, {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      });
+    result.push({
+      at: point.at,
+      value: point.coverage === "observed" ? point.value : null,
+      label: new Date(point.at).toLocaleTimeString(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZoneName: "short",
+      }),
+    });
+  }
+  return result;
 }

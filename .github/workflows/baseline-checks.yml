@@ -569,8 +569,8 @@ jobs:
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
     needs: [build-web, visual-selection]
     runs-on: ubuntu-latest
-    # Existing flows take ~17 minutes; composed media coverage needs 5–7 more plus artifacts.
-    timeout-minutes: 30
+    # The serial flow suite plus composed-media checks exceeds 30 minutes on hosted runners.
+    timeout-minutes: 45
     permissions:
       contents: read
 

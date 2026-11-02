@@ -1,12 +1,13 @@
 import { v } from "convex/values";
+import { integratePopulationPair, MAX_OBSERVED_GAP_MS } from "./_clubAnalyticsMath";
 
-export const TELEMETRY_ROLLUP_VERSION = "community-telemetry-v1";
+export const TELEMETRY_ROLLUP_VERSION = "community-telemetry-v2";
 export const ACTIVE_POLL_MIN_MS = 60_000;
 export const ACTIVE_POLL_MAX_MS = 120_000;
 export const QUIET_POLL_MIN_MS = 180_000;
 export const QUIET_POLL_MAX_MS = 300_000;
 export const INSTANCE_CLOSE_MISSES = 2;
-export const MAX_INTERPOLATION_GAP_MS = 5 * 60_000;
+export { MAX_OBSERVED_GAP_MS as MAX_INTERPOLATION_GAP_MS } from "./_clubAnalyticsMath";
 export const CURRENT_FRESHNESS_MS = 6 * 60_000;
 
 /** Target authority is separate from account proof and destination jobs. */
@@ -130,6 +131,7 @@ export type PopulationPoint = {
   observedAt: number;
   population: number;
   coverageState: "observed" | "estimated" | "stale" | "unknown" | "degraded";
+  breakBefore?: boolean;
   instanceKey: string;
   worldId: string;
 };
@@ -164,20 +166,22 @@ export function computePopulationMetrics(
   points: PopulationPoint[],
   rangeStart: number,
   rangeEnd: number,
-  maxGapMs = MAX_INTERPOLATION_GAP_MS,
+  maxGapMs = MAX_OBSERVED_GAP_MS,
 ) {
   const sorted = [...points]
-    .filter((point) => point.observedAt >= rangeStart && point.observedAt <= rangeEnd)
     .sort((left, right) => left.observedAt - right.observedAt);
   const totalsByTime = new Map<number, number>();
   const worlds = new Map<string, number>();
+  const breaks = new Set(sorted.filter(p => p.breakBefore).map(p => p.observedAt));
+  const invalid = new Set(sorted.filter(p => p.coverageState !== "observed" && p.coverageState !== "estimated").map(p => p.observedAt));
 
   for (const point of sorted) {
     if (point.coverageState !== "observed" && point.coverageState !== "estimated") {
       continue;
     }
     totalsByTime.set(point.observedAt, (totalsByTime.get(point.observedAt) ?? 0) + point.population);
-    worlds.set(point.worldId, (worlds.get(point.worldId) ?? 0) + 1);
+    if (point.observedAt >= rangeStart && point.observedAt < rangeEnd)
+      worlds.set(point.worldId, (worlds.get(point.worldId) ?? 0) + 1);
   }
 
   const totals = [...totalsByTime.entries()].sort((left, right) => left[0] - right[0]);
@@ -191,13 +195,18 @@ export function computePopulationMetrics(
     if (gap <= 0 || gap > maxGapMs) {
       continue;
     }
-    playerMinutes += ((previous[1] + current[1]) / 2) * (gap / 60_000);
-    measuredMs += gap;
+    const interval = integratePopulationPair({
+      from: { at: previous[0], value: previous[1], eligible: true },
+      to: { at: current[0], value: current[1], eligible: true, breakBefore: breaks.has(current[0]) || [...invalid].some(at => at > previous[0] && at <= current[0]) },
+      startAt: rangeStart, endAt: rangeEnd,
+    });
+    if (interval) { playerMinutes += interval.area / 60_000; measuredMs += interval.duration; }
   }
 
+  const inRange = totals.filter(([at]) => at >= rangeStart && at < rangeEnd);
   return {
-    currentPopulation: totals.length > 0 ? totals[totals.length - 1]![1] : undefined,
-    peakConcurrency: totals.reduce((peak, point) => Math.max(peak, point[1]), 0),
+    currentPopulation: inRange.length > 0 ? inRange[inRange.length - 1]![1] : undefined,
+    peakConcurrency: inRange.reduce((peak, point) => Math.max(peak, point[1]), 0),
     playerMinutes,
     playerHours: playerMinutes / 60,
     measuredMs,
