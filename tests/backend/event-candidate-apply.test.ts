@@ -198,6 +198,9 @@ it("with date-only publishing off, a date-only candidate is held and a cleared s
     const fresh = await f.apply({ candidate: candidate({ title: "All Day", eventDate: "2027-05-01" }, ["event.title", "event.eventDate"]), externalId: "g-2" });
     assert.equal(fresh.outcome, "draft");
     assert.equal((await f.t.run(ctx => ctx.db.query("events").collect())).length, 1);
+    // The held shape rule 7 writes, in the one draft rule 9 saved: nothing reads as a staff value.
+    const drafts = await f.t.run(ctx => ctx.db.query("eventIntakeDrafts").collect());
+    assert.deepEqual(drafts.map(draft => [draft._id, draft.fields.title, draft.fields.eventDate, draft.fields.timeTba, draft.fields.tentative?.title]), [[fresh.draftId, undefined, undefined, undefined, "All Day"]]);
     const before = (await f.get(eventId))!;
     const cleared = await f.apply({ candidate: candidate({ ...night, start: null }, ["event.start"]), externalId: "g-1", externalUpdatedAt: before.updatedAt + 60_000, idempotencyKey: "key-2" });
     assert.equal(cleared.outcome, "draft");

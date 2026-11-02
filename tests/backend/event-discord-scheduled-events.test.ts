@@ -4,6 +4,8 @@ import { convexTest } from "convex-test";
 import { api, internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
+import { heldImportRows } from "../../convex/_eventIntakeHeld";
+import { eventDateForInstant } from "../../convex/_eventSchedule";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const modules = {
@@ -45,9 +47,9 @@ function fakeDiscord(test: TestContext, respond: (call: Call) => Response | unde
 const said = (calls: Call[]) => calls.map((call) => `${call.method} ${call.path}`);
 
 const communityBase = { slug: "afterglow-social", displayName: "Afterglow Social", sortName: "afterglow social", profileType: "community", community: { categoryTags: [] }, aliases: [], tags: [], claimState: "unclaimed", creationSource: "self", publicationState: "published", publicSurfacingState: "public", updatedAt: 1 } satisfies Omit<Doc<"profiles">, "_id" | "_creationTime">;
-function eventBase(startAt: number) {
+function eventBase(startAt: number, timezone = "UTC") {
   return { title: "Afterglow Harbor Sessions", sortTitle: "afterglow harbor sessions", summary: "Deep house by the water.", venueLabel: "The Lighthouse", posterImageUrl: "https://media.example.test/poster.png",
-    scheduleKind: "timed", startAt, sortAt: startAt, eventDate: iso(startAt).slice(0, 10), endAt: startAt + 3 * HOUR, timezone: "UTC",
+    scheduleKind: "timed", startAt, sortAt: startAt, eventDate: eventDateForInstant(startAt, timezone), endAt: startAt + 3 * HOUR, timezone,
     eventStatus: "scheduled", publicationState: "published", sourceType: "community", sourceLabel: "Fixture", updatedAt: 1 } as const;
 }
 type Seed = Partial<Doc<"events">> & { link?: string; linkState?: Doc<"eventSyncLinks">["state"] };
@@ -61,7 +63,7 @@ async function seed(t: ReturnType<typeof convexTest>, events: Seed[], connector:
     const connectorId = await ctx.db.insert("eventConnectors", { communityProfileId, kind: "discord_scheduled_events", direction: "bidirectional", mode: "hold", authorityUserId: userId, target: { guildId: GUILD }, state: "active", createdAt: now, updatedAt: now, ...connector });
     const eventIds: Id<"events">[] = [];
     for (const [index, { link, linkState, ...event }] of events.entries()) {
-      const eventId = await ctx.db.insert("events", { ...eventBase(event.startAt ?? now + 2 * DAY), slug: `night-${index}`, communityProfileId, ...event });
+      const eventId = await ctx.db.insert("events", { ...eventBase(event.startAt ?? now + 2 * DAY, event.timezone), slug: `night-${index}`, communityProfileId, ...event });
       if (link) await ctx.db.insert("eventSyncLinks", { connectorId, eventId, externalId: link, state: linkState ?? "linked", createdAt: now, updatedAt: now });
       eventIds.push(eventId);
     }
@@ -739,15 +741,58 @@ it("bidirectional keeps a newer VRDex edit and applies a newer Discord one", asy
   assert.equal((await all(t, "eventIntakeDrafts")).length, 1);
 });
 
-it("leaves a link alone while its held draft is pending", async () => {
+const heldRows = (t: ReturnType<typeof convexTest>, communityProfileId: Id<"profiles">) => t.run(async (ctx) => heldImportRows(ctx.db, (await ctx.db.get(communityProfileId))!, Date.now()));
+
+it("a later edit lands in the pending draft, and its row shows the edit", async () => {
   const t = convexTest({ schema, modules });
-  const s = await seed(t, []);
+  const s = await seed(t, [], { target: { guildId: GUILD, guildName: "Night Server" } });
   await importJob(t, s.connectorId, "create", discordEvent(s.now + DAY, { id: OTHER, name: "Harbor Sunrise" }), 100);
-  await t.run(async (ctx) => ctx.db.patch((await ctx.db.query("eventSyncLinks").first())!._id, { lastImportedAt: 1 }));
   await importJob(t, s.connectorId, "update", discordEvent(s.now + DAY, { id: OTHER, name: "Harbor Sunset" }), 200);
   assert.equal((await all(t, "eventIntakeDrafts")).length, 1);
-  const [link] = await all(t, "eventSyncLinks");
-  assert.deepEqual([link.externalUpdatedAt, link.lastImportedAt], [100, 1]);
+  assert.equal((await all(t, "eventSyncLinks"))[0].externalUpdatedAt, 200);
+  const [row] = await heldRows(t, s.communityProfileId);
+  assert.ok(row.kind === "new");
+  assert.deepEqual([row.title, row.connectorKind, row.targetName, row.author, row.sourceUrl], ["Harbor Sunset", "discord_scheduled_events", "Night Server", null, null]);
+});
+
+it("a held row with no stored server name falls back to the server ID", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, []);
+  await importJob(t, s.connectorId, "create", discordEvent(s.now + DAY, { id: OTHER, name: "Harbor Sunrise" }));
+  assert.equal((await heldRows(t, s.communityProfileId))[0].targetName, GUILD);
+});
+
+it("an edit back to the event's own fields still reaches its pending proposed update", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE }]);
+  const edit = (name: string, receivedAt: number) => importJob(t, s.connectorId, "update", discordEvent(s.now + 2 * DAY, { name, description: EVENT_LINE }), receivedAt);
+  await edit("Harbor Sessions Live", Date.now() + 1);
+  const [proposed] = await heldRows(t, s.communityProfileId);
+  assert.ok(proposed.kind === "update");
+  assert.deepEqual(proposed.changes.map((change) => change.field), ["title"]);
+  await edit("Afterglow Harbor Sessions", Date.now() + 2);
+  assert.equal((await all(t, "eventIntakeDrafts")).length, 1);
+  const [reverted] = await heldRows(t, s.communityProfileId);
+  assert.ok(reverted.kind === "update");
+  assert.deepEqual(reverted.changes, []);
+});
+
+it("a deleted Discord event flags as external_deleted", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: LIVE }], { target: { guildId: GUILD, guildName: "Night Server" } });
+  await importJob(t, s.connectorId, "delete", discordEvent(s.now + 2 * DAY));
+  const [flag] = await heldRows(t, s.communityProfileId);
+  assert.ok(flag.kind === "flag");
+  assert.deepEqual([flag.reason, flag.eventId, flag.targetName], ["external_deleted", s.eventIds[0], "Night Server"]);
+});
+
+it("a none: row that takes a Discord ID drops an old flag review", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t, [{ link: "none:held" }]);
+  await patchLink(t, s.eventIds[0], { flagReviewedAt: 5 });
+  await importJob(t, s.connectorId, "create", discordEvent(s.now + 2 * DAY, { description: EVENT_LINE }));
+  const link = await linkOf(t, s.eventIds[0]);
+  assert.deepEqual([link?.externalId, link?.state, link?.flagReviewedAt], [LIVE, "linked", undefined]);
 });
 
 it("autopublish patches the linked event and keeps its zone", async () => {
@@ -875,7 +920,7 @@ it("a real series edit on Discord still overwrites an edited night, and the walk
   assert.notEqual((await linkOf(t, s.eventIds[0]))?.lastImportedHash, stored);
 });
 
-it("a night held for review keeps its stored hash, so the edit it skipped still counts as a change", async () => {
+it("a night held for review stores the hash of the edit its draft took, so an edit back still reaches the draft", async () => {
   const t = convexTest({ schema, modules });
   const s = await seed(t, []);
   const start = s.now + DAY;
@@ -884,7 +929,11 @@ it("a night held for review keeps its stored hash, so the edit it skipped still 
   const [{ lastImportedHash }] = await all(t, "eventSyncLinks");
   assert.ok(lastImportedHash);
   await importJob(t, s.connectorId, "update", series("Harbor Sunset"), 200);
+  assert.notEqual((await all(t, "eventSyncLinks"))[0].lastImportedHash, lastImportedHash);
+  await importJob(t, s.connectorId, "update", series("Harbor Sunrise"), 300);
   assert.equal((await all(t, "eventSyncLinks"))[0].lastImportedHash, lastImportedHash);
+  const [row] = await heldRows(t, s.communityProfileId);
+  assert.equal(row.kind === "new" && row.title, "Harbor Sunrise");
 });
 
 it("a one-off stores no night hash", async () => {

@@ -44,6 +44,12 @@ const stateLabels = {
   draft: "Draft", published: "Published", cancelled: "Cancelled", retracted: "Retracted",
 } satisfies Record<EventInventoryRow["state"], string>;
 
+export function InventoryScheduleText({ schedule }: { schedule: EventInventoryRow["schedule"] }) {
+  return schedule.kind === "timed" ? <ViewerLocalEventDateTime timestamp={schedule.startAt} />
+    : schedule.kind === "date_only" ? <ViewerLocalEventDateTime scheduleKind="date_only" eventDate={schedule.eventDate} />
+      : schedule.eventDate ? <time dateTime={schedule.eventDate}>{formatCalendarDate(schedule.eventDate)}</time> : null;
+}
+
 function InventoryAction({ row, titleId }: { row: EventInventoryRow; titleId: string }) {
   const continuation = row.continuation;
   switch (continuation.kind) {
@@ -71,9 +77,7 @@ function InventoryRow({ row }: { row: EventInventoryRow }) {
       <div className="min-w-0">
         <h3 className="break-words text-base font-semibold sm:text-lg" id={titleId}>{title}</h3>
         {row.community ? <p className="mt-1 break-words text-sm text-muted">{row.community.displayName}</p> : null}
-        {row.schedule.kind === "timed" ? <p className="mt-1 text-sm text-muted"><ViewerLocalEventDateTime timestamp={row.schedule.startAt} /></p>
-          : row.schedule.kind === "date_only" ? <p className="mt-1 text-sm text-muted"><ViewerLocalEventDateTime scheduleKind="date_only" eventDate={row.schedule.eventDate} /></p>
-            : row.schedule.eventDate ? <p className="mt-1 text-sm text-muted"><time dateTime={row.schedule.eventDate}>{formatCalendarDate(row.schedule.eventDate)}</time></p> : null}
+        {row.schedule.eventDate ? <p className="mt-1 text-sm text-muted"><InventoryScheduleText schedule={row.schedule} /></p> : null}
       </div>
       <div className="col-start-2 flex flex-wrap items-center gap-3 sm:col-start-auto sm:justify-end sm:gap-6">
         <div className="text-sm sm:text-right">

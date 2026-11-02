@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import { useAction, useConvex, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
-import { EventIntakePatchSchema, selectEventLocalTime, type EventIntakePatch as EventIntakeFields, type EventIntakeLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
+import { EventIntakePatchSchema, heldImportTimeTba, selectEventLocalTime, type EventIntakePatch as EventIntakeFields, type EventIntakeLocalTime } from "../../../../../packages/api-contracts/src/event-intake";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -89,12 +89,12 @@ function clearOccurrence(local?: EventIntakeLocalTime | null) {
 }
 export type EventSubmitCompletion = { kind: "saved" } | { kind: "published"; eventId: Id<"events">; eventPath: string };
 
-export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, onSave, onPublish, onSource, initialArtworkSourceId, heading, savedTimezonePreference, newDraft = false, onDone, onGuardChange }: { onDone?: () => void; onGuardChange?: (requestLeave: (navigate: () => void) => boolean) => void; savedTimezonePreference?: string | null; newDraft?: boolean; heading?: ReactNode; initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<EventSubmitCompletion> }) {
+export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, correction = false, connectorDraft = false, onSave, onPublish, onSource, initialArtworkSourceId, heading, savedTimezonePreference, newDraft = false, onDone, onGuardChange }: { onDone?: () => void; onGuardChange?: (requestLeave: (navigate: () => void) => boolean) => void; savedTimezonePreference?: string | null; newDraft?: boolean; heading?: ReactNode; initialFields: EventIntakeFields; initialRevision?: number; correction?: boolean; connectorDraft?: boolean; onSource?: IntakeSourceAction; initialArtworkSourceId?: string; onSave?: (fields: EventIntakeFields, revision: number) => Promise<void>; onPublish: (fields: EventIntakeFields, revision: number) => Promise<EventSubmitCompletion> }) {
   const router = useRouter();
   const form = useRef<HTMLFormElement>(null);
   const performers = useEventPerformerEditor();
   const [fields, setFields] = useState(() => initialFields.timeTba ? untimed(initialFields) : initialFields);
-  const requiresStart = !correction || fields.timeTba !== true || Boolean(fields.lineup?.some(row => row.relativeTiming));
+  const requiresStart = !(correction || connectorDraft) || fields.timeTba !== true || Boolean(fields.lineup?.some(row => row.relativeTiming));
   const pendingInputs = useEventEditorPending();
   const [persisted, setPersisted] = useState(() => authoredSnapshot(initialFields.timeTba ? untimed(initialFields) : initialFields));
   const pendingRef = useRef(pendingInputs.pending);
@@ -176,11 +176,13 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
       return updated.timeTba ? untimed(updated) : updated;
     });
   }
+  // Back on its import's date, a held draft's start applies again: the form reads as Open would.
+  const heldReading = (next: EventIntakeFields) => connectorDraft && next.eventDate && !next.start ? { ...next, timeTba: heldImportTimeTba({ ...next, timeTba: false }) } : next;
   function acceptSuggestion(acceptance: IntakeSuggestionAcceptance) {
     const updated = acceptIntakeSuggestion({ fields, acceptance });
     if (!updated) return;
     if (["timezone", "eventDate", "start", "end", "doors", "lineup"].includes(acceptance.key)) timezoneAuthored.current = true;
-    const next = { ...updated, timeTba: updated.start ? false : updated.timeTba };
+    const next = heldReading({ ...updated, timeTba: updated.start ? false : updated.timeTba });
     startAnchor.current = readIntakeInstant(next, next.start) ?? startAnchor.current;
     setFields(next);
   }
@@ -190,7 +192,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     const next = rebaseIntakeSuggestions({ ...fields, timeTba: change.local ? false : fields.timeTba, timezone: fields.timezone ?? (!hasSourceClocks && change.local ? editingTimezone : fields.timezone), eventDate: change.eventDate, start: change.local,
       end: rebaseTime(fields.end, fields.eventDate, change.eventDate), doors: rebaseTime(fields.doors, fields.eventDate, change.eventDate),
       lineup: fields.lineup?.map(row => ({ ...row, start: rebaseTime(row.start, fields.eventDate, change.eventDate), end: rebaseTime(row.end, fields.eventDate, change.eventDate) })),
-    }, fields.eventDate);
+    }, fields.eventDate, connectorDraft);
     const nextStart = readIntakeInstant(next, next.start);
     try {
       let updated = next;
@@ -335,7 +337,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     <input type="hidden" name="timezone" value={fields.timezone ?? ""} />
     {!fields.timezone && [fields.start, fields.end, fields.doors, ...(fields.lineup ?? []).flatMap(row => [row.start, row.end])].some(Boolean) ? <section className="grid gap-2"><h3>Unresolved time</h3><EventTimezonePicker name="sourceTimezone" value={null} date={fields.eventDate ?? null} onChange={zone => { if (revealPendingTime()) return false; timezoneAuthored.current = true; const next = { ...fields, timezone: zone }; startAnchor.current = readIntakeInstant(next, next.start) ?? startAnchor.current; setFields(next); }} /></section> : null}
     <div className="grid items-start gap-3 sm:grid-cols-2">
-      {fields.timeTba ? <div className="grid gap-3"><Field>Date<Input type="date" required value={fields.eventDate ?? ""} onChange={event => { timezoneAuthored.current = true; const date = event.target.value || null; setFields(current => rebaseIntakeSuggestions(rebaseIntakeTimes(current, current.eventDate, date), current.eventDate)); }} /></Field><details open={fields.lineup?.some(row => row.relativeTiming) || undefined}><summary className="cursor-pointer text-sm font-medium">Add start time</summary><div className="mt-3">{startControl}</div></details></div> : startControl}
+      {fields.timeTba ? <div className="grid gap-3"><Field>Date<Input type="date" required value={fields.eventDate ?? ""} onChange={event => { timezoneAuthored.current = true; const date = event.target.value || null; setFields(current => heldReading(rebaseIntakeSuggestions(rebaseIntakeTimes(current, current.eventDate, date), current.eventDate, connectorDraft))); }} /></Field><details open={fields.lineup?.some(row => row.relativeTiming) || undefined}><summary className="cursor-pointer text-sm font-medium">Add start time</summary><div className="mt-3">{startControl}</div></details></div> : startControl}
       {!fields.timeTba ? <div className={`flex flex-wrap items-start gap-x-5 gap-y-3 ${endOpen || doorsOpen ? "" : "pt-1 sm:pt-7"}`}>
         <details className={`relative min-w-0 ${endOpen ? "w-full" : "w-fit"}`} open={endOpen} onToggle={event => setEndOpen(event.currentTarget.open)}><summary className={`cursor-pointer font-medium ${endOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add end time</summary><IntakeTime label="Ends (optional)" value={fields.end} date={fields.eventDate} timezone={fields.timezone} displayTimezone={editingTimezone} onChange={change => set("end", change.local)} /></details>
         <details className={`relative min-w-0 ${doorsOpen ? "w-full" : "w-fit"}`} open={doorsOpen} onToggle={event => setDoorsOpen(event.currentTarget.open)}><summary className={`cursor-pointer font-medium ${doorsOpen ? "absolute right-0 top-0 text-xs" : "text-sm"}`}>Add doors-open time</summary><IntakeTime label="Doors open" value={fields.doors} date={fields.eventDate} timezone={fields.timezone} displayTimezone={editingTimezone} onChange={change => set("doors", change.local)} /></details>
@@ -388,7 +390,7 @@ export function EventIntakeFieldsForm({ initialFields, initialRevision = 0, corr
     <fieldset disabled={busy} className="flex flex-wrap items-center gap-3 border-t border-border pt-5"><span className="mr-auto text-sm text-muted">{steps.indexOf(activeStep) + 1} / {steps.length}</span>{activeStep !== steps[0] ? <Button type="button" variant="secondary" onClick={() => setActiveStep(steps[steps.indexOf(activeStep) - 1])}>Back</Button> : null}{activeStep !== "Review" ? <Button type="submit" formNoValidate variant="primary">Continue</Button> : null}{onSave ? <Button type="button" disabled={busy} variant="secondary" onClick={() => void submit(false)}>Save draft</Button> : null}</fieldset>
     {message && !importOpen ? <Notice><span role="status">{message}</span></Notice> : null}
   </form>
-  {onSource ? <EventIntakeDialog open={importOpen} onClose={() => setImportOpen(false)}><fieldset><EventIntakeSource fields={fields} revision={revision} onChange={receiveFields} onSaved={(submitted, saved) => { if (saved.timezone || saved.eventDate || saved.start) timezoneAuthored.current = true; setPersisted(authoredSnapshot(saved)); setFields(current => mergeSavedEventFields(current, submitted, pendingRef.current ? { ...saved, timezone: current.timezone, eventDate: current.eventDate, start: current.start, end: current.end, doors: current.doors, lineup: current.lineup } : saved)); }} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSourceId={initialArtworkSourceId} onPreview={setArtwork} onExtract={() => { focusExtractedDetails.current = true; setActiveStep("Details"); setImportOpen(false); }} /></fieldset>{message ? <Notice><span role="status">{message}</span></Notice> : null}</EventIntakeDialog> : null}
+  {onSource ? <EventIntakeDialog open={importOpen} onClose={() => setImportOpen(false)}><fieldset><EventIntakeSource keepImport={connectorDraft} fields={fields} revision={revision} onChange={receiveFields} onSaved={(submitted, saved) => { if (saved.timezone || saved.eventDate || saved.start) timezoneAuthored.current = true; setPersisted(authoredSnapshot(saved)); setFields(current => mergeSavedEventFields(current, submitted, pendingRef.current ? { ...saved, timezone: current.timezone, eventDate: current.eventDate, start: current.start, end: current.end, doors: current.doors, lineup: current.lineup } : saved)); }} action={onSource} busy={busy} setBusy={setBusy} setMessage={setMessage} initialArtworkSourceId={initialArtworkSourceId} onPreview={setArtwork} onExtract={() => { focusExtractedDetails.current = true; setActiveStep("Details"); setImportOpen(false); }} /></fieldset>{message ? <Notice><span role="status">{message}</span></Notice> : null}</EventIntakeDialog> : null}
   </EventEditorPendingContext.Provider>;
 }
 
@@ -412,13 +414,17 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
   const loaded = useQuery(api.eventIntake.getEventIntakeDraft, draftId ? { draftId } : "skip");
   const save = useMutation(api.eventIntake.saveEventIntakeDraft);
   const publish = useAction(api.eventIntake.publishEventIntake);
+  const publishHeld = useMutation(api.eventIntakeHeld.publish);
+  const [publishingHeld, setPublishingHeld] = useState(false);
   const saved = useRef<{ draftId: Id<"eventIntakeDrafts">; version: number; fields: string } | null>(null);
   const request = useRef<{ key: string; version: number } | null>(null);
   async function saveFields(fields: EventIntakeFields, initialVersion: number) {
     const serialized = JSON.stringify(fields);
     if (saved.current?.fields === serialized) return saved.current;
     const current = saved.current ?? (loaded ? { draftId: loaded._id, version: initialVersion } : null);
-    const result = await save({ ...(current ? { draftId: current.draftId, expectedVersion: current.version } : {}), patch: fields });
+    // Time TBA on a connector draft with no start is the form's reading, not a staff decision: publication derives it again.
+    const derivedTimeTba = loaded?.connectorId && !loaded.fields.timeTba && !fields.start;
+    const result = await save({ ...(current ? { draftId: current.draftId, expectedVersion: current.version } : {}), patch: derivedTimeTba ? { ...fields, timeTba: undefined } : fields });
     saved.current = { ...result, fields: serialized };
     window.history.replaceState(window.history.state, "", `/events/new?draft=${result.draftId}`);
     return saved.current;
@@ -426,6 +432,8 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
   const sourceAction: IntakeSourceAction = async (action, fields, revision, file, onStaged) => {
     if (action === "read") return websiteIntakeCommand("poster_read", { posterAssetId: fields.posterSourceId }).then(result => ({ preview: result.dataUrl }));
     if (published.current) throw new ConvexError({ code: "PATCH_FIELD" });
+    // On a connector draft the import is the only copy of the source, so it outlives a poster change.
+    const sourceReset = loaded?.connectorId ? {} : { tentative: null, questions: null, evidence: null };
     const targetSourceId = fields.posterSourceId;
     let next: EventIntakeFields = { ...fields };
     if (action === "upload") {
@@ -435,7 +443,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
       const current = await saveFields(next, revision);
       onStaged?.(next);
       const upload = EventPosterUploadSchema.parse(await websiteIntakeCommand("poster_upload_begin", { draftId: current.draftId, ...declaration }));
-      next = { ...next, posterSourceId: upload.posterAssetId, posterDeclaration: declaration, tentative: null, questions: null, evidence: null };
+      next = { ...next, posterSourceId: upload.posterAssetId, posterDeclaration: declaration, ...sourceReset };
       const staged = await saveFields(next, revision);
       onStaged?.(next);
       const body = new FormData();
@@ -448,7 +456,7 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
       return { fields: next, ...(completed.artworkAssetId ? { artworkSourceId: upload.posterAssetId } : {}) };
     }
     if (action === "remove") {
-      next = { ...next, posterSourceId: null, posterDeclaration: null, tentative: null, questions: null, evidence: null };
+      next = { ...next, posterSourceId: null, posterDeclaration: null, ...sourceReset };
     }
     // Replay completion against its saved version before persisting later local edits.
     const current = action === "retry" && saved.current ? saved.current : await saveFields(next, revision);
@@ -466,10 +474,21 @@ function ConnectedIntake({ draftId, initialCommunitySlug, heading }: { draftId?:
     return { fields: next, candidate };
   };
   if (draftId && loaded === undefined) return <>{heading}<p aria-busy="true">Loading draft…</p></>;
-  if (draftId && loaded === null) return <>{heading}<Notice>Unavailable</Notice></>;
-  return <EventIntakeFieldsForm heading={heading} savedTimezonePreference={viewer?.user.defaultEventTimezone} newDraft={!draftId} initialFields={loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { if (published.current) await correctPublished(fields); else await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
+  // A published held draft reads as null for any manager but its actor; the form still has a redirect to run.
+  if (draftId && loaded === null && !publishingHeld) return <>{heading}<Notice>Unavailable</Notice></>;
+  // A connector import with no clock is date-only, the same reading row Publish takes.
+  const connectorFields = loaded?.connectorId ? { ...loaded.fields, timeTba: heldImportTimeTba(loaded.fields) } : undefined;
+  return <EventIntakeFieldsForm heading={heading} savedTimezonePreference={viewer?.user.defaultEventTimezone} newDraft={!draftId} connectorDraft={Boolean(loaded?.connectorId)} initialFields={connectorFields ?? loaded?.fields ?? { communitySlug: initialCommunitySlug, timeTba: false }} initialRevision={loaded?.version} onSource={sourceAction} initialArtworkSourceId={loaded?.artworkSourceId} onSave={async (fields, revision) => { if (published.current) await correctPublished(fields); else await saveFields(fields, revision); }} onPublish={async (fields, revision) => {
     if (published.current) return correctPublished(fields);
     const current = await saveFields(fields, revision);
+    if (loaded?.connectorId) {
+      // The community's listing, not the viewer's contribution: nothing to correct afterwards.
+      setPublishingHeld(true);
+      try {
+        const { eventId, eventPath } = await publishHeld({ draftId: current.draftId, expectedVersion: current.version });
+        return { kind: "published", eventId, eventPath };
+      } catch (error) { setPublishingHeld(false); throw error; }
+    }
     if (request.current?.version !== current.version) request.current = { version: current.version, key: crypto.randomUUID() };
     const result = await publish({ draftId: current.draftId, expectedVersion: current.version, idempotencyKey: request.current.key });
     const completion = { kind: "published" as const, eventId: result.eventId, eventPath: result.eventPath };

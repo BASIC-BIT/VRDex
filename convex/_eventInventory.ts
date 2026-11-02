@@ -112,7 +112,7 @@ function canonicalSchedule(event: Doc<"events">): InventorySchedule {
   } catch { /* Incomplete legacy records remain visible in All/Drafts. */ }
   return { kind: "incomplete", eventDate: calendarDate(event.eventDate) };
 }
-function intakeSchedule(fields: EventIntakePatch): InventorySchedule {
+export function intakeSchedule(fields: EventIntakePatch): InventorySchedule {
   const eventDate = calendarDate(fields.eventDate);
   const incomplete: InventorySchedule = { kind: "incomplete", eventDate };
   if (!eventDate) return incomplete;

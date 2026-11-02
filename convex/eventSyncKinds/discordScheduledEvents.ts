@@ -6,7 +6,7 @@ import { requireActiveBrowserSessionSubject } from "../_browserSessionAuthority"
 import { discordRequest } from "../_discordRest";
 import { DISCORD_IMAGE_MAX_BYTES, parseScheduledEvent, patchKeepingDescription, RECONCILE_HORIZON_MS, scheduledEventCandidateFields, scheduledEventOccurrences, scheduledEventToFields, toScheduledEventBody, type DiscordScheduledEvent, type DiscordScheduledEventBody, type ScheduledEventSource } from "../_discordScheduledEventMap";
 import { applyEventCandidate, candidateFromConnectorFields } from "../_eventCandidateApply";
-import { carriedFieldsHash, DISCORD_ID, discordScheduledEventsEnabled, requireConnectorAuthority, sha256Hex } from "../_eventConnectors";
+import { carriedFieldsHash, DISCORD_ID, discordScheduledEventsEnabled, pendingLinkDraft, requireConnectorAuthority, sha256Hex } from "../_eventConnectors";
 import { eventDateForInstant, readEventSchedule } from "../_eventSchedule";
 import { enqueueSyncJob, eventIsSyncable } from "../_eventSync";
 import { listActiveControlProofsForUser, meetsControlLevel, MINIMUM_COMMUNITY_CONTROL_LEVEL } from "../_externalControl";
@@ -134,7 +134,7 @@ export async function linkTitleDateMatch(db: DatabaseWriter, connector: Connecto
   const now = Date.now();
   const placeholder = await linkForEvent(db, connector._id, match._id);
   if (!placeholder) return await db.get(await db.insert("eventSyncLinks", { connectorId: connector._id, eventId: match._id, externalId, externalSeriesId, state: "linked", createdAt: now, updatedAt: now }));
-  await db.patch(placeholder._id, { externalId, externalSeriesId, state: "linked", lastExportedAt: undefined, lastExportedHash: undefined, updatedAt: now });
+  await db.patch(placeholder._id, { externalId, externalSeriesId, state: "linked", flagReviewedAt: undefined, lastExportedAt: undefined, lastExportedHash: undefined, updatedAt: now });
   return await db.get(placeholder._id);
 }
 
@@ -194,19 +194,18 @@ export const applyScheduledEventImport = internalMutation({
       const hash = carriedFieldsHash(KIND, fields);
       // The gateway pushes our PATCH back, possibly before completeJob has written lastExportedHash, so compare with the event itself. Google polls and never hit this.
       // ponytail: correctionFields throws on an 81-row lineup or a time past the day range, and that fails the whole walk through its attempts; skip the night in a try/catch if it ever fires.
-      if (link && event && hash === carriedFieldsHash(KIND, await correctionFields(db, event))) {
+      // Exports wait on a pending draft, so nothing can echo there: this is an edit back to the event, and the draft must take it.
+      if (link && event && !await pendingLinkDraft(db, link, now) && hash === carriedFieldsHash(KIND, await correctionFields(db, event))) {
         await db.patch(link._id, { ...seen, lastImportedHash: nightHash });
         continue;
       }
 
-      const { outcome } = await applyEventCandidate(ctx, {
+      await applyEventCandidate(ctx, {
         connector, candidate: candidateFromConnectorFields(KIND, scheduledEventCandidateFields(fields), event?.slug ? { kind: "update", slug: event.slug } : { kind: "new" }),
         actorUserId: connector.authorityUserId, link: link ?? undefined, externalId, externalUpdatedAt: receivedAt, expectedUpdatedAt: event?.updatedAt,
         // Hashed: publishing caps a key at 128 characters, and this one spells out a 64-character hash.
         idempotencyKey: sha256Hex(`${KIND}:${connector._id}:${externalId}:${hash}`),
       });
-      // ponytail: a second Discord edit while a held draft is pending is dropped, because Discord pushes and nothing re-reads it; saving into the pending draft is the upgrade.
-      if (outcome === "skipped_pending_draft") continue;
       const after = await linkByExternalId(db, connector._id, externalId);
       if (after) await db.patch(after._id, { ...(externalSeriesId ? { externalSeriesId } : {}), lastImportedHash: nightHash, lastImportedAt: now, updatedAt: now });
     }
