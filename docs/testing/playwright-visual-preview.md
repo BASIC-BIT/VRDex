@@ -361,6 +361,8 @@ Agents select `ci:browsers` for UI, authentication, and navigation changes. Sele
 
 Browser selection includes public-route smoke on desktop and mobile, local mutation-backed journeys, hosted journeys when configured, signed-in account assertions, and public/Storybook previews. The Storybook build runs only for selected browser consumers. Main pushes skip these PR-only jobs; production deployment controls remain unchanged.
 
+The local data-flow job has a 45-minute limit for its serial flow suite, composed-media acceptance and artifact upload. Its previous 30-minute limit canceled a run after 257 flow tests and 12 media tests had passed. Individual test timeouts and all selected coverage remain unchanged.
+
 In browsers-only mode, `Playwright Public Preview` and `Storybook Component Preview` run their existing assertions with `PLAYWRIGHT_CAPTURE_SCREENSHOTS=false`. They skip review PNG writes and attachments. Navigation, stabilization, editing, publication recovery, access checks, and cleanup still execute. Existing functional-flow diagnostic attachments, screenshots, traces, and videos keep their current behavior, including failure evidence. They do not establish that review screenshots were collected.
 
 With `ci:visuals`, both preview jobs collect review screenshots, and `Playwright Image Diff` and `Storybook Image Diff` compare committed baselines. Requested comparisons fail on mismatches, runtime failures, cancellation, or unexpected skips. CI never updates baselines.
