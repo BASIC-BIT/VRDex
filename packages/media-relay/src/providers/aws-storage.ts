@@ -119,9 +119,14 @@ export function createAwsStorage(
       const hash = createHash("sha256");
       const input = createReadStream(filePath, { signal });
       for await (const chunk of input) hash.update(chunk);
+      const body = createReadStream(filePath, { signal });
+      // A stream built on an aborted signal has no error listener of its own, and
+      // the cache-hit path never consumes it. An unlistened 'error' kills the
+      // worker; send's abort signal and deadline report the failure instead.
+      body.on("error", () => {});
       await put(
         objectKey,
-        createReadStream(filePath, { signal }),
+        body,
         size,
         hash.digest("hex"),
         signal,
