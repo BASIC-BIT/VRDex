@@ -2129,6 +2129,7 @@ export default defineSchema({
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
     .index("by_communityProfileId_createdAt", ["communityProfileId", "createdAt"]),
   communityTelemetryEventRecapJobs: defineTable({
+    calculationVersion: v.optional(v.string()),
     eventId: v.id("events"),
     communityProfileId: v.id("profiles"),
     integrationId: v.id("communityVrchatIntegrations"),

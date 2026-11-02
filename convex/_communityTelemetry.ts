@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { integratePopulationPair, MAX_OBSERVED_GAP_MS } from "./_clubAnalyticsMath";
 
-export const TELEMETRY_ROLLUP_VERSION = "community-telemetry-v1";
+export const TELEMETRY_ROLLUP_VERSION = "community-telemetry-v2";
 export const ACTIVE_POLL_MIN_MS = 60_000;
 export const ACTIVE_POLL_MAX_MS = 120_000;
 export const QUIET_POLL_MIN_MS = 180_000;
