@@ -412,26 +412,31 @@ async function collect(assignment) {
     phase = "analytics";
     if (telemetryError) throw telemetryError;
     if (stopping || Date.now() >= deadline) return;
-    const auditProvider = budgetedClubProvider({
-      provider,
-      control,
-      assignment,
-      accountBudget,
-      integrationBudget,
-      pause: pauseWithHeartbeats,
-      shouldStop: () => stopping,
-      deadline,
-    });
-    if (assignment.namedMembershipCollectionEnabled !== false) await collectMembershipPage({
-      assignment,
-      authority: refreshed.authority,
-      provider: auditProvider,
-      control,
-      expectedUserId: secret.vrchatUserId,
-      accountBudget,
-      integrationBudget,
-      requestBudgeted: true,
-    });
+    if (assignment.namedMembershipCollectionEnabled !== false) {
+      const catchupEndAt = Date.now() - 60_000;
+      let authority = refreshed.authority;
+      // Reuse the bounded lease across budget windows without moving the catch-up target.
+      for (let page = 0; page < 32 && !stopping && Date.now() < deadline; page++) {
+        if (authority && Date.now() - authority.observedAt > 60_000) authority = (await refreshReadiness()).authority;
+        const result = await collectMembershipPage({
+          assignment,
+          authority,
+          provider,
+          control,
+          expectedUserId: secret.vrchatUserId,
+          accountBudget,
+          integrationBudget,
+          shouldStop: () => stopping,
+          deadline,
+          catchupEndAt,
+        });
+        if (Number.isFinite(result?.retryAt) && result.retryAt > Date.now()) {
+          await pauseWithHeartbeats(Math.min(result.retryAt - Date.now(), Math.max(0, deadline - Date.now())));
+          continue;
+        }
+        if (!result?.collected) break;
+      }
+    }
   } catch (error) {
     const attempt = (attempts.get(assignment.integrationId) ?? 0) + 1;
     attempts.set(assignment.integrationId, attempt);
