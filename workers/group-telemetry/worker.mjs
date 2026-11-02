@@ -414,9 +414,10 @@ async function collect(assignment) {
     if (stopping || Date.now() >= deadline) return;
     if (assignment.namedMembershipCollectionEnabled !== false) {
       const catchupEndAt = Date.now() - 60_000;
+      const membershipDeadline = Math.min(deadline, Date.now() + 90_000);
       let authority = refreshed.authority;
-      // Reuse the bounded lease across budget windows without moving the catch-up target.
-      for (let page = 0; page < 32 && !stopping && Date.now() < deadline; page++) {
+      // Leave time for the next ownership-proof poll before its two-minute freshness limit.
+      for (let page = 0; page < 32 && !stopping && Date.now() < membershipDeadline; page++) {
         if (authority && Date.now() - authority.observedAt > 60_000) authority = (await refreshReadiness()).authority;
         const result = await collectMembershipPage({
           assignment,
@@ -427,11 +428,11 @@ async function collect(assignment) {
           accountBudget,
           integrationBudget,
           shouldStop: () => stopping,
-          deadline,
+          deadline: membershipDeadline,
           catchupEndAt,
         });
         if (Number.isFinite(result?.retryAt) && result.retryAt > Date.now()) {
-          await pauseWithHeartbeats(Math.min(result.retryAt - Date.now(), Math.max(0, deadline - Date.now())));
+          await pauseWithHeartbeats(Math.min(result.retryAt - Date.now(), Math.max(0, membershipDeadline - Date.now())));
           continue;
         }
         if (!result?.collected) break;

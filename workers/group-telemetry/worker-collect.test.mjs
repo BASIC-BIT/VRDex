@@ -193,6 +193,16 @@ test("membership catch-up yields at its page bound, shutdown, and lease deadline
     assert.deepEqual(h.failures, []);
   }
 });
+
+test("membership backfill yields before ownership proof polling becomes stale", async () => {
+  const h = harness();
+  let waited = 0;
+  h.sandbox.collectMembershipPage = async () => ({ collected: false, retryAt: h.clock() + 600000 });
+  h.sandbox.pauseWithHeartbeats = async ms => { waited += ms; h.advance(ms); };
+  await h.pass();
+  assert.equal(waited, 90000);
+  assert.deepEqual(h.failures, []);
+});
 test("adopted managed poll skips named history despite current audit permission", async () => {
   const h = harness({ features: ["analytics"], namedMembershipCollectionEnabled: false });
   h.sandbox.refreshClubAuthority = async () => ({ authority: { groupId: "grp_00000000-0000-0000-0000-000000000001", userId: "bot", membershipStatus: "member", permissions: ["*"], observedAt: 1000000 } });
