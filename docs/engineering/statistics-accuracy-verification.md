@@ -35,6 +35,8 @@ The five backend failures are in unchanged tests for the VRCDN hold-program enco
 
 Hosted CI is separate evidence. Browser and visual labels select it for this PR. No merge-readiness claim follows from this document.
 
+Hosted review later reproduced a future-dated observation overriding a current count and an ordinary recap job stopping after a page failure. Current dashboard reads now end at the request time and require a fresh selected observation. Recap continuations retry after one, two and four minutes, retain exhausted failures, and restart failed calculations. Regressions verify future-only data is stale, exact-now counts remain visible, retries are bounded, and ordinary jobs recover without a repair inventory. Related telemetry/staff suites passed 56 tests; backend types and Markdown lint passed. The remaining backend guide references were aligned to the six-minute rule.
+
 ## Implementation adjustments
 
 - Native PowerShell maintained the execution ledger after the Bash bookkeeping helper failed to create its Windows path under the sandbox. This changes no product behavior.

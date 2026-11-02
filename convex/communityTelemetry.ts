@@ -1865,7 +1865,7 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
   ] = await Promise.all([
     integration.assignedCollectorAccountId ? ctx.db.get(integration.assignedCollectorAccountId) : null,
     ctx.db.query("instanceSessions").withIndex("by_integrationId_openedAt", (q) => q.eq("integrationId", integration._id).gte("openedAt", epochStartedAt)).order("desc").take(100),
-    ctx.db.query("communityPopulationObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id).gte("observedAt", epochStartedAt)).order("desc").take(2500),
+    ctx.db.query("communityPopulationObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id).gte("observedAt", epochStartedAt).lte("observedAt", now)).order("desc").take(2500),
     ctx.db.query("instancePopulationObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id).gte("observedAt", epochStartedAt)).order("desc").take(2500),
     ctx.db.query("communityMemberCountObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id).gte("observedAt", epochStartedAt)).order("desc").take(500),
     ctx.db.query("collectionCoverageWindows").withIndex("by_integrationId_startedAt", (q) => q.eq("integrationId", integration._id).gte("startedAt", epochStartedAt)).order("desc").take(200),
@@ -1893,7 +1893,8 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
   const ownedSessions = sessions.filter(session => isManagedIntegrationSession(integration, profile._id, session));
   const openSessions = ownedSessions.filter((session) => session.state === "open");
   const current = (!integration.enabledFeatures || integration.enabledFeatures.includes("analytics")) &&
-    integration.lastSuccessfulObservationAt !== undefined && now - integration.lastSuccessfulObservationAt <= CURRENT_FRESHNESS_MS;
+    integration.lastSuccessfulObservationAt !== undefined && now - integration.lastSuccessfulObservationAt <= CURRENT_FRESHNESS_MS &&
+    population[0] !== undefined && now - population[0].observedAt <= CURRENT_FRESHNESS_MS;
   return {
     community: { slug: profile.slug, displayName: profile.displayName },
     integration: {
@@ -2226,15 +2227,20 @@ export const advanceEventRecapPage = internalMutation({
 });
 
 export const continueEventRecapJob = internalMutation({
-  args: { jobId: v.id("communityTelemetryEventRecapJobs") },
+  args: { jobId: v.id("communityTelemetryEventRecapJobs"), retryAttempt: v.optional(v.number()) },
   returns: v.union(v.null(), v.id("communityTelemetryRollups")),
   handler: async (ctx, args): Promise<Id<"communityTelemetryRollups"> | null> => {
     try {
-      return await ctx.runMutation(internal.communityTelemetry.advanceEventRecapPage, args);
+      return await ctx.runMutation(internal.communityTelemetry.advanceEventRecapPage, { jobId: args.jobId });
     } catch (error) {
-      if (await ctx.db.get(args.jobId)) await ctx.db.patch(args.jobId, {
-        failure: error instanceof Error ? error.message.slice(0, 500) : "Recap continuation failed",
-      });
+      if (await ctx.db.get(args.jobId)) {
+        await ctx.db.patch(args.jobId, {
+          failure: error instanceof Error ? error.message.slice(0, 500) : "Recap continuation failed",
+        });
+        const attempt = args.retryAttempt ?? 0;
+        if (attempt < 3) await ctx.scheduler.runAfter(60_000 * 2 ** attempt,
+          internal.communityTelemetry.continueEventRecapJob, { jobId: args.jobId, retryAttempt: attempt + 1 });
+      }
       return null;
     }
   },

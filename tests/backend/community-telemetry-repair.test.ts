@@ -328,7 +328,34 @@ const eventTarget = (
   bucketEndAt: start + 3600000,
   eventId,
 });
-it("review: failed scheduled continuations are visible and explicitly retryable", async () => {
+it("ordinary recap failures schedule bounded retries and recover without a repair target", async (test) => {
+  test.mock.timers.enable({ apis: ["setTimeout"] });
+  const t = convexTest({ schema, modules }), start = Date.UTC(2026, 9, 1);
+  const seed = await eventFixture(t, start);
+  await t.mutation(internal.communityTelemetry.recomputeRollup, {
+    integrationId: seed.integrationId, ...eventTarget(start, seed.eventId),
+  });
+  const job = await t.run(ctx => ctx.db.query("communityTelemetryEventRecapJobs").first());
+  assert.ok(job);
+  const scheduled = () => t.run(async ctx => (await ctx.db.system.query("_scheduled_functions").collect())
+    .filter(fn => fn.name.includes("continueEventRecapJob")));
+  const before = (await scheduled()).length;
+  for (let retryAttempt = 0; retryAttempt <= 3; retryAttempt++) {
+    await t.run(ctx => ctx.db.patch(job._id, { cursor: "invalid-cursor", failure: undefined, calculationVersion: "community-telemetry-v2" }));
+    await t.mutation(internal.communityTelemetry.continueEventRecapJob, { jobId: job._id, retryAttempt });
+    assert.ok((await t.run(ctx => ctx.db.get(job._id)))?.failure);
+  }
+  const retries = (await scheduled()).slice(before);
+  assert.equal(retries.length, 3);
+  assert.equal(retries[0]!.args[0].retryAttempt, 1);
+  // Invoke the scheduled payload directly, without a historical repair inventory.
+  await t.mutation(internal.communityTelemetry.continueEventRecapJob, retries[0]!.args[0]);
+  await t.mutation(internal.communityTelemetry.continueEventRecapJob, { jobId: job._id });
+  assert.equal(await t.run(ctx => ctx.db.get(job._id)), null);
+  assert.equal((await t.run(ctx => ctx.db.query("communityTelemetryRollups").first()))?.rollupVersion, "community-telemetry-v2");
+});
+it("review: failed scheduled continuations are visible and explicitly retryable", async (test) => {
+  test.mock.timers.enable({ apis: ["setTimeout"] });
   const t = convexTest({ schema, modules }),
     start = Date.UTC(2026, 9, 1),
     seed = await eventFixture(t, start);
