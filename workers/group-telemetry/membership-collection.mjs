@@ -15,7 +15,7 @@ export async function collectMembershipPage({ assignment, authority, provider, c
   if (stopped()) return { collected: false };
   if (!scan || scan.complete) {
     const startAt = Math.max(assignment.epochStartedAt, scan ? scan.endAt - 5 * 60_000 : assignment.epochStartedAt);
-    const endAt = Math.min(catchupEndAt, startAt + 86400_000);
+    const endAt = Math.min(catchupEndAt, startAt + 31 * 86400_000);
     if (endAt <= startAt || (scan && endAt <= scan.endAt)) return { collected: false };
     await control.send("membership_scan_begin", { ...scope, startAt, endAt });
     scan = await control.send("membership_scan_resume", scope);
