@@ -1,6 +1,8 @@
 import type { z, PublicGroupPopulationSeriesSchema } from "../packages/api-contracts/src/schemas";
 import type { Doc } from "./_generated/dataModel";
-import { MAX_INTERPOLATION_GAP_MS, type CoverageWindow } from "./_communityTelemetry";
+import { type CoverageWindow } from "./_communityTelemetry";
+
+import { integratePopulationPair } from "./_clubAnalyticsMath";
 
 export type PopulationSeries = z.infer<typeof PublicGroupPopulationSeriesSchema>;
 type Observation = Pick<Doc<"communityPopulationObservations">, "observedAt" | "totalPopulation" | "activeInstanceCount" | "coverageState">;
@@ -25,23 +27,19 @@ export function buildGroupPopulationSeries({ observations, coverageWindows, star
       previous = undefined;
       continue;
     }
-    const delta = previous ? row.observedAt - previous.observedAt : 0;
-    const connected = previous !== undefined && delta > 0 && delta <= MAX_INTERPOLATION_GAP_MS &&
-      !gaps.some(gap => gap.startedAt < row.observedAt && (gap.endedAt ?? endAt) > previous!.observedAt);
-    if (!connected) {
-      segment = [];
-      segments.push(segment);
-    }
-    if (connected && previous) {
-      const left = Math.max(startAt, previous.observedAt);
-      const right = Math.min(endAt, row.observedAt);
-      if (right > left) {
-        const slope = (row.totalPopulation - previous.totalPopulation) / delta;
-        const leftPopulation = previous.totalPopulation + slope * (left - previous.observedAt);
-        const rightPopulation = previous.totalPopulation + slope * (right - previous.observedAt);
-        measuredMs += right - left;
-        playerMs += (leftPopulation + rightPopulation) / 2 * (right - left);
-      }
+    const interval = previous ? integratePopulationPair({
+      from: { at: previous.observedAt, value: previous.totalPopulation, eligible: true },
+      to: { at: row.observedAt, value: row.totalPopulation, eligible: true,
+        breakBefore: gaps.some(gap => gap.startedAt < row.observedAt && (gap.endedAt ?? endAt) > previous!.observedAt) },
+      startAt: previous.observedAt, endAt: row.observedAt,
+    }) : null;
+    if (!interval) { segment = []; segments.push(segment); }
+    if (interval && previous) {
+      const clipped = integratePopulationPair({
+        from: { at: previous.observedAt, value: previous.totalPopulation, eligible: true },
+        to: { at: row.observedAt, value: row.totalPopulation, eligible: true }, startAt, endAt,
+      });
+      if (clipped) { measuredMs += clipped.duration; playerMs += clipped.area; }
     }
     if (row.observedAt >= startAt && row.observedAt < endAt) {
       peakConcurrency = Math.max(peakConcurrency, row.totalPopulation);
