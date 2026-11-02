@@ -2143,6 +2143,7 @@ export default defineSchema({
     error: v.optional(v.string()), updatedAt: v.number(),
   }).index("by_runId_key", ["runId", "key"]).index("by_runId_state", ["runId", "state"]),
   communityTelemetryEventRecapJobs: defineTable({
+    failure: v.optional(v.string()),
     calculationVersion: v.optional(v.string()),
     eventId: v.id("events"),
     communityProfileId: v.id("profiles"),

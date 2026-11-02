@@ -14,8 +14,7 @@ import {
   MAX_INTERPOLATION_GAP_MS,
   computePopulationMetrics,
 } from "./_communityTelemetry";
-import { markPopulationBreaks } from "./_clubAnalyticsMath";
-import { readPopulationGaps } from "./_collectionCoverage";
+import { populationPairHasGap } from "./_collectionCoverage";
 import {
   readManagedIntegration,
   readLegacyRollupMapping,
@@ -70,6 +69,7 @@ async function checkTarget(
       integration.communityProfileId,
     );
     if (
+      event?.scheduleKind === "date_only" ||
       current?._id !== integrationId ||
       event?.communityProfileId !== integration.communityProfileId ||
       event.startAt !== t.bucketStartAt ||
@@ -311,7 +311,13 @@ export const eventPage = internalQuery({
           .lte("observedAt", args.bucketEndAt + MAX_INTERPOLATION_GAP_MS),
       )
       .paginate({ cursor: args.cursor, numItems: 100 });
-    const rows = [];
+    const rows: Array<{
+      at: number;
+      value: number;
+      coverage: string;
+      sessionId: Id<"instanceSessions">;
+      breakBefore?: boolean;
+    }> = [];
     const associated = new Map<Id<"instanceSessions">, boolean>();
     for (const p of page.page) {
       let valid = associated.get(p.sessionId);
@@ -339,24 +345,25 @@ export const eventPage = internalQuery({
           sessionId: p.sessionId,
         });
     }
-    const gaps = await readPopulationGaps(ctx, {
-      integrationId: integration._id,
-      epochStartedAt: epoch,
-      startAt:
-        args.previousAt ??
-        Math.max(epoch, args.bucketStartAt - MAX_INTERPOLATION_GAP_MS),
-      endAt: page.page[page.page.length - 1]?.observedAt ?? args.bucketEndAt,
-    });
-    if (!gaps.complete)
-      throw new Error(
-        "STATISTICS_RANGE_LIMIT: event preview coverage exceeds the read limit.",
-      );
+    let previousAt = args.previousAt;
+    for (const row of rows) {
+      row.breakBefore =
+        previousAt !== undefined &&
+        row.at > previousAt &&
+        row.at - previousAt <= MAX_INTERPOLATION_GAP_MS &&
+        (await populationPairHasGap(ctx, {
+          integrationId: integration._id,
+          epochStartedAt: epoch,
+          startAt: previousAt,
+          endAt: row.at,
+        }));
+      previousAt = row.at;
+    }
     return {
       rows,
-      gaps: gaps.gaps,
       isDone: page.isDone,
       continueCursor: page.continueCursor,
-      lastAt: page.page[page.page.length - 1]?.observedAt,
+      lastAt: previousAt,
     };
   },
 });
@@ -376,18 +383,22 @@ export const previewEvent = internalAction({
         previousAt: number | undefined;
       const totals = new Map<
         number,
-        { value: number; valid: boolean; sessions: Set<string> }
+        {
+          value: number;
+          valid: boolean;
+          sessions: Set<string>;
+          breakBefore: boolean;
+        }
       >();
-      const gaps: Array<{ startAt: number; endAt: number }> = [];
       for (let n = 0; n < 10000; n++) {
         const page: {
           rows: Array<{
             at: number;
             value: number;
             coverage: string;
+            breakBefore?: boolean;
             sessionId: string;
           }>;
-          gaps: Array<{ startAt: number; endAt: number }>;
           lastAt?: number;
           isDone: boolean;
           continueCursor: string;
@@ -401,25 +412,24 @@ export const previewEvent = internalAction({
             value: 0,
             valid: false,
             sessions: new Set<string>(),
+            breakBefore: false,
           };
           total.sessions.add(row.sessionId);
+          total.breakBefore ||= row.breakBefore === true;
           if (row.coverage === "observed" || row.coverage === "estimated") {
             total.value += row.value;
             total.valid = true;
           }
           totals.set(row.at, total);
         }
-        gaps.push(...page.gaps);
         if (page.lastAt !== undefined) previousAt = page.lastAt;
         if (page.isDone) {
-          const points = markPopulationBreaks(
-            [...totals].map(([at, t]) => ({
-              at,
-              value: t.value,
-              coverage: t.valid ? "observed" : "unknown",
-            })),
-            gaps,
-          );
+          const points = [...totals].map(([at, t]) => ({
+            at,
+            value: t.value,
+            coverage: t.valid ? "observed" : "unknown",
+            breakBefore: t.breakBefore,
+          }));
           const metrics = computePopulationMetrics(
             points.map((p) => ({
               observedAt: p.at,
@@ -623,8 +633,12 @@ export const repairTarget = internalMutation({
             .withIndex("by_eventId", (q) => q.eq("eventId", t.eventId!))
             .first()
         : null;
+      if (job?.failure) throw new Error(job.failure);
+      const output = await existingRollup(ctx, run.integrationId, t);
+      if (!job && !matchingOutput(output, run, t))
+        throw new Error("Recomputation produced no matching corrected rollup.");
       await ctx.db.patch(targetId, {
-        ...(rollupId ? { rollupId } : {}),
+        ...(output ? { rollupId: output._id } : {}),
         ...(job ? { jobId: job._id } : {}),
         state: job ? "pending" : "corrected",
         error: undefined,
@@ -659,15 +673,39 @@ export const refresh = internalMutation({
       .paginate({ cursor: cursor ?? null, numItems: 50 });
     for (const t of page.page) {
       let state = t.state;
-      if (state === "pending" && t.jobId) {
-        const job = await ctx.db.get(t.jobId);
-        if (!job) {
+      if (state === "pending" && t.eventId) {
+        const job = await ctx.db
+          .query("communityTelemetryEventRecapJobs")
+          .withIndex("by_eventId", (q) => q.eq("eventId", t.eventId!))
+          .unique();
+        if (job) {
+          if (job.failure) {
+            state = "failed";
+            await ctx.db.patch(t._id, {
+              state,
+              error: job.failure,
+              jobId: job._id,
+              updatedAt: Date.now(),
+            });
+          } else if (
+            job.integrationId !== run.integrationId ||
+            job.bucketStartAt !== t.bucketStartAt ||
+            job.bucketEndAt !== t.bucketEndAt
+          ) {
+            state = "failed";
+            await ctx.db.patch(t._id, {
+              state,
+              error: "Replacement recap scope differs from inventory",
+              updatedAt: Date.now(),
+            });
+          } else if (t.jobId !== job._id)
+            await ctx.db.patch(t._id, {
+              jobId: job._id,
+              updatedAt: Date.now(),
+            });
+        } else if (t.jobId) {
           const row = await existingRollup(ctx, run.integrationId, t);
-          state =
-            row?.rollupVersion === run.version &&
-            row.computedAt >= run.createdAt
-              ? "corrected"
-              : "failed";
+          state = matchingOutput(row, run, t) ? "corrected" : "failed";
           await ctx.db.patch(t._id, {
             state,
             ...(row ? { rollupId: row._id } : {}),
@@ -710,3 +748,20 @@ export const refresh = internalMutation({
     };
   },
 });
+
+function matchingOutput(
+  row: Doc<"communityTelemetryRollups"> | null,
+  run: Doc<"communityTelemetryRepairRuns">,
+  target: Target,
+) {
+  return (
+    row !== null &&
+    row.integrationId === run.integrationId &&
+    row.grain === target.grain &&
+    row.eventId === target.eventId &&
+    row.bucketStartAt === target.bucketStartAt &&
+    row.bucketEndAt === target.bucketEndAt &&
+    row.rollupVersion === run.version &&
+    row.computedAt >= run.createdAt
+  );
+}

@@ -3,7 +3,7 @@ import { admissionMatches, type StatisticsAdmission } from "./_groupAdmission";
 import { isManagedIntegrationSession, automaticAdmissionEnabled, readCollectionSubject, readIntegrationRollups, readLegacyRollupMapping, readManagedIntegration, saveManagedPublicationChoice } from "./_groupObservationPolicy";
 import { applyAdmissionRequired, hasAutomaticEnrollmentBacklog, statisticsAdmissionDiagnostics } from "./groupObservations";
 import { requireControlProof } from "./_externalControl";
-import { transitionCoverage, readPopulationGaps } from "./_collectionCoverage";
+import { transitionCoverage, readPopulationGaps, populationPairHasGap } from "./_collectionCoverage";
 import { rejectConnectionOperations } from "./clubOperations";
 import { resolveClubActor, readClubVisibility, canReadCategory, requireClubPermission } from "./_clubAccess";
 import { recordGroupMemberObservation } from "./_groupMemberSnapshots";
@@ -2053,7 +2053,7 @@ async function invalidateEventRecapJob(ctx: MutationCtx, eventId: Id<"events">) 
 async function advanceEventRecapJob(
   ctx: MutationCtx,
   job: Doc<"communityTelemetryEventRecapJobs">,
-) {
+): Promise<Id<"communityTelemetryRollups"> | null> {
   const [event, integration, currentIntegration] = await Promise.all([
     ctx.db.get(job.eventId),
     ctx.db.get(job.integrationId),
@@ -2071,22 +2071,19 @@ async function advanceEventRecapJob(
   }
 
   if (job.calculationVersion !== TELEMETRY_ROLLUP_VERSION) {
-    await ctx.db.delete(job._id);
-    await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
-      integrationId: integration._id, communityProfileId: job.communityProfileId, eventId: job.eventId,
-      grain: "event", bucketStartAt: event.startAt!, bucketEndAt: event.endAt ?? event.startAt! + 6 * 3600_000,
+    await ctx.db.patch(job._id, {
+      calculationVersion: TELEMETRY_ROLLUP_VERSION, cursor: undefined, pendingAt: undefined,
+      pendingTotal: 0, pendingHasValid: false, pendingSessions: [], previousAt: undefined, previousTotal: undefined,
+      currentPopulation: undefined, peakConcurrency: 0, playerMinutes: 0, measuredMs: 0,
+      activeInstanceCount: 0, worldDistribution: [], computedAt: Date.now(),
     });
-    return null;
+    const restarted = await ctx.db.get(job._id);
+    return restarted ? advanceEventRecapJob(ctx, restarted) : null;
   }
   const page = await ctx.db.query("instancePopulationObservations")
     .withIndex("by_integrationId_observedAt", q => q.eq("integrationId", job.integrationId)
       .gte("observedAt", Math.max(integration.telemetryEpochStartedAt ?? integration.createdAt, job.bucketStartAt - MAX_INTERPOLATION_GAP_MS)).lte("observedAt", job.bucketEndAt + MAX_INTERPOLATION_GAP_MS))
     .paginate({ cursor: job.cursor ?? null, numItems: EVENT_RECAP_PAGE_SIZE });
-  const gapResult = await readPopulationGaps(ctx, { integrationId: integration._id,
-    epochStartedAt: integration.telemetryEpochStartedAt ?? integration.createdAt,
-    startAt: Math.min(job.previousAt ?? job.bucketStartAt, job.pendingAt ?? job.bucketStartAt, page.page[0]?.observedAt ?? job.bucketStartAt),
-    endAt: page.page[page.page.length - 1]?.observedAt ?? job.bucketEndAt });
-  if (!gapResult.complete) throw new Error("STATISTICS_RANGE_LIMIT: recap coverage exceeds the read limit.");
   const associationBySession = new Map<Id<"instanceSessions">, boolean>();
   const worldDistribution = new Map(job.worldDistribution.map(row => [row.vrchatWorldId, row.samples]));
   let pendingAt = job.pendingAt;
@@ -2101,7 +2098,7 @@ async function advanceEventRecapJob(
   let measuredMs = job.measuredMs;
   let activeInstanceCount = job.activeInstanceCount;
 
-  const finishTimestamp = () => {
+  const finishTimestamp = async () => {
     if (pendingAt === undefined) return;
     if (pendingAt >= job.bucketStartAt && pendingAt < job.bucketEndAt)
       activeInstanceCount = Math.max(activeInstanceCount, pendingSessions.size);
@@ -2114,13 +2111,18 @@ async function advanceEventRecapJob(
         const interval = integratePopulationPair({
           from: { at: previousAt, value: previousTotal, eligible: true },
           to: { at: pendingAt, value: pendingTotal, eligible: true,
-            breakBefore: gapResult.gaps.some(g => g.startAt < pendingAt! && g.endAt > previousAt!) },
+            breakBefore: false },
           startAt: job.bucketStartAt, endAt: job.bucketEndAt,
         });
-        if (interval) { playerMinutes += interval.area / 60_000; measuredMs += interval.duration; }
+        if (interval && !await populationPairHasGap(ctx, { integrationId: integration._id,
+          epochStartedAt: integration.telemetryEpochStartedAt ?? integration.createdAt, startAt: previousAt, endAt: pendingAt })) {
+          playerMinutes += interval.area / 60_000; measuredMs += interval.duration;
+        }
       }
       previousAt = pendingAt;
       previousTotal = pendingTotal;
+    } else {
+      previousAt = undefined; previousTotal = undefined;
     }
     pendingAt = undefined;
     pendingTotal = 0;
@@ -2129,7 +2131,7 @@ async function advanceEventRecapJob(
   };
 
   for (const point of page.page) {
-    if (pendingAt !== undefined && point.observedAt !== pendingAt) finishTimestamp();
+    if (pendingAt !== undefined && point.observedAt !== pendingAt) await finishTimestamp();
     let associated = associationBySession.get(point.sessionId);
     if (associated === undefined) {
       const confirmed = await ctx.db.query("eventInstanceAssociations")
@@ -2164,7 +2166,7 @@ async function advanceEventRecapJob(
     return null;
   }
 
-  finishTimestamp();
+  await finishTimestamp();
   const confirmed = await ctx.db.query("eventInstanceAssociations")
     .withIndex("by_eventId_state", q => q.eq("eventId", job.eventId).eq("state", "confirmed"))
     .first();
@@ -2210,11 +2212,31 @@ async function advanceEventRecapJob(
   return rollupId;
 }
 
+export const advanceEventRecapPage = internalMutation({
+  args: { jobId: v.id("communityTelemetryEventRecapJobs") },
+  returns: v.union(v.null(), v.id("communityTelemetryRollups")),
+  handler: async (ctx, args) => {
+    let job = await ctx.db.get(args.jobId);
+    if (job?.failure) {
+      await ctx.db.patch(job._id, { failure: undefined, calculationVersion: undefined });
+      job = await ctx.db.get(job._id);
+    }
+    return job ? advanceEventRecapJob(ctx, job) : null;
+  },
+});
+
 export const continueEventRecapJob = internalMutation({
   args: { jobId: v.id("communityTelemetryEventRecapJobs") },
-  handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId);
-    return job ? advanceEventRecapJob(ctx, job) : null;
+  returns: v.union(v.null(), v.id("communityTelemetryRollups")),
+  handler: async (ctx, args): Promise<Id<"communityTelemetryRollups"> | null> => {
+    try {
+      return await ctx.runMutation(internal.communityTelemetry.advanceEventRecapPage, args);
+    } catch (error) {
+      if (await ctx.db.get(args.jobId)) await ctx.db.patch(args.jobId, {
+        failure: error instanceof Error ? error.message.slice(0, 500) : "Recap continuation failed",
+      });
+      return null;
+    }
   },
 });
 
@@ -3191,10 +3213,12 @@ export async function populationRollupValues(ctx: QueryCtx | MutationCtx, integr
     const before = await ctx.db.query("communityPopulationObservations").withIndex("by_integrationId_observedAt", q => q.eq("integrationId", integration._id).gte("observedAt", Math.max(epoch, bucketStartAt - MAX_INTERPOLATION_GAP_MS)).lt("observedAt", bucketStartAt)).order("desc").first();
     const after = await ctx.db.query("communityPopulationObservations").withIndex("by_integrationId_observedAt", q => q.eq("integrationId", integration._id).gte("observedAt", bucketEndAt).lte("observedAt", bucketEndAt + MAX_INTERPOLATION_GAP_MS)).first();
     const observed = [...(before ? [before] : []), ...population, ...(after ? [after] : [])];
-    const gapResult = await readPopulationGaps(ctx, { integrationId: integration._id, epochStartedAt: epoch, startAt: before?.observedAt ?? Math.max(epoch, bucketStartAt), endAt: after?.observedAt ?? bucketEndAt });
-    if (!gapResult.complete) throw new Error("STATISTICS_RANGE_LIMIT: rollup coverage exceeds the read limit.");
-    const marked = markPopulationBreaks(observed.map(p => ({ at: p.observedAt, value: p.totalPopulation, coverage: p.coverageState })), gapResult.gaps);
-    const breaks = new Set(marked.filter(p => p.breakBefore).map(p => p.at));
+    const breaks = new Set<number>();
+    for (let n = 1; n < observed.length; n++) {
+      const a = observed[n - 1]!, b = observed[n]!;
+      if (b.observedAt > a.observedAt && b.observedAt - a.observedAt <= MAX_INTERPOLATION_GAP_MS &&
+          await populationPairHasGap(ctx, { integrationId: integration._id, epochStartedAt: epoch, startAt: a.observedAt, endAt: b.observedAt })) breaks.add(b.observedAt);
+    }
     const points = observed.map((point) => ({
       breakBefore: breaks.has(point.observedAt),
       observedAt: point.observedAt,

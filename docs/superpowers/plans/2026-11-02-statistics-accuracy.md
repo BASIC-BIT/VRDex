@@ -116,7 +116,7 @@ Use an indexed predecessor plus at most 1,001 in-range windows to enforce a 1,00
 - [ ] Add integration tests asserting a full-hour ten-person rollup has `playerMinutes === 600`, `coverageRatio === 1`, and the same row ID after two recomputations. Assert a preexisting v1 event recap is updated in place with no extra visible row.
 - [ ] Add recap tests for simultaneous associated sessions, per-session adjacent samples, outage breaks crossing a page boundary, empty association-filtered pages, no extrapolated final zero, event edits/removal, and a legacy continuation arriving after v2 completion. Assert one-point pagination equals a whole-input reference result.
 - [ ] Run `node --conditions=import --import tsx --test tests/backend/community-telemetry.test.ts tests/backend/community-telemetry-review-regressions.test.ts`; confirm new regressions fail.
-- [ ] Update hourly/day input reads and streaming event aggregation to include bounded adjacent samples and pass all eligible pairs through Task 1's rule. Read coverage across the carried previous endpoint. Keep one pending aggregate per snapshot time and preserve it across pages. If a job's coverage-read span exceeds the interactive cap, page that input with persisted continuation state; never commit a partially read summary.
+- [ ] Update hourly/day input reads and streaming event aggregation to include bounded adjacent samples and pass all eligible pairs through Task 1's rule. Read coverage across the carried previous endpoint. Keep one pending aggregate per snapshot time and preserve it across pages. Use indexed per-state barrier-existence probes for background intervals so coverage-window volume does not inherit the interactive cap. Continue paging observation input and never commit a partially read summary.
 - [ ] Find existing event rows independently of calculation version while respecting integration/legacy mapping. Reject ambiguous identities rather than delete or duplicate them. Version-fence job writes and preserve existing schedule/association revalidation. Change the calculation version only after all consumers use the corrected rules.
 - [ ] Rerun the focused telemetry command and the Task 2 tests. Require zero failures, then commit the persisted-calculation change.
 
@@ -150,3 +150,10 @@ The installed migration runner does not accept arbitrary per-run integration/ran
 Spec coverage maps to Tasks 1 through 5, including boundary samples, whole-pair outage rejection, 360,000 ms tolerance, estimated eligibility, pagination, version fencing, historical repair, permissions and runtime evidence. The five review-focus cases have tests in their owning tasks. Interfaces above are the shared contracts; implementation may choose internal helper names not exposed across tasks.
 
 Recommendation: native execution in this session, in task order, followed by one independent whole-branch review. These tasks share interfaces and have little benefit from concurrent file edits. A subagent-driven sequence remains available if BASIC prefers a separate implementer/reviewer per task. The plan requires human review before implementation under the writing-plans workflow.
+
+
+## Execution rulings
+
+- Native PowerShell maintains the ledger because the Bash bookkeeping helper could not create its Windows path under the sandbox. No product behavior changes.
+- Restore unrelated README/config/line-ending defaults written by local Convex initialization; retain the generated API declaration for the new module.
+- Independent review reproduced background coverage exhaustion. Use the existing state/time indexes to answer whether a pair crosses any outage, instead of storing and paging all coverage rows. This preserves the approved interval contract and avoids a coverage cursor/table; it adds up to four bounded indexed probes per candidate interval. Observation jobs still paginate. Regression coverage includes more than 1,000 windows and a real outage among them.
