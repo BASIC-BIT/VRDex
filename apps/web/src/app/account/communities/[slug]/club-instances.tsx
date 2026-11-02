@@ -7,7 +7,6 @@ import type { Id } from "../../../../../../../convex/_generated/dataModel";
 import {
   summarizeSeries,
   mergeSeriesSegments,
-  type SeriesPoint,
 } from "../../../../../../../convex/_clubAnalyticsMath";
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";

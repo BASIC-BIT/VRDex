@@ -1,4 +1,3 @@
-import { MAX_INTERPOLATION_GAP_MS } from "./_communityTelemetry";
 import { ConvexError } from "convex/values";
 import { PublicStatisticsRangeInputSchema } from "../packages/api-contracts/src/schemas";
 import { buildGroupPopulationSeries } from "./_groupPopulationSeries";
@@ -6,7 +5,7 @@ import { readIntegrationRollups, readPublicGroupId, resolveGroupObservationPolic
 import { readClubVisibility } from "./_clubAccess";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
-import { CURRENT_FRESHNESS_MS, TELEMETRY_ROLLUP_VERSION } from "./_communityTelemetry";
+import { MAX_INTERPOLATION_GAP_MS, CURRENT_FRESHNESS_MS, TELEMETRY_ROLLUP_VERSION } from "./_communityTelemetry";
 
 export const PUBLIC_TELEMETRY_DEFINITIONS = {
   currentPopulation: { unit: "people", grain: "latest_poll", gapPolicy: "omitted_when_stale" },

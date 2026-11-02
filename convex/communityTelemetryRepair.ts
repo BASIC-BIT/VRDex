@@ -611,22 +611,16 @@ export const repairTarget = internalMutation({
       )
         throw new Error("Blocked: presentation epoch changed.");
       await existingRollup(ctx, run.integrationId, t);
-      const rollupId =
-        t.jobId && (await ctx.db.get(t.jobId))
-          ? await ctx.runMutation(
-              internal.communityTelemetry.continueEventRecapJob,
-              { jobId: t.jobId },
-            )
-          : await ctx.runMutation(internal.communityTelemetry.recomputeRollup, {
-              integrationId: run.integrationId,
-              ...(integration.communityProfileId
-                ? { communityProfileId: integration.communityProfileId }
-                : {}),
-              grain: t.grain,
-              bucketStartAt: t.bucketStartAt,
-              bucketEndAt: t.bucketEndAt,
-              ...(t.eventId ? { eventId: t.eventId } : {}),
-            });
+      if (t.jobId && await ctx.db.get(t.jobId)) {
+        await ctx.runMutation(internal.communityTelemetry.continueEventRecapJob, { jobId: t.jobId });
+      } else {
+        await ctx.runMutation(internal.communityTelemetry.recomputeRollup, {
+          integrationId: run.integrationId,
+          ...(integration.communityProfileId ? { communityProfileId: integration.communityProfileId } : {}),
+          grain: t.grain, bucketStartAt: t.bucketStartAt, bucketEndAt: t.bucketEndAt,
+          ...(t.eventId ? { eventId: t.eventId } : {}),
+        });
+      }
       const job = t.eventId
         ? await ctx.db
             .query("communityTelemetryEventRecapJobs")
