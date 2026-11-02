@@ -24,8 +24,6 @@ Observed, estimated, stale, degraded, and unknown periods remain distinct. Solid
 
 Public history keeps missing bucket positions blank instead of drawing zero. Event recaps are emitted only for published canonical events.
 
-Population intervals use successful observations at most six minutes apart. This allowance covers quiet polling and dispatch time; it does not prove continuous presence between observations. A recorded degraded, stale, or unknown interval breaks the entire pair. Hourly and daily calculations use real adjacent samples to clip intervals at bucket boundaries, without extending the last observation. Peaks use observed samples inside the requested range.
-
 Operators can confirm which instance session belongs to an event. Time/world overlap may create a private suggestion, but suggestions never publish until an authorized operator confirms them. A confirmed recap can include peak concurrency, player-hours, worlds, duration window, and coverage.
 
 ## Public controls
