@@ -119,6 +119,17 @@ Owner: the deployment operator (BASIC). Not a secret; recreate it with
 disconnect existing boards first: while it is `false`, their queued jobs fail
 toward the five-failure connector alarm.
 
+`VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED`: `true` enables Discord
+scheduled event jobs, the relay of scheduled event changes into import jobs,
+the daily reconcile, and the Connect button. Scope: the Convex deployment
+environment only. Default off: the relay enqueues nothing and scheduled event
+jobs fail with `CONNECTOR_KIND_DISABLED`. Also needs
+`VRDEX_EVENT_CONNECTORS_ENABLED`, `DISCORD_BOT_TOKEN`, and `SITE_URL`; the relay
+also needs `VRDEX_DISCORD_INTAKE_ENABLED`. Owner: deployment operator (BASIC).
+No secret; recreate it with `npx convex env set`, and roll back by setting it
+to `false`. Pause or disconnect existing connectors first: while it is `false`,
+their queued jobs fail toward the five-failure connector alarm.
+
 Connector OAuth tokens are stored encrypted with AES-256-GCM in the
 `v1:iv:tag:ciphertext` format, keyed by `VRDEX_CONNECTOR_TOKEN_KEY` (secret).
 
@@ -170,8 +181,9 @@ The client lives in the `vrdex-production` Google Cloud project, under the
 `basicbit.net` organization and the `basic@basicbit.net` identity. It is
 `VRDex Calendar Connector`, separate from the project's existing
 `VRDex Production` client, and was created on 2026-10-30. Its ID and secret are
-set on both Convex deployments and in GitHub. Enabling the flag and
-verification are not done.
+set on both Convex deployments, in GitHub, and on Vercel through the `vercel`
+stack. The flag is on for both Convex deployments as of 2026-10-30. Google
+verification is not done, and nothing has run against real Google yet.
 
 The project's consent screen is External and already published, so no test users
 are needed and Testing's seven-day refresh token expiry does not apply. Until
@@ -220,9 +232,15 @@ again at once. Current alarms:
   `import_item`, and `reconcile` jobs neither clear the count nor resolve the
   alert: a successful read says nothing about writes.
 - `discord-intake:` plus the connector ID: a connector's three most recently
-  started intake runs all failed. The email names the connector and community
-  IDs and the failure codes only. The next finished run, or removing or
+  started intake runs all failed, or the five-minute sweep closed one of its
+  runs as `stalled` and requeued its posts, a retry that counts against the
+  daily run cap. The email names the connector and community IDs and the
+  failure codes or run ID only. The next finished run, or removing or
   disconnecting the connector, resolves it.
+- `discord-intake-dropped:` plus the run ID: the sweep closed a run as `stalled`
+  and did not requeue its posts, because the retry also stalled or the connector
+  is paused or off. Those posts need a real edit to run again. The key is per
+  run, so it does not resolve automatically.
 - `discord-intake-posters`: the poster bridge to the web app failed. See
   [Discord intake](#discord-intake).
 - `product-analytics-delivery`: a product analytics outbox row stops retrying
@@ -248,7 +266,8 @@ again at once. Current alarms:
   the last error code. The daily renewal resolves it once the connector is no
   longer stale.
 
-Gateway alarms in later plans use the same path.
+The Discord gateway's `discord_gateway_heartbeat_stale` alert and the stalled-run
+sweep use the same path; see [gateway alarms](./discord-gateway.md#alarms).
 
 Alerts send through the SES settings in
 [Transactional Email Environment](#transactional-email-environment):
@@ -262,7 +281,9 @@ shows as a failed function in the Convex logs.
 `true`. Scope: the Convex deployment environment only. Default: unset, which
 means off. Owner: BASIC. It gates the `/discord-intake/*` HTTP routes, which
 answer 503 while it is off, intake runs, and the Integrations page's Discord
-connect flow, which is hidden and refuses while it is off.
+connect flow, which is hidden and refuses while it is off. While it is off the
+gateway heartbeat check is silent. Turn it on immediately before creating the
+gateway service, as in the [bootstrap](./discord-gateway.md#bootstrap).
 
 `DISCORD_INTAKE_SECRET` is the bearer token the Discord gateway presents on
 every `/discord-intake/*` request (secret). Scope: the Convex deployment
@@ -271,16 +292,20 @@ generated with `openssl rand -base64 32`, set with
 `npx convex env set DISCORD_INTAKE_SECRET` and stored in the gateway's Secrets
 Manager entry. With the flag on and no secret set, every route answers 401.
 
-Rotation: set the new value on Convex and on the gateway in one window. Relays
-fail with 401 between the two writes, and the gateway does not retry those
-posts.
+It must match Secrets Manager `vrdex/discord-gateway/DISCORD_INTAKE_SECRET`.
+
+Rotation: set the new value on Convex and in Secrets Manager in one window, then
+force a new deployment as in [the gateway doc](./discord-gateway.md#environment),
+because ECS injects secrets at task start. Relays and heartbeats fail with 401
+until the new task runs, and the gateway does not retry those posts.
 
 `VRDEX_DISCORD_POSTER_TOKEN` is the bearer token intake runs present to the web
 app's internal poster bridge, `POST /api/internal/discord-intake/poster`, which
 copies Discord attachments into private poster storage (secret). Only the web
 server holds the bucket role. Scope: the Convex deployment environment and the
 web app (Vercel Terraform variable `discord_poster_token` in
-`infra/terraform/vercel`). Owner: BASIC. Value: at least 32 random bytes,
+`infra/terraform/vercel`; read [the note on it](./discord-gateway.md#values-basic-provides)
+before using it). Owner: BASIC. Value: at least 32 random bytes,
 generated with `openssl rand -base64 32`. Unset on either side, runs store no
 posters and continue with the post text. A run that has posters and stores none
 emails the `discord-intake-posters` ops alert, naming the failure code; the next
@@ -297,8 +322,9 @@ moves to another Discord application.
 `DISCORD_BOT_TOKEN` on Convex must be the token of that same gateway application.
 The Integrations page lists channels and proves a channel's guild as this bot,
 so a token from another application reports the gateway's bot as missing from
-every server. Rotate it with the gateway's token, in one window. These calls
-always go to `discord.com`: `DISCORD_API_BASE_URL` does not apply to them.
+every server. Rotate it with the gateway's token, in one window, as in
+[the gateway doc](./discord-gateway.md#environment). These calls always go to
+`discord.com`: `DISCORD_API_BASE_URL` does not apply to them.
 
 Staging's `DISCORD_BOT_TOKEN` is the hosted adapter stub's token (see
 [Hosted E2E Helpers](#hosted-e2e-helpers)), which real Discord rejects, and the
@@ -320,8 +346,12 @@ Runs reuse `SITE_URL` as the poster bridge origin. They also read
 `OPENAI_API_KEY`, `VRDEX_EVENT_INTAKE_AI_ENABLED`, and
 `VRDEX_EVENT_INTAKE_MODEL` from the Convex deployment, so set those on Convex as
 well as the web app before turning Discord intake on, plus the Langfuse
-variables above when runs should be traced. With extraction off, every run
-fails with `extraction_unavailable`.
+variables above when runs should be traced. With extraction off or
+`OPENAI_API_KEY` unset, every run fails with `extraction_unavailable`, and after
+three failed runs in a row the `discord-intake:` ops alert fires.
+
+The gateway heartbeat check adds no AWS credential on Convex. It emails through
+the [ops alert](#ops-alerts) path.
 
 ## Recurring events
 
@@ -654,7 +684,7 @@ Development/staging Convex env names:
 - `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord credentials for the purpose-scoped community-verification round-trip. These are **not** sign-in credentials — Clerk holds those — but `convex/discordVerification.ts` still requires them
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`
 - `DISCORD_OAUTH_AUTHORIZE_URL`: optional consent-screen override, for pointing the OAuth round-trip at a stub instead of Discord. Defaults to `https://discord.com/oauth2/authorize`. The browser follows it carrying the `state` that authorizes the round-trip, so it must be https unless it is loopback
-- `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment. It is not a real bot token, so the site Discord connect flow needs `DISCORD_REST_BOT_TOKEN` on staging; see [Discord intake](#discord-intake). The Discord board connector also uses it from Convex in any deployment where `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` is on, unless `DISCORD_REST_BOT_TOKEN` overrides it
+- `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment. It is not a real bot token, so the site Discord connect flow needs `DISCORD_REST_BOT_TOKEN` on staging; see [Discord intake](#discord-intake). The Discord board and scheduled events connectors also use it from Convex in any deployment where `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` or `VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED` is on, unless `DISCORD_REST_BOT_TOKEN` overrides it
 - `DISCORD_REST_BOT_TOKEN` (secret): optional real bot token for `convex/_discordRest.ts`; see [Discord intake](#discord-intake)
 - `VRCHAT_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCLINKING_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
@@ -670,7 +700,7 @@ Production Convex auth env names:
 - `CLERK_JWT_ISSUER_DOMAIN=https://<clerk-frontend-api>`: production Clerk Frontend API origin, read by `convex/auth.config.ts`. Must match the issuer of the `convex` JWT template on the production Clerk instance
 - `SITE_URL=https://vrdex.net`: builds the Discord verification callback URL
 - `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: production Discord credentials for the purpose-scoped community-verification round-trip. Still required by `convex/discordVerification.ts`; they are no longer sign-in credentials
-- `DISCORD_BOT_TOKEN` (secret): bot token of the production Discord application, read by `convex/_discordRest.ts` for the Discord board connector and by `convex/profileClaims.ts` for the bot claim path. Needed once `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` is on. Scope: the production Convex environment. Owner: BASIC. Rotate or recreate it by resetting the token in the Discord Developer Portal and setting the new value with `npx convex env set DISCORD_BOT_TOKEN`. Resetting the token revokes the old value for every service that uses it, so update each holder
+- `DISCORD_BOT_TOKEN` (secret): bot token of the production Discord application, read by `convex/_discordRest.ts` for the Discord board and scheduled events connectors and by `convex/profileClaims.ts` for the bot claim path. Needed once `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` or `VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED` is on. Scope: the production Convex environment. Owner: BASIC. Rotate or recreate it by resetting the token in the Discord Developer Portal and setting the new value with `npx convex env set DISCORD_BOT_TOKEN`. Resetting the token revokes the old value for every service that uses it, so update each holder
 
 Retired when Clerk replaced Convex Auth, and safe to delete from every Convex
 deployment once the cutover is verified:

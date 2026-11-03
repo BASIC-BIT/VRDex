@@ -17,9 +17,11 @@ export async function sourceExpiry(db: DatabaseReader, source: Doc<"eventPosterS
   const date = event?.eventDate ? Date.parse(`${event.eventDate}T23:59:59.999Z`) : event?.startAt;
   return Math.min(source.uploadedAt + 180 * DAY, (date ?? draft?.updatedAt ?? source.lastActivityAt) + 30 * DAY);
 }
+// Poster files follow their draft: a held connector draft's files open to whoever can open the draft.
+const opensDraft = (db: DatabaseReader, actorUserId: Id<"users">, draftId: Id<"eventIntakeDrafts">) => getActorIntakeDraft(db, actorUserId, draftId).then(() => true, () => false);
 async function ownSource(db: DatabaseReader, actorUserId: Id<"users">, id: Id<"eventPosterSources">) {
   const source = await db.get(id);
-  if (!await db.get(actorUserId) || !source || source.actorUserId !== actorUserId || source.state === "expired" || source.state === "deleting" || (!source.holdReportId && await sourceExpiry(db, source) <= Date.now())) throw new Error("POSTER_NOT_FOUND");
+  if (!await db.get(actorUserId) || !source || (source.actorUserId !== actorUserId && !await opensDraft(db, actorUserId, source.draftId)) || source.state === "expired" || source.state === "deleting" || (!source.holdReportId && await sourceExpiry(db, source) <= Date.now())) throw new Error("POSTER_NOT_FOUND");
   return source;
 }
 export const beginPosterUpload = internalMutation({
@@ -30,7 +32,9 @@ export const beginPosterUpload = internalMutation({
     if (draft.publishedReceiptId) throw new Error("DRAFT_PUBLISHED");
     const reservedBytes = declaration.byteLength * 2;
     // Connector posters neither count toward nor are capped by the authority's own quota; the connector's daily run cap bounds them.
-    if (!draft.connectorId) {
+    // A manager uploading to a held draft is not the connector, so their upload counts as their own.
+    const connectorId = draft.actorUserId === args.actorUserId ? draft.connectorId : undefined;
+    if (!connectorId) {
       const active = (await Promise.all((["pending", "ready", "deleting"] as const).map(state => ctx.db.query("eventPosterSources").withIndex("by_actor_connector_state", q => q.eq("actorUserId", args.actorUserId).eq("connectorId", undefined).eq("state", state)).take(101)))).flat();
       if (active.length >= 20 || active.reduce((sum, row) => sum + row.reservedBytes, 0) + reservedBytes > 120 * 1024 * 1024) throw new Error("POSTER_QUOTA");
     }
@@ -41,7 +45,7 @@ export const beginPosterUpload = internalMutation({
     const uploadExpiresAt = now + 10 * 60_000;
     const posterAssetId = await ctx.db.insert("eventPosterSources", { purpose: "event_poster", actorUserId: args.actorUserId, draftId: args.draftId, ...declaration,
       reservedBytes, storageKey, uploadStorageKey, state: "pending", uploadedAt: now, lastActivityAt: draft.updatedAt, expiresAt: uploadExpiresAt + DAY, uploadExpiresAt,
-      ...(draft.connectorId ? { connectorId: draft.connectorId } : {}) });
+      ...(connectorId ? { connectorId } : {}) });
     return { posterAssetId, storageKey, uploadStorageKey, expiresAt: uploadExpiresAt, ...declaration };
   },
 });
@@ -92,7 +96,7 @@ export const selectPosterArtwork = internalMutation({ args: { ...actor, ...sourc
 } });
 export const completeArtwork = internalMutation({ args: { ...actor, artworkAssetId: v.id("eventPosterArtwork"), expectedVersion: v.number(), sha256: v.string(), byteLength: v.number(), automatic: v.optional(v.boolean()) }, returns: v.any(), handler: async (ctx, args) => {
   const artwork = await ctx.db.get(args.artworkAssetId);
-  if (!artwork || artwork.actorUserId !== args.actorUserId || !["pending", "ready"].includes(artwork.state)) throw new Error("ARTWORK_NOT_FOUND");
+  if (!artwork || (artwork.actorUserId !== args.actorUserId && !await opensDraft(ctx.db, args.actorUserId, artwork.draftId)) || !["pending", "ready"].includes(artwork.state)) throw new Error("ARTWORK_NOT_FOUND");
   const draft = await getActorIntakeDraft(ctx.db, args.actorUserId, artwork.draftId);
   if (draft.artworkAssetId === artwork._id && artwork.state === "ready") {
     if (args.automatic && artwork.appliedDraftVersion !== draft.version) throw new Error("VERSION_CONFLICT");
@@ -193,7 +197,7 @@ export const recoverFailedArtworkWrite = internalMutation({
   args: { ...actor, artworkAssetId: v.id("eventPosterArtwork") }, returns: v.null(),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.artworkAssetId);
-    if (!row || row.actorUserId !== args.actorUserId) throw new Error("ARTWORK_NOT_FOUND");
+    if (!row || (row.actorUserId !== args.actorUserId && !await opensDraft(ctx.db, args.actorUserId, row.draftId))) throw new Error("ARTWORK_NOT_FOUND");
     if (row.state === "expired" || row.state === "deleting") {
       await ctx.db.patch(row._id, { state: "deleting", expiresAt: Date.now(), cleanupToken: undefined, cleanupLeaseUntil: undefined });
     }

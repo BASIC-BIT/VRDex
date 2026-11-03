@@ -8,6 +8,7 @@ import type {
   TimelineEvent,
   TimelinePage,
   TimelineRange,
+  TimelineRosterPage,
 } from "../../convex/_eventTimelineTypes";
 const h = 3_600_000;
 const range = { startAt: 12 * h, endAt: 20 * h, timeZone: "UTC" };
@@ -111,22 +112,37 @@ it("retains partial after ten empty candidates, More resumes cursor and finds la
   assert.equal(c.getSnapshot().records[0]?.id, "later");
 });
 it("drains empty roster phases and deduplicates untimed favorite performers", async () => {
+  const pending = Promise.withResolvers<TimelineRosterPage>();
+  const started = Promise.withResolvers<void>();
   const c = createTimelineController({
     ...transport(async () => page([{ ...event("e"), rosterCursor: "slots" }])),
-    roster: async ({ cursor }: { cursor?: string }) =>
-      cursor === "slots"
-        ? { items: [], performers: [], cursor: "participants", complete: false }
-        : {
-            items: [],
-            performers: [
-              { id: "fav", slug: "fav", displayName: "Untimed DJ" },
-              { id: "fav", slug: "fav", displayName: "Untimed DJ" },
-            ],
-            cursor: null,
-            complete: true,
-          },
+    roster: async ({ cursor }: { cursor?: string }) => {
+      if (cursor === "slots")
+        return {
+          items: [],
+          performers: [],
+          cursor: "participants",
+          complete: false,
+        };
+      started.resolve();
+      return pending.promise;
+    },
   });
-  await c.setViewport(range, true, ["fav"]);
+  const loading = c.setViewport(range, true, ["fav"]);
+  await started.promise;
+  assert.equal(c.getSnapshot().kind, "loading");
+  assert.equal(c.getSnapshot().slotCoverage.e, "partial");
+  assert.deepEqual(c.getSnapshot().records, []);
+  pending.resolve({
+    items: [],
+    performers: [
+      { id: "fav", slug: "fav", displayName: "Untimed DJ" },
+      { id: "fav", slug: "fav", displayName: "Untimed DJ" },
+    ],
+    cursor: null,
+    complete: true,
+  });
+  await loading;
   assert.equal(c.getSnapshot().kind, "ready");
   assert.equal(c.getSnapshot().records[0]?.performers.length, 1);
   assert.equal(c.getSnapshot().slotCoverage.e, "complete");

@@ -7,15 +7,16 @@ import { getAccountFeatureAccess } from "./_accountFeatures";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
   buildDraftSourceText, buildSourceText, clampQuietWindowSeconds, connectDiscordAnnouncements, discordAttachmentValidator, discordBotInviteUrl, discordCommandReplies, discordIntakeEnabled,
-  DISCORD_SNOWFLAKE, discordMessagePayloadValidator, findRunLink, isConnectableChannelType, isDiscordCdnUrl, liveChannelConnectors, pickPosterAttachments, quietWindowMs,
+  DISCORD_SNOWFLAKE, discordMessagePayloadValidator, findRunLink, isConnectableChannelType, isDiscordCdnUrl, liveChannelConnectors, messageRow, messageUrl, pickPosterAttachments, quietWindowMs,
   readableTextChannels, resolveDiscordUserId, sanitizeRunEvidence, type DiscordChannel,
 } from "./_discordIntake";
 import { discordRequest } from "./_discordRest";
-import { applyEventCandidate } from "./_eventCandidateApply";
+import { applyEventCandidate, evidenceKey } from "./_eventCandidateApply";
 import {
-  connectorDirection, connectorKind, connectorMode, connectorState, connectorsEnabled, requireConnectorAuthority, userAuthSubject, userHasCommunityPermission,
+  connectorDirection, connectorKind, connectorMode, connectorState, connectorsEnabled, pendingLinkDraft, requireConnectorAuthority, userAuthSubject, userHasCommunityPermission,
 } from "./_eventConnectors";
-import { saveIntakeDraft } from "./_eventIntake";
+import { DISCORD_MESSAGE_URL, saveIntakeDraft } from "./_eventIntake";
+import { dismissHeldDraft, pendingHeldDrafts, promoteHeldFields } from "./_eventIntakeHeld";
 import { getActiveProfileLinks, requireControlProof } from "./_externalControl";
 import { getEventBySlug } from "./_eventSlugs";
 import { getProfileBySlug } from "./_globalSlugs";
@@ -23,9 +24,10 @@ import { cancelPendingSchedule, discordIntakeAlertKey, removeConnector } from ".
 import { notifyOps, resolveOps } from "./_opsAlerts";
 import { manageableDiscordGuilds } from "./discordVerification";
 import { correctionFields } from "./eventCorrections";
-import { EventIntakeCandidateSchema, type EventIntakeCandidate, type EventIntakeFields } from "../packages/api-contracts/src/event-intake";
+import { EventIntakeCandidateSchema, EventIntakePatchSchema, type EventIntakeCandidate, type EventIntakeFields, type EventIntakePatch } from "../packages/api-contracts/src/event-intake";
 
 const MAX_CONTENT = 12_000;
+const EVIDENCE_LIMIT = 40;
 const DISCORD_KINDS = ["discord_announcements", "discord_board", "discord_scheduled_events"] as const;
 
 /** Discord connectors for the gateway: a channel's or a guild's live ones, or with no filter every active one. */
@@ -62,6 +64,28 @@ export const recordHeartbeat = internalMutation({
     if (existing) await ctx.db.patch(existing._id, { at, receivedAt: Date.now() });
     else await ctx.db.insert("discordGatewayHeartbeats", { instanceId, at, receivedAt: Date.now() });
     return null;
+  },
+});
+
+/** How long the gateway can go without a received heartbeat before ops is alerted. */
+export const DISCORD_GATEWAY_HEARTBEAT_STALE_MS = 300_000;
+const HEARTBEAT_ALERT_KEY = "discord_gateway_heartbeat_stale";
+
+/** Alerts ops while the newest heartbeat, by Convex receipt time, is stale or missing; a fresh one resolves the alert. */
+export const checkHeartbeat = internalMutation({
+  args: {},
+  returns: v.union(v.object({ checked: v.literal(false) }), v.object({ checked: v.literal(true), stale: v.boolean(), newestAt: v.union(v.number(), v.null()) })),
+  handler: async ctx => {
+    if (!discordIntakeEnabled()) return { checked: false as const };
+    const newest = await ctx.db.query("discordGatewayHeartbeats").withIndex("by_receivedAt").order("desc").first();
+    const newestAt = newest?.receivedAt ?? null;
+    const stale = newestAt === null || Date.now() - newestAt > DISCORD_GATEWAY_HEARTBEAT_STALE_MS;
+    if (stale) await notifyOps(ctx, {
+      key: HEARTBEAT_ALERT_KEY, subject: "Discord gateway heartbeat is stale",
+      body: `Newest heartbeat: ${newestAt === null ? "never" : new Date(newestAt).toISOString()}. Threshold: ${DISCORD_GATEWAY_HEARTBEAT_STALE_MS / 1000} s. Check ECS service vrdex-discord-gateway and log group /aws/ecs/vrdex-discord-gateway.`,
+    });
+    else await resolveOps(ctx, HEARTBEAT_ALERT_KEY);
+    return { checked: true as const, stale, newestAt };
   },
 });
 
@@ -125,6 +149,7 @@ async function restartQuietWindow(ctx: MutationCtx, connector: Doc<"eventConnect
   await cancelPendingSchedule(ctx.db, ctx.scheduler, run?.scheduledFunctionId);
   const scheduledFunctionId = await ctx.scheduler.runAfter(quietWindowMs(connector), internal.discordIntakeRun.runPending, { runId });
   await ctx.db.patch(runId, { scheduledFunctionId, triggerMessageIds: triggerMessageIds.includes(messageId) ? triggerMessageIds : [...triggerMessageIds, messageId] });
+  return runId;
 }
 
 const DAY_MS = 86_400_000;
@@ -136,9 +161,6 @@ const RUNNING_LEASE_MS = 15 * 60_000;
 type SkipReason = "connector_inactive" | "authority_lost" | "binding_cap" | "source_deleted" | "trigger_deleted";
 const skipReason = v.union(v.literal("connector_inactive"), v.literal("authority_lost"), v.literal("binding_cap"), v.literal("source_deleted"), v.literal("trigger_deleted"), v.literal("deferred"));
 const capAlertKey = (connectorId: Id<"eventConnectors">) => `discord-intake-cap:${connectorId}`;
-const messageUrl = (message: Doc<"discordIntakeMessages">) => `https://discord.com/channels/${message.guildId}/${message.channelId}/${message.messageId}`;
-const messageRow = (db: DatabaseReader, connectorId: Id<"eventConnectors">, messageId: string) =>
-  db.query("discordIntakeMessages").withIndex("by_connectorId_messageId", q => q.eq("connectorId", connectorId).eq("messageId", messageId)).unique();
 const triggerRows = async (db: DatabaseReader, connectorId: Id<"eventConnectors">, messageIds: string[]) =>
   (await Promise.all(messageIds.map(messageId => messageRow(db, connectorId, messageId)))).filter(row => row !== null);
 const sourceRow = (db: DatabaseReader, connectorId: Id<"eventConnectors">, messageId: string) =>
@@ -173,14 +195,9 @@ export const claimRun = internalMutation({
     if (!discordIntakeEnabled() || !connectorsEnabled() || !connector || connector.state !== "active" || connector.direction === "off" || !community?.slug) return skip("connector_inactive");
 
     // One run per author at a time: two concurrent runs over the same post would each insert its link.
-    // A running row past its lease belongs to an action that died without failRun; close it so it reaches the alarm.
-    const running = await ctx.db.query("discordIntakeRuns").withIndex("by_connectorId_authorId_state", q => q.eq("connectorId", connector._id).eq("authorId", run.authorId).eq("state", "running")).collect();
-    let live = false;
-    for (const row of running) {
-      if ((row.startedAt ?? 0) > now - RUNNING_LEASE_MS) live = true;
-      else await closeFailedRun(ctx, row, "stalled", now);
-    }
-    if (live) {
+    // A running row past its lease defers this run too: sweepStalledRuns closes it, alerts, and joins its posts to this run.
+    const running = await ctx.db.query("discordIntakeRuns").withIndex("by_connectorId_authorId_state", q => q.eq("connectorId", connector._id).eq("authorId", run.authorId).eq("state", "running")).first();
+    if (running) {
       await cancelPendingSchedule(ctx.db, ctx.scheduler, run.scheduledFunctionId);
       const scheduledFunctionId = await ctx.scheduler.runAfter(quietWindowMs(connector), internal.discordIntakeRun.runPending, { runId });
       await ctx.db.patch(runId, { scheduledFunctionId });
@@ -265,14 +282,34 @@ export const saveRunDraft = internalMutation({
 });
 
 /**
- * An edit of a held post lands in the held draft: the candidate replaces its tentative block, top-level fields staff set stay,
- * and posters the run stored move across, with its artwork when the held draft has none.
+ * A run that did not re-read every post behind a draft adds to its import. Lineup replaces whole, with its evidence, because a partial
+ * one must not pass on the held entries. Explicit entries go first so the cap cannot drop them. A held explicit field keeps its value
+ * and evidence until a new explicit entry states it, or the held entry would carry a value it never vouched for onto the event.
  */
-async function refreshHeldDraft(ctx: MutationCtx, connector: Doc<"eventConnectors">, candidate: EventIntakeCandidate, workingDraftId: Id<"eventIntakeDrafts">, heldDraftId: Id<"eventIntakeDrafts">) {
+function mergeHeldImport(held: EventIntakePatch, patch: EventIntakePatch): EventIntakePatch {
+  const explicit = (entries: EventIntakePatch["evidence"]) => (entries ?? []).filter(entry => entry.assessment === "explicit");
+  const fresh = patch.evidence ?? [];
+  const stated = explicit(fresh);
+  const statedPaths = new Set(stated.map(entry => entry.fieldPath)), statedKeys = new Set(stated.map(entry => evidenceKey(entry.fieldPath)));
+  const pinned = new Set(explicit(held.evidence).map(entry => evidenceKey(entry.fieldPath)).filter(key => key !== "lineup" && !statedKeys.has(key)));
+  // candidatePatch writes a null timezone for a time with no zone, which must not erase the held one.
+  const facts = Object.fromEntries(Object.entries(patch.tentative ?? {}).filter(([key, value]) => value !== null && !pinned.has(key))) as EventIntakeFields;
+  const evidence = [...fresh, ...(held.evidence ?? []).filter(entry => !statedPaths.has(entry.fieldPath) && !(facts.lineup && evidenceKey(entry.fieldPath) === "lineup"))];
+  return {
+    ...patch,
+    tentative: { ...held.tentative, ...facts },
+    evidence: [...explicit(evidence), ...evidence.filter(entry => entry.assessment !== "explicit")].slice(0, EVIDENCE_LIMIT),
+  };
+}
+
+/**
+ * An edit of a held post lands in the held draft: the candidate replaces its tentative block, or merges into it when another post also
+ * fed the draft, top-level fields staff set stay, and posters the run stored move across, with its artwork when the held draft has none.
+ */
+async function refreshHeldDraft(ctx: MutationCtx, connector: Doc<"eventConnectors">, candidate: EventIntakeCandidate, triggerMessageIds: string[], workingDraftId: Id<"eventIntakeDrafts">, heldDraftId: Id<"eventIntakeDrafts">) {
   const held = (await ctx.db.get(heldDraftId))!;
   const working = await ctx.db.get(workingDraftId);
-  // Poster ownership follows the actor, so a draft from a previous authority cannot take this run's posters.
-  if (working && held.actorUserId === working.actorUserId) {
+  if (working) {
     const sources = await ctx.db.query("eventPosterSources").withIndex("by_draft_state", q => q.eq("draftId", workingDraftId).eq("state", "ready")).take(21);
     for (const source of sources) await ctx.db.patch(source._id, { draftId: heldDraftId });
     if (working.artworkAssetId && !held.artworkAssetId && !held.artworkIntentSourceId && held.fields.posterSourceId === undefined) {
@@ -280,9 +317,21 @@ async function refreshHeldDraft(ctx: MutationCtx, connector: Doc<"eventConnector
       await ctx.db.patch(heldDraftId, { artworkAssetId: working.artworkAssetId });
     }
   }
-  const patch = candidatePatch(candidate);
+  const fed = await ctx.db.query("discordIntakeSources").withIndex("by_draftId", q => q.eq("draftId", heldDraftId)).collect();
+  const patch = fed.some(row => !triggerMessageIds.includes(row.messageId)) ? mergeHeldImport(EventIntakePatchSchema.parse(held.fields), candidatePatch(candidate)) : candidatePatch(candidate);
   const communitySlug = (await ctx.db.get(connector.communityProfileId))!.slug;
   await saveIntakeDraft(ctx.db, held.actorUserId, { draftId: heldDraftId, expectedVersion: held.version, patch: { ...patch, tentative: { ...patch.tentative, communitySlug } } }, Date.now(), { connectorDriven: true, connectorId: connector._id });
+}
+
+// How list_events names a held draft so the agent can pick it. No event has such a slug, and finishRun stores decision new in its place.
+const DRAFT_SLUG = "draft:";
+
+/** The still pending held draft a `draft:` slug names on this connector, with its link. */
+async function agentDraft(db: DatabaseReader, connectorId: Id<"eventConnectors">, slug: string, now: number) {
+  const draftId = db.normalizeId("eventIntakeDrafts", slug.slice(DRAFT_SLUG.length));
+  const link = draftId && await db.query("eventSyncLinks").withIndex("by_draftId", q => q.eq("draftId", draftId)).first();
+  const draft = link?.connectorId === connectorId ? await pendingLinkDraft(db, link, now) : null;
+  return draft && link ? { draft, link } : null;
 }
 
 /** Applies the agent's candidate through the connector foundation, records which posts fed the result, and closes the run. */
@@ -293,18 +342,23 @@ export const finishRun = internalMutation({
     const now = Date.now();
     const { run, connector } = await runningRun(ctx.db, args.runId);
     const parsed = EventIntakeCandidateSchema.parse(args.candidate);
-    const { externalId, link, hasUnsourcedTrigger } = await findRunLink(ctx.db, connector._id, run.triggerMessageIds);
+    const runLink = await findRunLink(ctx.db, connector._id, run.triggerMessageIds);
+    const draftSlug = parsed.decision.kind === "update" && parsed.decision.slug.startsWith(DRAFT_SLUG) ? parsed.decision.slug : null;
+    const named = draftSlug ? await agentDraft(ctx.db, connector._id, draftSlug, now) : null;
+    const { externalId, link } = named ? { externalId: named.link.externalId, link: named.link } : runLink;
     // Without get_event the model never saw the lineup, whichever way it reached the event.
     const guardLineup = args.expectedUpdatedAt === undefined && (parsed.decision.kind === "update" || link?.eventId !== undefined);
-    const candidate = sanitizeRunEvidence(parsed, await triggerRows(ctx.db, connector._id, run.triggerMessageIds), guardLineup);
+    const sanitized = sanitizeRunEvidence(parsed, await triggerRows(ctx.db, connector._id, run.triggerMessageIds), guardLineup);
+    // A draft slug goes no further as an update: as new, the named draft's link refreshes that draft, and nothing can read the slug as an event's.
+    const candidate = draftSlug ? { ...sanitized, decision: { kind: "new" as const } } : sanitized;
     // Decision new can only be about a post other than the linked event, or follow an update slug that did not resolve; staff decide both.
-    const forceHold = candidate.decision.kind === "new" && ((hasUnsourcedTrigger && link !== null) || candidate.questions.some(question => question.fieldPath === "decision.slug"));
+    const forceHold = !named && candidate.decision.kind === "new" && (draftSlug !== null || (runLink.hasUnsourcedTrigger && link !== null) || candidate.questions.some(question => question.fieldPath === "decision.slug"));
     let result = await applyEventCandidate(ctx, {
       connector, candidate, actorUserId: connector.authorityUserId, draftId: args.draftId, link: link ?? undefined, externalId,
       expectedUpdatedAt: args.expectedUpdatedAt, idempotencyKey: args.runId, forceHold,
     });
     if (result.outcome === "skipped_pending_draft" && result.draftId) {
-      await refreshHeldDraft(ctx, connector, candidate, args.draftId, result.draftId);
+      await refreshHeldDraft(ctx, connector, candidate, run.triggerMessageIds, args.draftId, result.draftId);
       result = { ...result, outcome: "draft" };
     }
     if (result.eventId || result.draftId) {
@@ -315,8 +369,20 @@ export const finishRun = internalMutation({
         else await ctx.db.insert("discordIntakeSources", { connectorId: connector._id, messageId, externalId, ...values, createdAt: now });
       }
     }
-    if (result.draftId !== args.draftId && await ctx.db.get(args.draftId)) await ctx.db.patch(args.draftId, { expiresAt: now });
+    // A live post now feeds the event, so its deletion flag no longer holds; a forced hold has not shown the post is about this event.
+    const { eventId } = result;
+    if (eventId && !forceHold) {
+      const links = await ctx.db.query("eventSyncLinks").withIndex("by_eventId", q => q.eq("eventId", eventId)).collect();
+      for (const row of links) {
+        if (row.connectorId === connector._id && row.state === "external_deleted") await ctx.db.patch(row._id, { state: "linked", flagReviewedAt: undefined, updatedAt: now });
+      }
+    }
     const decision = candidate.decision;
+    if (decision.kind === "not_event") {
+      const held = await pendingLinkDraft(ctx.db, link, now);
+      if (held) await dismissHeldDraft(ctx, held, now);
+    }
+    if (result.draftId !== args.draftId && await ctx.db.get(args.draftId)) await ctx.db.patch(args.draftId, { expiresAt: now });
     await ctx.db.patch(args.runId, {
       state: "done", decision, reason: decision.kind === "not_event" ? decision.reason || "not_event" : result.outcome,
       draftId: result.outcome === "draft" ? result.draftId : args.draftId, eventId: result.eventId, finishedAt: now,
@@ -352,6 +418,37 @@ async function closeFailedRun(ctx: MutationCtx, run: Doc<"discordIntakeRuns">, r
   }
 }
 
+/** The only closer of running rows past their lease: alerts ops and requeues each one's posts once. */
+export const sweepStalledRuns = internalMutation({
+  args: {},
+  returns: v.object({ closed: v.number(), retried: v.number() }),
+  handler: async ctx => {
+    const now = Date.now();
+    const stalled = await ctx.db.query("discordIntakeRuns").withIndex("by_state_startedAt", q => q.eq("state", "running").lte("startedAt", now - RUNNING_LEASE_MS)).take(50);
+    let retried = 0;
+    for (const row of stalled) {
+      const connector = await ctx.db.get(row.connectorId);
+      let retryId: Id<"discordIntakeRuns"> | undefined;
+      // Safe to redo: finishRun writes events and links atomically, so a dead action wrote neither. Once only: a post that kills the action must not burn the daily cap.
+      if (!row.stalledRetry && connector?.state === "active" && connector.direction !== "off") {
+        for (const messageId of row.triggerMessageIds) retryId = await restartQuietWindow(ctx, connector, row.authorId, messageId);
+      }
+      if (retryId) {
+        await ctx.db.patch(retryId, { stalledRetry: true });
+        retried++;
+      }
+      // Dropped posts get a key per run: the connector key may be inside its dedupe window, which would swallow the last word on them.
+      await notifyOps(ctx, {
+        key: retryId ? discordIntakeAlertKey(row.connectorId) : `discord-intake-dropped:${row._id}`, subject: "Discord intake run stalled",
+        body: `Discord intake connector ${row.connectorId} (community ${connector?.communityProfileId}) run ${row._id} stalled; its posts were ${retryId ? "requeued" : "not requeued"}.`,
+      });
+      // Last: its three-failures alert shares the connector key, and that email would say nothing about the requeue.
+      await closeFailedRun(ctx, row, "stalled", now);
+    }
+    return { closed: stalled.length, retried };
+  },
+});
+
 /** Reopens a connector the daily run cap paused; any other pause stays. */
 export const resumeConnector = internalMutation({
   args: { connectorId: v.id("eventConnectors") },
@@ -367,7 +464,7 @@ export const resumeConnector = internalMutation({
 const agentEvent = (event: Doc<"events"> | null, communityProfileId: Id<"profiles">): event is Doc<"events"> =>
   event !== null && event.communityProfileId === communityProfileId && event.publicationState === "published" && event.moderationRemovedAt === undefined && Boolean(event.slug);
 
-/** The agent's `list_events`: events this run's posts already produced, then the community's events from a week ago to 90 days out. */
+/** The agent's `list_events`: events this run's posts already produced, the community's events from a week ago to 90 days out, then this connector's held drafts. */
 export const listEventsForAgent = internalQuery({
   args: { runId: v.id("discordIntakeRuns"), limit: v.number() },
   returns: v.array(v.object({ slug: v.string(), title: v.string(), eventDate: v.union(v.string(), v.null()), start: v.union(v.string(), v.null()), lineupSummary: v.string() })),
@@ -383,33 +480,51 @@ export const listEventsForAgent = internalQuery({
     const window = await ctx.db.query("events")
       .withIndex("by_communityProfileId_eventDate", q => q.eq("communityProfileId", communityProfileId).gte("eventDate", day(-7)).lte("eventDate", day(90)))
       .take(AGENT_EVENT_LIMIT);
-    const events = [...new Map([...prior, ...window].filter(event => agentEvent(event, communityProfileId)).map(event => [event._id, event])).values()]
-      .slice(0, Math.max(0, Math.min(limit, AGENT_EVENT_LIMIT)));
-    return Promise.all(events.map(async event => {
+    const cap = Math.max(0, Math.min(limit, AGENT_EVENT_LIMIT));
+    const held = (await pendingHeldDrafts(ctx.db, connector._id, Date.now())).filter(({ draft }) => draft._id !== run.draftId).slice(0, cap);
+    // The calendar gives way first, so the draft a late flyer belongs to is never cut; the run's own prior events stay.
+    const live = prior.filter(event => agentEvent(event, communityProfileId));
+    const events = [...new Map([...live, ...window.filter(event => agentEvent(event, communityProfileId))].map(event => [event._id, event])).values()]
+      .slice(0, Math.max(cap - held.length, live.length));
+    const rows = await Promise.all(events.map(async event => {
       const fields = await correctionFields(ctx.db, event);
       return {
         slug: event.slug!, title: event.title, eventDate: fields.eventDate ?? null, start: fields.timeTba ? null : fields.start?.time ?? null,
         lineupSummary: (fields.lineup ?? []).slice(0, 6).map(row => row.performerLabel).join(", "),
       };
     }));
+    const drafts = held.map(({ draft }) => {
+      const fields = promoteHeldFields(EventIntakePatchSchema.parse(draft.fields), "");
+      return { slug: `${DRAFT_SLUG}${draft._id}`, title: fields.title ?? "", eventDate: fields.eventDate ?? null, start: fields.timeTba ? null : fields.start?.time ?? null, lineupSummary: "" };
+    });
+    return [...rows, ...drafts].slice(0, cap);
   },
 });
 
 // Only the fields a public event page shows; private draft fields never reach the agent.
 const PUBLIC_EVENT_FIELDS = ["communitySlug", "title", "eventDate", "timeTba", "timezone", "start", "end", "doors", "venueLabel", "worldSlug", "sourceUrl", "summary", "lineup"] as const;
+const publicEventFields = (all: EventIntakeFields) => Object.fromEntries(PUBLIC_EVENT_FIELDS.flatMap(key => all[key] === undefined ? [] : [[key, all[key]]])) as EventIntakeFields;
 
-/** The agent's `get_event`: a published event of the connector's community, with the `updatedAt` an update must still match. */
+/** The agent's `get_event`: a published event of the connector's community, with the `updatedAt` an update must still match, or a held draft of this connector as it would publish. */
 export const getEventForAgent = internalQuery({
   args: { runId: v.id("discordIntakeRuns"), slug: v.string() },
   returns: v.union(v.null(), v.object({ fields: v.any(), updatedAt: v.number() })),
   handler: async (ctx, { runId, slug }): Promise<{ fields: EventIntakeFields; updatedAt: number } | null> => {
     const run = await ctx.db.get(runId);
     const connector = run && await ctx.db.get(run.connectorId);
-    const event = connector ? await getEventBySlug(ctx.db, slug) : null;
-    if (!connector || !agentEvent(event, connector.communityProfileId)) return null;
-    const all = await correctionFields(ctx.db, event);
-    const fields = Object.fromEntries(PUBLIC_EVENT_FIELDS.flatMap(key => all[key] === undefined ? [] : [[key, all[key]]])) as EventIntakeFields;
-    return { fields, updatedAt: event.updatedAt };
+    if (!connector) return null;
+    if (slug.startsWith(DRAFT_SLUG)) {
+      const named = await agentDraft(ctx.db, connector._id, slug, Date.now());
+      const community = await ctx.db.get(connector.communityProfileId);
+      if (!named || !community) return null;
+      const promoted = promoteHeldFields(EventIntakePatchSchema.parse(named.draft.fields), community.slug);
+      // The draft keeps the post's own URL for staff; it is not a public field.
+      if (promoted.sourceUrl && DISCORD_MESSAGE_URL.test(promoted.sourceUrl)) delete promoted.sourceUrl;
+      return { fields: publicEventFields(promoted), updatedAt: named.draft.updatedAt };
+    }
+    const event = await getEventBySlug(ctx.db, slug);
+    if (!agentEvent(event, connector.communityProfileId)) return null;
+    return { fields: publicEventFields(await correctionFields(ctx.db, event)), updatedAt: event.updatedAt };
   },
 });
 

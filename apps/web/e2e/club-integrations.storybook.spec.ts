@@ -37,13 +37,13 @@ test("an empty integrations page shows only its heading @storybook-visual", asyn
 const capture = async (page: Page, name: string) => {
   if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") await page.screenshot({ path: `../../.cache/artifacts/${name}.png`, fullPage: true });
 };
-// Each board state also has to fit the narrowest phone the account pages support.
-async function captureBoard(page: Page, state: string) {
+// Each connect form state also has to fit the narrowest phone the account pages support.
+async function captureConnect(page: Page, state: string) {
   const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
-  await capture(page, `club-integrations-board-${state}-${test.info().project.name}`);
+  await capture(page, `club-integrations-${state}-${test.info().project.name}`);
   expect(await fits()).toBe(true);
   await page.setViewportSize({ width: 375, height: 812 });
-  await capture(page, `club-integrations-board-${state}-${test.info().project.name}-375`);
+  await capture(page, `club-integrations-${state}-${test.info().project.name}-375`);
   expect(await fits()).toBe(true);
 }
 
@@ -125,7 +125,7 @@ test("the event board connect button starts closed @storybook-visual", async ({ 
   const toggle = page.getByRole("button", { name: "Event board" });
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("combobox", { name: "Server" })).toHaveCount(0);
-  await captureBoard(page, "closed");
+  await captureConnect(page, "board-closed");
   await toggle.click();
   await expect(page.getByRole("combobox", { name: "Server" })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Channel" })).toBeDisabled();
@@ -142,7 +142,7 @@ test("the event board form connects a chosen channel and closes @storybook-visua
   await expect(connect).toBeDisabled();
   await channel.selectOption({ label: "announcements" });
   await expect(connect).toBeEnabled();
-  await captureBoard(page, "open");
+  await captureConnect(page, "board-open");
   await server.selectOption({ label: "Afterhours Staff" });
   await expect(channel).toHaveValue("");
   await expect(connect).toBeDisabled();
@@ -151,6 +151,35 @@ test("the event board form connects a chosen channel and closes @storybook-visua
   await expect(server).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Event board" })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("list").getByText("staff-board", { exact: true })).toBeVisible();
+});
+
+test("the Discord events connect button starts closed @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-integrations--scheduled-events-closed&viewMode=story");
+  const toggle = page.getByRole("button", { name: "Discord events" });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("combobox", { name: "Server" })).toHaveCount(0);
+  await captureConnect(page, "discord-events-closed");
+  await toggle.click();
+  await expect(page.getByRole("combobox", { name: "Server" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Connect", exact: true })).toBeDisabled();
+});
+
+test("the Discord events form connects a chosen server and closes @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-integrations--scheduled-events-open&viewMode=story");
+  const server = page.getByRole("combobox", { name: "Server" });
+  const direction = page.getByRole("combobox", { name: "Direction" }).first();
+  const connect = page.getByRole("button", { name: "Connect", exact: true });
+  await expect(direction).toHaveValue("export");
+  await expect(direction.locator("option")).toHaveText(["Import", "Export", "Both", "Off"]);
+  await expect(connect).toBeDisabled();
+  await server.selectOption({ label: "Afterhours Staff" });
+  await expect(connect).toBeEnabled();
+  await captureConnect(page, "discord-events-open");
+  await direction.selectOption({ label: "Both" });
+  await connect.click();
+  await expect(server).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Discord events" })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("list").getByText("Afterhours Staff", { exact: true })).toBeVisible();
 });
 
 const connectCalendar = (page: Page) => page.getByRole("button", { name: "Connect VRChat calendar" });

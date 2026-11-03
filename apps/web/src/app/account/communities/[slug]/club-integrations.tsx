@@ -14,6 +14,7 @@ import { VrchatCalendarConnect } from "./club-vrchat-calendar";
 import { ClubAccessNotice, useClubWorkspace } from "./club-workspace";
 import { DiscordBoardConnect } from "./discord-board-connect";
 import { DiscordConnect } from "./discord-connect";
+import { DiscordScheduledEventsConnect } from "./discord-scheduled-events-connect";
 import {
   connectedCalendarIds,
   connectorTargetName,
@@ -209,6 +210,7 @@ function ConnectedIntegrations({ communityProfileId, communitySlug }: { communit
         <>
           <GoogleCalendarConnect connectedCalendarIds={connectedCalendarIds(result.connectors)} />
           <DiscordBoardConnect communityProfileId={communityProfileId} />
+          <DiscordScheduledEventsConnect communityProfileId={communityProfileId} />
           <DiscordConnect communityProfileId={communityProfileId} />
         </>
       }

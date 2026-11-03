@@ -259,6 +259,18 @@ export const backfillClubDataVisibility = migrations.define({
 });
 export const runBackfillClubDataVisibility = migrations.runner(internal.migrations.backfillClubDataVisibility);
 
+// Intentionally excluded from runAll: only approved, sealed inventories execute.
+export const repairCommunityStatisticsV2 = migrations.define({
+  table: "communityTelemetryRepairTargets",
+  batchSize: 50,
+  migrateOne: async (ctx, target) => {
+    const run = await ctx.db.get(target.runId);
+    if (run?.state === "active" && target.state !== "corrected")
+      await ctx.scheduler.runAfter(0, internal.communityTelemetryRepair.repairTarget, { targetId: target._id });
+  },
+});
+export const runRepairCommunityStatisticsV2 = migrations.runner(internal.migrations.repairCommunityStatisticsV2);
+
 // Run explicitly after review. Registration never changes membership, visibility or allocation.
 export const backfillGroupObservationPolicies = migrations.define({
   table: "communityVrchatIntegrations",

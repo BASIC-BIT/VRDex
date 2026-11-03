@@ -23,13 +23,20 @@ test("friendship check reads one explicit user and validates boolean evidence", 
   await assert.rejects(bad.adapter.getFriendship(uid(3)), /schema_drift/);
 });
 test("instance destination pages use unpaginated endpoint and reject foreign locations", async () => {
-  const row = {world:{id:worldId,name:"World"},instanceId,location:`${worldId}:${instanceId}`};
-  const {adapter,calls} = fixture({response:[row,row]});
+  const row = {...destination,world:{id:worldId,name:"World"},instanceId,location:`${worldId}:${instanceId}`};
+  const {adapter,calls} = fixture({response:{fetchedAt:new Date(900).toISOString(),instances:[row,row]}});
   assert.equal((await adapter.readPage("instances", {n:1,offset:0})).nextOffset,1);
   assert.equal((await adapter.readPage("instances", {n:1,offset:1})).nextOffset,null);
-  assert.equal(calls[0].path, `/groups/${groupId}/instances`);
-  const bad = fixture({response:[{...row,instanceId:instanceId.replace(groupId,otherGroup)}]});
+  assert.equal(calls[0].path, `/users/${uid(1)}/instances/groups/${groupId}`);
+  const bad = fixture({response:{fetchedAt:new Date(900).toISOString(),instances:[{...row,instanceId:instanceId.replace(groupId,otherGroup)}]}});
   await assert.rejects(bad.adapter.readPage("instances"), /destination_scope/);
+});
+test("live management excludes closed instances and preserves provider freshness", async () => {
+  const row = {...destination,world:{id:worldId,name:"World"},location:`${worldId}:${instanceId}`};
+  const {adapter} = fixture({response:{fetchedAt:new Date(900).toISOString(),instances:[row,{...row,closedAt:new Date(800).toISOString()},{...row,active:false}]}});
+  const page = await adapter.readPage("instances");
+  assert.equal(page.items.length,1);
+  assert.equal(page.observedAt,900);
 });
 function fixture({ permissions = ["*"], roles = [{ id: roleId, groupId }], response = success, handler, group = {} } = {}) {
   const calls = [];

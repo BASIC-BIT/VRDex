@@ -15,6 +15,24 @@ const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
 };
 const epoch = Date.UTC(2026, 2, 1);
+it('private buckets and paginated series retain an explicit outage break', async () => {
+  const s = await setup();
+  await s.t.run(async ctx => {
+    for (const offset of [0, 120_000, 240_000]) await ctx.db.insert('communityPopulationObservations', {
+      integrationId: s.integrationId, idempotencyKey: `gap-${offset}`, totalPopulation: 10,
+      activeInstanceCount: 1, worldDistribution: [], observedAt: epoch + offset,
+      source: 'first_party', collectorVersion: 'test', coverageState: 'observed', fencingToken: 1,
+    });
+    await ctx.db.insert('collectionCoverageWindows', { integrationId: s.integrationId,
+      state: 'degraded', startedAt: epoch + 30_000, endedAt: epoch + 90_000,
+      updatedAt: epoch + 90_000, source: 'first_party', collectorVersion: 'test' });
+  });
+  const bucket = await s.owner.query(api.clubAnalytics.getBucket, { communitySlug: 'analytics', startAt: epoch, endAt: epoch + 240_000 });
+  assert.equal(bucket.population?.coverageRatio, 0.5);
+  const first = await s.owner.query(api.clubAnalytics.getSeries, { communitySlug: 'analytics', kind: 'population', startAt: epoch, endAt: epoch + 240_000, paginationOpts: {numItems: 1, cursor: null} });
+  const second = await s.owner.query(api.clubAnalytics.getSeries, { communitySlug: 'analytics', kind: 'population', startAt: epoch, endAt: epoch + 240_000, paginationOpts: {numItems: 1, cursor: first.continueCursor} });
+  assert.equal(second.page[0]?.breakBefore, true);
+});
 it("instance list clock requires category access and returns only fresh server time even without rows or integration", async test => {
   let now = epoch;
   test.mock.method(Date, "now", () => now);
@@ -449,13 +467,13 @@ describe("analytics temporal math", () => {
       60_000,
     );
     assert.equal(result.average, 12.5);
-    assert.equal(result.peak, 15);
+    assert.equal(result.peak, null);
     assert.equal(result.coverageRatio, 1);
     assert.equal(result.playerHours, 12.5 / 60);
     const missing = summarizeSeries(
       [
         { at: 0, value: 30, coverage: "observed" },
-        { at: 360_000, value: 60, coverage: "observed" },
+        { at: 360_001, value: 60, coverage: "observed" },
         { at: 420_000, value: 40, coverage: "estimated" },
       ],
       0,

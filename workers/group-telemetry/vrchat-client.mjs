@@ -70,6 +70,7 @@ function groupVisibility(value) {
 export class VrchatClient {
   constructor({
     authCookie,
+    userId,
     twoFactorAuthCookie,
     userAgent,
     fetcher = fetch,
@@ -82,6 +83,7 @@ export class VrchatClient {
     if (twoFactorAuthCookie !== undefined && (typeof twoFactorAuthCookie !== "string" || twoFactorAuthCookie.trim().length < 8)) throw new Error("The service-account two-factor cookie is invalid.");
     if (typeof userAgent !== "string" || !userAgent.includes("/")) throw new Error("An identifying application/version User-Agent is required.");
     this.authCookie = authCookie.trim();
+    this.userId = userId === undefined ? undefined : requireExternalId(userId, "usr_", "Collector user ID");
     this.twoFactorAuthCookie = twoFactorAuthCookie?.trim();
     this.userAgent = userAgent.trim();
     this.fetcher = fetcher;
@@ -109,6 +111,7 @@ export class VrchatClient {
     if (expectedUserId !== undefined && user.id !== expectedUserId) {
       throw new VrchatProviderError("Session belongs to another account.", { status: 401, category: "authentication" });
     }
+    this.userId = user.id;
     return { userId: user.id };
   }
 
@@ -356,21 +359,31 @@ export class VrchatClient {
       throw new VrchatProviderError("Automatic group policy changed.", { category: "membership", status: 403 });
     if (group.membershipStatus !== "member") throw new VrchatProviderError(`Service account membership is ${group.membershipStatus}.`, { status: 403, category: "membership" });
     if (guarded && !await authorizeRequest("instances")) return null;
-    const rawInstances = await this.request(`/groups/${encodeURIComponent(groupId)}/instances`);
-    if (!Array.isArray(rawInstances)) throw new VrchatProviderError("Group instance response is malformed.", { category: "schema_drift" });
+    const userId = requireExternalId(this.userId, "usr_", "Collector user ID");
+    const response = await this.request(`/users/${encodeURIComponent(userId)}/instances/groups/${encodeURIComponent(groupId)}`, { maxResponseBytes: 8 * 1024 * 1024 });
+    const rawInstances = response?.instances;
+    if (!Array.isArray(rawInstances) || rawInstances.length > 200) throw new VrchatProviderError("Group instance response is malformed.", { category: "schema_drift" });
+    const observedAt = typeof response.fetchedAt === "string" ? Date.parse(response.fetchedAt) : NaN;
+    const now = this.clock();
+    if (!Number.isSafeInteger(observedAt) || observedAt > now || now - observedAt > 6 * 60_000)
+      throw new VrchatProviderError("Group instance snapshot timestamp is stale or malformed.", { category: "visibility" });
     const instances = rawInstances.map((item) => {
-      if (!item || typeof item !== "object" || !item.world || typeof item.world !== "object") throw new VrchatProviderError("Group instance item is malformed.", { category: "schema_drift" });
+      if (!item || typeof item !== "object" || item.ownerId !== groupId || item.type !== "group" || typeof item.active !== "boolean") throw new VrchatProviderError("Group instance item is malformed or belongs to another group.", { category: "schema_drift" });
       if (typeof item.location !== "string" || item.location.length > 500) throw new VrchatProviderError("Instance location is malformed.", { category: "schema_drift" });
-      const vrchatWorldId = requireExternalId(item.world.id, "wrld_", "World ID");
+      const vrchatWorldId = requireExternalId(item.worldId, "wrld_", "World ID");
       const rawInstanceId = requireInstanceId(item.instanceId);
       if (item.location !== `${vrchatWorldId}:${rawInstanceId}`) throw new VrchatProviderError("Instance location does not match its world and instance ID.", { category: "schema_drift" });
+      const closedAt = item.closedAt == null ? undefined : typeof item.closedAt === "string" ? Date.parse(item.closedAt) : NaN;
+      if (closedAt !== undefined && (!Number.isSafeInteger(closedAt) || closedAt < 0))
+        throw new VrchatProviderError("Instance closure timestamp is malformed.", { category: "schema_drift" });
       return {
         providerInstanceId: sanitizeGroupInstanceLocator(rawInstanceId, groupId, "Instance ID"),
         providerLocation: sanitizeGroupInstanceLocator(item.location, groupId, "Instance location"),
         vrchatWorldId,
-        population: nonNegativeInteger(item.memberCount, "Instance member count"),
+        population: nonNegativeInteger(item.n_users, "Instance population"),
+        ...(closedAt !== undefined && closedAt <= observedAt ? { closedAt } : !item.active ? { closedAt: observedAt } : {}),
       };
     });
-    return { group, instances, observedAt: this.clock() };
+    return { group, instances, observedAt };
   }
 }

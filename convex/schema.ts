@@ -1176,10 +1176,13 @@ export default defineSchema({
     provenance: v.array(v.object({ field: v.string(), kind: v.union(v.literal("contributor"), v.literal("tentative")), version: v.number() })),
     publishedReceiptId: v.optional(v.id("eventContributionReceipts")),
     connectorId: v.optional(v.id("eventConnectors")),
+    // A held connector draft leaves review once published, applied as an update, or dismissed.
+    dismissedAt: v.optional(v.number()), resolvedAt: v.optional(v.number()),
     createdAt: v.number(), updatedAt: v.number(), expiresAt: v.number(),
   }).index("by_actor_updatedAt", ["actorUserId", "updatedAt"])
     .index("by_actor_expiresAt", ["actorUserId", "expiresAt"])
     .index("by_actor_connector_expiresAt", ["actorUserId", "connectorId", "expiresAt"])
+    .index("by_connectorId_resolvedAt_expiresAt", ["connectorId", "resolvedAt", "expiresAt"])
     .index("by_expiresAt", ["expiresAt"]),
   eventContributionReceipts: defineTable({
     actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"), draftVersion: v.number(),
@@ -1204,7 +1207,8 @@ export default defineSchema({
     quietWindowSeconds: v.optional(v.number()), state: connectorState, lastSyncedAt: v.optional(v.number()), lastError: v.optional(v.string()),
     consecutiveFailures: v.optional(v.number()), createdAt: v.number(), updatedAt: v.number(),
   }).index("by_communityProfileId", ["communityProfileId"])
-    .index("by_kind_target_channelId", ["kind", "target.channelId"]),
+    .index("by_kind_target_channelId", ["kind", "target.channelId"])
+    .index("by_kind_target_guildId", ["kind", "target.guildId"]),
   connectorCredentials: defineTable({
     provider: credentialProvider, ownerUserId: v.id("users"), encryptedAccessToken: v.string(), encryptedRefreshToken: v.string(),
     accessTokenExpiresAt: v.number(), scopes: v.array(v.string()), externalAccountId: v.string(),
@@ -1216,8 +1220,14 @@ export default defineSchema({
     lastImportedAt: v.optional(v.number()), externalUpdatedAt: v.optional(v.number()), state: syncLinkState, createdAt: v.number(), updatedAt: v.number(),
     // vrchat_calendar: the poster URL last exported, so an unchanged poster is not re-sent.
     externalArtworkUrl: v.optional(v.string()),
+    // Staff kept the event after its external item was deleted.
+    flagReviewedAt: v.optional(v.number()),
+    // discord_scheduled_events: a series night as Discord last stated it, so a packet that changes nothing about the night leaves a VRDex edit alone.
+    lastImportedHash: v.optional(v.string()),
   }).index("by_connectorId_externalId", ["connectorId", "externalId"])
-    .index("by_eventId", ["eventId"]),
+    .index("by_eventId", ["eventId"])
+    .index("by_draftId", ["draftId"])
+    .index("by_connectorId_state_flagReviewedAt", ["connectorId", "state", "flagReviewedAt"]),
   eventSyncJobs: defineTable({
     connectorId: v.id("eventConnectors"), eventId: v.optional(v.id("events")), kind: syncJobKind, payload: v.any(),
     dueAt: v.number(), attempts: v.number(), leaseExpiresAt: v.optional(v.number()), state: syncJobState, lastError: v.optional(v.string()),
@@ -1244,15 +1254,19 @@ export default defineSchema({
     )),
     reason: v.optional(v.string()), draftId: v.optional(v.id("eventIntakeDrafts")), eventId: v.optional(v.id("events")),
     startedAt: v.optional(v.number()), finishedAt: v.optional(v.number()), createdAt: v.number(),
+    // Set on a run requeued by the stalled-run sweep, so a post that kills its action is not retried again.
+    stalledRetry: v.optional(v.boolean()),
   }).index("by_connectorId_authorId_state", ["connectorId", "authorId", "state"])
-    .index("by_connectorId_startedAt", ["connectorId", "startedAt"]),
+    .index("by_connectorId_startedAt", ["connectorId", "startedAt"])
+    .index("by_state_startedAt", ["state", "startedAt"]),
   discordIntakeSources: defineTable({
     connectorId: v.id("eventConnectors"), messageId: v.string(), eventId: v.optional(v.id("events")),
     // The sync link's external ID this post resolved to; later runs that include the post reuse it.
     externalId: v.string(),
     draftId: v.optional(v.id("eventIntakeDrafts")), runId: v.id("discordIntakeRuns"), createdAt: v.number(),
   }).index("by_connectorId_messageId", ["connectorId", "messageId"])
-    .index("by_eventId", ["eventId"]),
+    .index("by_eventId", ["eventId"])
+    .index("by_draftId", ["draftId"]),
   discordGatewayHeartbeats: defineTable({ instanceId: v.string(), at: v.number(), receivedAt: v.number() })
     .index("by_instanceId", ["instanceId"])
     .index("by_receivedAt", ["receivedAt"]),
@@ -2122,7 +2136,23 @@ export default defineSchema({
     .index("by_sessionId_state", ["sessionId", "state"])
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
     .index("by_communityProfileId_createdAt", ["communityProfileId", "createdAt"]),
+  communityTelemetryRepairRuns: defineTable({
+    inventoryId: v.string(), integrationId: v.id("communityVrchatIntegrations"),
+    startAt: v.number(), endAt: v.number(), epochStartedAt: v.number(), version: v.string(),
+    expectedTargets: v.number(), registeredTargets: v.number(),
+    state: v.union(v.literal("assembling"), v.literal("active"), v.literal("complete")), createdAt: v.number(),
+  }).index("by_inventoryId", ["inventoryId"]).index("by_version_state", ["version", "state"]),
+  communityTelemetryRepairTargets: defineTable({
+    runId: v.id("communityTelemetryRepairRuns"), key: v.string(),
+    grain: v.union(v.literal("hour"), v.literal("day"), v.literal("event")),
+    bucketStartAt: v.number(), bucketEndAt: v.number(), eventId: v.optional(v.id("events")),
+    rollupId: v.optional(v.id("communityTelemetryRollups")), jobId: v.optional(v.id("communityTelemetryEventRecapJobs")),
+    state: v.union(v.literal("pending"), v.literal("corrected"), v.literal("blocked"), v.literal("failed")),
+    error: v.optional(v.string()), updatedAt: v.number(),
+  }).index("by_runId_key", ["runId", "key"]).index("by_runId_state", ["runId", "state"]),
   communityTelemetryEventRecapJobs: defineTable({
+    failure: v.optional(v.string()),
+    calculationVersion: v.optional(v.string()),
     eventId: v.id("events"),
     communityProfileId: v.id("profiles"),
     integrationId: v.id("communityVrchatIntegrations"),
@@ -2165,6 +2195,7 @@ export default defineSchema({
     .index("by_integrationId_eventId_rollupVersion", ["integrationId", "eventId", "rollupVersion"])
     .index("by_communityProfileId_integrationId_grain_bucketStartAt", ["communityProfileId", "integrationId", "grain", "bucketStartAt"])
     .index("by_communityProfileId_grain_bucketStartAt", ["communityProfileId", "grain", "bucketStartAt"])
+    .index("by_eventId_integrationId", ["eventId", "integrationId"])
     .index("by_eventId_rollupVersion", ["eventId", "rollupVersion"]),
   communityTelemetryAuditEvents: defineTable({
     rollupId: v.optional(v.id("communityTelemetryRollups")),

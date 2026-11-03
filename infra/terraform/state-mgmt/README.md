@@ -82,3 +82,16 @@ See [the rehearsal procedure](../../../docs/engineering/event-broadcast-rehearsa
 for import, migration and rollback. Run `terraform test` after `terraform init` to
 check default-disabled and enabled plans, decoded trust and exact ECR permissions
 with a mock AWS provider, without AWS credentials or apply.
+
+## Discord gateway release permission
+
+`enable_discord_gateway_release_permissions` defaults false. Opting in creates the
+`vrdex-discord-gateway-release` role and its inline policy, with the same main-only
+GitHub OIDC trust as the restream role. It can push to the `vrdex-discord-gateway`
+ECR repository, read and write the `discord-gateway/` Terraform state, refresh that
+stack, register task definitions, update the gateway service, and publish to the
+`vrdex-group-telemetry-alerts` topic. Set the variable in local `terraform.tfvars`,
+apply, then store
+`terraform output -raw discord_gateway_release_role_arn` in GitHub variable
+`AWS_DISCORD_GATEWAY_RELEASE_ROLE_ARN`. See
+[the bootstrap](../../../docs/deployment/discord-gateway.md#bootstrap).

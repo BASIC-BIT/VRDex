@@ -50,7 +50,17 @@ export function boardEnabled(): boolean {
   return process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED === "true";
 }
 
+export function discordScheduledEventsEnabled(): boolean {
+  return process.env.VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED === "true";
+}
+
 export const DISCORD_ID = /^\d{17,20}$/;
+
+// Counts UTF-16 units as VRChat, Discord, and the intake schema do; never splits a surrogate pair.
+export function cutUnits(text: string, max: number): string {
+  const cut = text.slice(0, max);
+  return cut.length < text.length && /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+}
 
 export async function userAuthSubject(db: DatabaseReader, userId: Id<"users">): Promise<AuthSubject | null> {
   const subject = (await db.get(userId))?.clerkUserId;

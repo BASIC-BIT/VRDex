@@ -8,6 +8,7 @@ import { GoogleCalendarConnectView } from "@/app/account/communities/[slug]/club
 import type { Connector, GoogleCalendar } from "@/app/account/communities/[slug]/club-integrations-model";
 import { VrchatCalendarConnectView } from "@/app/account/communities/[slug]/club-vrchat-calendar";
 import { DiscordBoardConnectView } from "@/app/account/communities/[slug]/discord-board-connect";
+import { DiscordScheduledEventsConnectView } from "@/app/account/communities/[slug]/discord-scheduled-events-connect";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 const NOW = Date.UTC(2026, 9, 29, 12);
@@ -101,11 +102,45 @@ function BoardConnect({ initial, onConnected }: { initial: BoardState; onConnect
   );
 }
 
+function ScheduledEventsConnect({ initial, onConnected }: { initial: { open?: boolean; guildId?: string }; onConnected: (connector: Connector) => void }) {
+  const [open, setOpen] = useState(initial.open ?? false);
+  const [guildId, setGuildId] = useState(initial.guildId ?? "");
+  const [direction, setDirection] = useState<Connector["direction"]>("export");
+  const close = () => {
+    setGuildId("");
+    setDirection("export");
+    setOpen(false);
+  };
+  return (
+    <DiscordScheduledEventsConnectView
+      open={open}
+      guilds={guilds.map((guild) => ({ id: guild.guildId, name: guild.guildName }))}
+      guildId={guildId}
+      direction={direction}
+      pending={false}
+      failed={false}
+      onToggle={() => (open ? close() : setOpen(true))}
+      onGuildChange={setGuildId}
+      onDirectionChange={setDirection}
+      onConnect={() => {
+        const guild = guilds.find((row) => row.guildId === guildId);
+        if (!guild) return;
+        onConnected(row({
+          connectorId: id(`scheduled-${guild.guildId}`), kind: "discord_scheduled_events", direction, mode: "hold", state: "active",
+          target: guild,
+        }));
+        close();
+      }}
+    />
+  );
+}
+
 const withoutCalendar = fixtures.filter((connector) => connector.kind !== "vrchat_calendar");
 
-function Preview({ connectors = fixtures, board, google, calendar, connectFails = false }: {
+function Preview({ connectors = fixtures, board, scheduledEvents, google, calendar, connectFails = false }: {
   connectors?: Connector[];
   board?: BoardState;
+  scheduledEvents?: { open?: boolean; guildId?: string };
   google?: GooglePreview;
   calendar?: { enabled: boolean; ready: boolean };
   connectFails?: boolean;
@@ -154,6 +189,7 @@ function Preview({ connectors = fixtures, board, google, calendar, connectFails 
             />
           ) : null}
           {board ? <BoardConnect initial={board} onConnected={(added) => setRows((current) => [...current, added])} /> : null}
+          {scheduledEvents ? <ScheduledEventsConnect initial={scheduledEvents} onConnected={(added) => setRows((current) => [...current, added])} /> : null}
         </>}
       />
       <output aria-label="Submitted connector update" className="sr-only">{submitted}</output>
@@ -194,3 +230,5 @@ export const GoogleNoCalendars: Story = { args: { connectors: [], google: { cale
 export const GoogleDisabledFailed: Story = { args: { connectors: [], google: { enabled: false, failed: true } } };
 export const BoardClosed: Story = { args: { board: {} } };
 export const BoardOpen: Story = { args: { board: { open: true, guildId: "123456789012345678" } } };
+export const ScheduledEventsClosed: Story = { args: { scheduledEvents: {} } };
+export const ScheduledEventsOpen: Story = { args: { scheduledEvents: { open: true } } };

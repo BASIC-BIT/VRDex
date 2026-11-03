@@ -8,6 +8,7 @@ import { dateOnlyEventsEnabled } from "./_eventSchedule";
 import { EventIntakePatchSchema } from "../packages/api-contracts/src/event-intake";
 import { canReadProfile } from "./_profilePermissions";
 import { canonicalInventoryRow, intakeInventoryRow, inventoryCriteria, inventoryPagination, matchesInventory, type InventoryRow, type InventorySource } from "./_eventInventory";
+import { HELD_IMPORT_LIMIT, heldImportRows, type HeldImportRow } from "./_eventIntakeHeld";
 
 export const listPage = query({
   args: { view: v.union(v.literal("all"), v.literal("upcoming"), v.literal("drafts"), v.literal("past")), query: v.string(), timeZone: v.string(), asOf: v.number(), paginationOpts: paginationOptsValidator },
@@ -30,7 +31,7 @@ export const listPage = query({
       const page: InventoryRow[] = [];
       const now = Date.now();
       for (const draft of candidates.page) {
-        if (draft.expiresAt <= now || draft.publishedReceiptId !== undefined) continue;
+        if (draft.expiresAt <= now || draft.publishedReceiptId !== undefined || draft.connectorId !== undefined) continue;
         const fields = EventIntakePatchSchema.parse(draft.fields);
         const profile = fields.communitySlug ? await ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug", fields.communitySlug ?? "")).unique() : null;
         const community = profile?.profileType === "community" && (canReadProfile("public", profile) || communities.some(entry => entry.profile._id === profile._id)) ? profile : null;
@@ -59,5 +60,18 @@ export const listPage = query({
       if (matchesInventory(row, criteria)) page.push(row);
     }
     return wrap({ ...candidates, page });
+  },
+});
+
+export const listHeldImports = query({
+  args: { communityProfileId: v.optional(v.id("profiles")) },
+  handler: async (ctx, { communityProfileId }): Promise<HeldImportRow[]> => {
+    const managed = await managedCommunitiesForBrowser(ctx, { includeNonPublic: true });
+    const communities = communityProfileId ? managed.filter(({ profile }) => profile._id === communityProfileId) : managed;
+    if (communityProfileId && !communities.length) throw new Error("You do not have access to this action.");
+    const now = Date.now();
+    // ponytail: builds every row, with N+1 reads per draft, then cuts to the limit, and a failure hides the whole section; page per connector if that grows.
+    const rows = (await Promise.all(communities.map(({ profile }) => heldImportRows(ctx.db, profile, now)))).flat();
+    return rows.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, HELD_IMPORT_LIMIT);
   },
 });

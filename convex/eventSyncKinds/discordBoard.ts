@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { action, internalMutation, internalQuery, query, type ActionCtx } from "../_generated/server";
+import { action, internalMutation, internalQuery, query, type ActionCtx, type DatabaseReader } from "../_generated/server";
 import { requireActiveBrowserSessionSubject } from "../_browserSessionAuthority";
 import { discordRequest } from "../_discordRest";
 import { createDiscordTimestampSet } from "../_discordTimestamps";
@@ -154,31 +154,35 @@ export function liveMessageId(link: Doc<"eventSyncLinks"> | null): string | null
   return link?.state === "linked" && DISCORD_ID.test(link.externalId) ? link.externalId : null;
 }
 
+/** The event's public projection for Discord, or null when it is not public. */
+export async function publicEventProjection(db: DatabaseReader, event: Doc<"events">): Promise<PublicEventProjection | null> {
+  const publicEvent = await getPublicEventBySlug(db, event);
+  if (!publicEvent?.communitySlug) return null;
+  const siteUrl = process.env.SITE_URL?.replace(/\/+$/, "");
+  if (!siteUrl) throw new Error("SITE_URL_MISSING");
+  // Intake artwork can be a same-origin path; Discord needs an absolute URL.
+  const artwork = firstSafePublicImageUrl(publicEvent.posterImageUrl, publicEvent.bannerImageUrl, publicEvent.thumbnailImageUrl);
+  return {
+    ...publicEvent,
+    url: siteUrl + eventPathForSlugs(publicEvent.communitySlug, publicEvent.slug),
+    ...(artwork !== undefined ? { artworkImageUrl: new URL(artwork, siteUrl).href } : {}),
+  };
+}
+
 export const getBoardEvent = internalQuery({
   args: { eventId: v.id("events") },
   handler: async (ctx, { eventId }): Promise<BoardEvent | null> => {
     const event = await ctx.db.get(eventId);
     if (!event) return null;
-    const board = { status: event.eventStatus, sortAt: eventSortAt(event), sortEndAt: eventSortEndAt(event) };
-    const publicEvent = await getPublicEventBySlug(ctx.db, event);
-    if (!publicEvent?.communitySlug) return { projection: null, ...board };
-    const siteUrl = process.env.SITE_URL?.replace(/\/+$/, "");
-    if (!siteUrl) throw new Error("SITE_URL_MISSING");
-    // Intake artwork can be a same-origin path; Discord needs an absolute URL.
-    const artwork = firstSafePublicImageUrl(publicEvent.posterImageUrl, publicEvent.bannerImageUrl, publicEvent.thumbnailImageUrl);
-    const projection: PublicEventProjection = {
-      ...publicEvent,
-      url: siteUrl + eventPathForSlugs(publicEvent.communitySlug, publicEvent.slug),
-      ...(artwork !== undefined ? { artworkImageUrl: new URL(artwork, siteUrl).href } : {}),
-    };
-    return { projection, ...board };
+    return { projection: await publicEventProjection(ctx.db, event), status: event.eventStatus, sortAt: eventSortAt(event), sortEndAt: eventSortEndAt(event) };
   },
 });
 
 export const pauseBoardConnector = internalMutation({
   args: { connectorId: v.id("eventConnectors"), lastError: v.string() },
   handler: async (ctx, { connectorId, lastError }): Promise<void> => {
-    await ctx.db.patch(connectorId, { state: "paused", lastError, updatedAt: Date.now() });
+    // A 403 in flight during Disconnect must not turn `removed` back into `paused`.
+    if ((await ctx.db.get(connectorId))?.state === "active") await ctx.db.patch(connectorId, { state: "paused", lastError, updatedAt: Date.now() });
   },
 });
 
@@ -253,7 +257,7 @@ function boardMessagesPath(connector: Connector): string {
   return `/channels/${channelId}/messages`;
 }
 
-async function pause(ctx: ActionCtx, connector: Connector, code: string): Promise<never> {
+export async function pause(ctx: ActionCtx, connector: Connector, code: string): Promise<never> {
   await ctx.runMutation(internal.eventSyncKinds.discordBoard.pauseBoardConnector, { connectorId: connector._id, lastError: code });
   throw new Error(code);
 }
@@ -269,7 +273,7 @@ async function send(ctx: ActionCtx, connector: Connector, method: "GET" | "POST"
 }
 
 // A non-JSON body would throw a SyntaxError quoting it, and lastError must stay a short code.
-async function readObject(response: Response): Promise<Record<string, unknown>> {
+export async function readObject(response: Response): Promise<Record<string, unknown>> {
   const value: unknown = await response.json().catch(() => null);
   if (typeof value !== "object" || value === null) throw new Error("discord_bad_response");
   return value as Record<string, unknown>;

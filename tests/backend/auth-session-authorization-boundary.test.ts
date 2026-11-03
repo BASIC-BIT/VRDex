@@ -105,6 +105,15 @@ describe("browser auth-session authorization boundary", () => {
         ],
       ],
       [
+        // Discord events server picker: the guarded internalQuery checks the
+        // session and connector authority before the Discord GET.
+        "convex/eventSyncKinds/discordScheduledEvents.ts",
+        [
+          "internal.eventSyncKinds.discordScheduledEvents.provedGuildIds",
+          "requireActiveBrowserSessionSubject(ctx)",
+        ],
+      ],
+      [
         "convex/eventIntake.ts",
         ["internal.eventIntake.currentIntakeActor", "requireUser(ctx)"],
       ],

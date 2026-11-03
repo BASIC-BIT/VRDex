@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { RequestBudget, failureDisposition } from "./runtime.mjs";
 import { executeClubOperation } from "./club-operation-jobs.mjs";
 import { VrchatProviderError } from "./vrchat-client.mjs";
+import { collectMembershipPage } from "./membership-collection.mjs";
 const source = readFileSync(
   new URL("./worker.mjs", import.meta.url),
   "utf8",
@@ -104,6 +105,7 @@ function harness({
     advance: (ms) => {
       now += ms;
     },
+    clock: () => now,
     pass: async () => {
       await collect({
         integrationId: "club",
@@ -120,6 +122,91 @@ function harness({
     },
   };
 }
+
+test("cached provider observations do not put the next poll in the past", async () => {
+  const h = harness();
+  let nextPollAt;
+  h.sandbox.provider.readAggregateSnapshot = async () => ({ observedAt: 820000, group: { memberCount: 1 }, instances: [] });
+  h.sandbox.control.send = async (op, args) => { if (op === "ingest") nextPollAt = args.nextPollAt; return { granted: true }; };
+  await h.pass();
+  assert.equal(nextPollAt, 1060000);
+});
+
+test("membership catch-up advances durable pages until caught up in one lease", async () => {
+  const h = harness();
+  let pages = 0;
+  h.sandbox.collectMembershipPage = async ({ provider, requestBudgeted }) => {
+    assert.equal(provider, h.sandbox.provider);
+    assert.notEqual(requestBudgeted, true, "each page must reserve its own shared budget");
+    return { collected: ++pages <= 4 };
+  };
+  await h.pass();
+  assert.equal(pages, 5);
+  assert.equal(h.calls.filter(x => x === "aggregate").length, 1);
+  assert.deepEqual(h.failures, []);
+});
+
+test("membership catch-up completes real audit passes at the default budget and freezes its target", async () => {
+  const h = harness({ requestsPerMinute: 4 });
+  const userId = "usr_00000000-0000-0000-0000-000000000001";
+  let scan = { scanId: "scan", startAt: 1, endAt: 940000, nextOffset: 0, nextPage: 0, phase: "collect", complete: false };
+  let requests = 0, reservations = 0, redundantScans = 0;
+  let targetPinned = false;
+  h.sandbox.secret.vrchatUserId = userId;
+  h.sandbox.refreshClubAuthority = async ({ assignment, integrationBudget }) => {
+    assert.equal(integrationBudget.tryConsume(2, h.clock()), true);
+    h.advance(2000);
+    if (!targetPinned) { scan.endAt = h.clock() - 60000; targetPinned = true; }
+    return { authority: {
+      groupId: assignment.vrchatGroupId, userId, membershipStatus: "member", observedAt: h.clock(), permissions: ["group-audit-view"],
+    } };
+  };
+  h.sandbox.pauseWithHeartbeats = async ms => h.advance(ms);
+  h.sandbox.collectMembershipPage = args => collectMembershipPage({ ...args, clock: h.clock });
+  h.sandbox.provider.request = async () => { requests++; h.advance(300); return { results: [], hasNext: false }; };
+  const send = h.sandbox.control.send;
+  h.sandbox.control.send = async (op, args) => {
+    if (op.startsWith("membership_scan_") || op === "budget") h.advance(500);
+    if (op === "membership_scan_resume") return { ...scan };
+    if (op === "membership_scan_begin") redundantScans++;
+    if (op === "membership_scan_page") scan.phase = scan.phase === "collect" ? "verify" : "finalize";
+    if (op === "membership_scan_finalize") scan.complete = true;
+    if (op === "budget" && args.requestCount === 1) reservations++;
+    return send(op, args);
+  };
+  await h.pass();
+  assert.equal(scan.complete, true);
+  assert.equal(requests, 2);
+  assert.equal(reservations, 2);
+  assert.equal(redundantScans, 0);
+  assert.deepEqual(h.failures, []);
+});
+
+test("membership catch-up yields at its page bound, shutdown, and lease deadline", async () => {
+  for (const reason of ["bound", "shutdown", "deadline"]) {
+    const h = harness();
+    let pages = 0;
+    h.sandbox.collectMembershipPage = async () => {
+      pages++;
+      if (reason === "shutdown") h.sandbox.stopping = true;
+      if (reason === "deadline") h.advance(240000);
+      return { collected: true };
+    };
+    await h.pass();
+    assert.equal(pages, reason === "bound" ? 32 : 1);
+    assert.deepEqual(h.failures, []);
+  }
+});
+
+test("membership backfill yields before ownership proof polling becomes stale", async () => {
+  const h = harness();
+  let waited = 0;
+  h.sandbox.collectMembershipPage = async () => ({ collected: false, retryAt: h.clock() + 600000 });
+  h.sandbox.pauseWithHeartbeats = async ms => { waited += ms; h.advance(ms); };
+  await h.pass();
+  assert.equal(waited, 90000);
+  assert.deepEqual(h.failures, []);
+});
 test("adopted managed poll skips named history despite current audit permission", async () => {
   const h = harness({ features: ["analytics"], namedMembershipCollectionEnabled: false });
   h.sandbox.refreshClubAuthority = async () => ({ authority: { groupId: "grp_00000000-0000-0000-0000-000000000001", userId: "bot", membershipStatus: "member", permissions: ["*"], observedAt: 1000000 } });

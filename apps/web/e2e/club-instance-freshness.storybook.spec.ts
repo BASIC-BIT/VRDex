@@ -11,6 +11,19 @@ const click = (page: Page, name: string) => page.getByRole("button", { name, exa
 const live = (page: Page) => page.getByLabel("Telemetry live", { exact: true });
 const history = (page: Page) => page.getByLabel("Complete history", { exact: true });
 
+test("provider closure removes a mounted live row and retains occupied history", async ({ page }) => {
+  await open(page);
+  await expect(live(page).getByText("Still open")).toBeVisible();
+  await click(page, "Close observed instance");
+  await expect(live(page).getByRole("button", { name: "The Observatory" })).toHaveCount(0);
+  await expect(history(page).getByText("Still open")).toHaveCount(0);
+  await expect(history(page).getByText("100", { exact: true })).toBeVisible();
+  await history(page).getByRole("button", { name: "The Observatory" }).click();
+  await expect(page.getByText("Data completeness", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close instance", exact: true })).toHaveCount(0);
+  await page.screenshot({ path: `../../.cache/artifacts/provider-closed-occupied-history-${test.info().project.name}.png`, fullPage: true });
+});
+
 for (const mode of ["empty", "paginated", "owner", "filtered-pages"]) {
   test(`list ${mode} calibrates late rows without renewing old observations`, async ({ page }) => {
     await open(page, mode);

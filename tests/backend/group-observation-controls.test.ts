@@ -126,11 +126,11 @@ for (const reason of ["request", "invite", "private"]) it(`verified operator can
   const assignment = (await h.t.mutation(ref("communityTelemetry:claimDueAssignments"), { collectorAccountId: h.accountId, workerId: "worker", capabilities: ["automatic_group_aggregates_v2"] })).assignments[0];
   const lease = { integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: assignment.fencingToken };
   await h.t.mutation(ref("communityTelemetry:recordMembershipResult"), { ...lease, state: "active", groupVisibility: row.groupVisibility, joinPolicy: row.joinPolicy });
-  const provider = new VrchatClient({ authCookie: "test-cookie", userAgent: "test/1" });
+  const provider = new VrchatClient({ userId: "usr_bot", authCookie: "test-cookie", userAgent: "test/1", clock: () => h.now });
   const sent: string[] = [];
   const metadata = { membershipStatus: "member", groupVisibility: row.groupVisibility, joinPolicy: row.joinPolicy, memberCount: 42 };
   provider.getGroup = async () => { sent.push("metadata"); return metadata; };
-  provider.request = async () => { sent.push("instances"); return []; };
+  provider.request = async () => { sent.push("instances"); return { fetchedAt: new Date(h.now).toISOString(), instances: [] }; };
   const read = () => provider.readAggregateSnapshot(GROUP, { authorizeRequest: async (automaticRequest: string) => (await h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), { ...lease, automaticRequest, requestCount: 1 })).granted });
   const snapshot = await read();
   assert.ok(snapshot, "private managed collection does not depend on public audience or automatic admission eligibility");
@@ -173,7 +173,7 @@ it("anonymous movement honors stop, resume floor and adoption while private work
 it("adopted aggregate-only snapshot stops between metadata and instances while posts remain enabled", async () => {
   const h = await setup(); await h.adopt();
   await h.owner.mutation(ref("clubConnection:setFeature"), { communityProfileId: h.profileId, feature: "posts", enabled: true });
-  const provider = new VrchatClient({ authCookie: "test-cookie", userAgent: "test/1" });
+  const provider = new VrchatClient({ userId: "usr_bot", authCookie: "test-cookie", userAgent: "test/1", clock: () => h.now });
   const sent: string[] = [];
   provider.getGroup = async () => {
     sent.push("metadata"); await h.decision("stop");
@@ -196,7 +196,7 @@ it("adopted aggregate-only snapshot keeps its request fence after named history 
   const h = await setup(); await h.adopt();
   await h.owner.mutation(ref("clubConnection:setFeature"), { communityProfileId: h.profileId, feature: "posts", enabled: true });
   const lease = { integrationId: h.integrationId, collectorAccountId: h.accountId, workerId: "worker", fencingToken: 1, requestCount: 1 };
-  const provider = new VrchatClient({ authCookie: "test-cookie", userAgent: "test/1" });
+  const provider = new VrchatClient({ userId: "usr_bot", authCookie: "test-cookie", userAgent: "test/1", clock: () => h.now });
   const sent: string[] = [];
   provider.getGroup = async () => {
     sent.push("metadata");

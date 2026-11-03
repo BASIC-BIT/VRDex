@@ -4,13 +4,14 @@ import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { connectorFixture } from "./_eventConnectorFixture";
 
-// Board and Google rows are created below; create refuses each kind while its flag is off.
+// Board, Discord events, and Google rows are created below; create refuses each kind while its flag is off.
 beforeEach(test => {
   test.mock.timers.enable({ apis: ["setTimeout"] });
   process.env.VRDEX_CONNECTOR_GOOGLE_CALENDAR_ENABLED = "true";
   process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED = "true";
+  process.env.VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED = "true";
 });
-afterEach(() => { delete process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED; });
+afterEach(() => { delete process.env.VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED; delete process.env.VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED; });
 const google = { kind: "google_calendar" as const, direction: "bidirectional" as const, mode: "hold" as const, target: { calendarId: "club@example.com", calendarName: "Club nights" } };
 type Fixture = Awaited<ReturnType<typeof connectorFixture>>;
 const credential = (f: Fixture, ownerUserId: Id<"users">, provider: "google" | "notion" = "google") => f.t.run(ctx => ctx.db.insert("connectorCredentials", { provider, ownerUserId, encryptedAccessToken: "v1:a:b:c", encryptedRefreshToken: "v1:a:b:c", accessTokenExpiresAt: Date.now() + 3_600_000, scopes: [], externalAccountId: "sub-1", state: "active", createdAt: Date.now(), updatedAt: Date.now() }));
@@ -61,6 +62,7 @@ it("each kind takes exactly its own target IDs", async () => {
   await assert.rejects(create("discord_board", "export", { guildId: guild, channelId: channel, calendarId: "c" }), /CONNECTOR_TARGET/);
   await assert.rejects(create("discord_scheduled_events", "export", { guildId: guild, channelId: channel }), /CONNECTOR_TARGET/);
   await create("google_calendar", "export", { calendarId: "x".repeat(256) });
+  await f.t.run(ctx => ctx.db.insert("externalControlProofs", { userId: f.users.integrator, assetType: "discord_guild", assetExternalId: guild, controlLevel: "manager", state: "active", evidenceSource: "discord_oauth", verifiedAt: Date.now(), createdAt: Date.now(), updatedAt: Date.now() }));
   await create("discord_scheduled_events", "export", { guildId: guild, guildName: "Club" });
 });
 

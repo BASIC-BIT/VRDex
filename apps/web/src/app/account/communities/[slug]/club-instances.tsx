@@ -7,7 +7,6 @@ import type { Id } from "../../../../../../../convex/_generated/dataModel";
 import {
   summarizeSeries,
   mergeSeriesSegments,
-  type SeriesPoint,
 } from "../../../../../../../convex/_clubAnalyticsMath";
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
@@ -16,8 +15,9 @@ import {
   ClubChart,
   metricNumber,
   metricTime,
-  type ClubChartPoint,
 } from "./club-chart";
+import { observedChartPoints } from "./club-analytics-model";
+export { observedChartPoints } from "./club-analytics-model";
 import { useClubWorkspace } from "./club-workspace";
 import { ClubEventAssociation } from "./club-event-association";
 import {
@@ -45,36 +45,12 @@ export type InstanceRow = {
   liveObservedAt: number | null;
 };
 
-export function observedChartPoints(points: SeriesPoint[]): ClubChartPoint[] {
-  const result: ClubChartPoint[] = [];
-  for (const point of points) {
-    const previous = result.at(-1);
-    if (previous && point.at - previous.at > 5 * 60_000)
-      result.push({
-        at: previous.at + 1,
-        value: null,
-        label: new Date(previous.at + 1).toLocaleTimeString(undefined, {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      });
-    result.push({
-      at: point.at,
-      value: point.coverage === "observed" ? point.value : null,
-      label: new Date(point.at).toLocaleTimeString(undefined, {
-        hour: "2-digit",
-        minute: "2-digit",
-        timeZoneName: "short",
-      }),
-    });
-  }
-  return result;
-}
 
 function useInstancePoints(communitySlug: string, session: InstanceRow) {
   const endAt = Math.max(
     session.openedAt + 1,
-    session.closedAt ?? session.lastObservedAt + 1,
+    session.closedAt ?? 0,
+    session.lastObservedAt + 1,
   );
   const query = usePaginatedQuery(
     api.clubAnalytics.getInstanceSeries,
@@ -109,7 +85,8 @@ function InstanceMetricsRow({
 }) {
   const endAt = Math.max(
     session.openedAt + 1,
-    session.closedAt ?? session.lastObservedAt + 1,
+    session.closedAt ?? 0,
+    session.lastObservedAt + 1,
   );
   const metrics = usePaginatedQuery(
     api.clubAnalytics.getInstanceSummaryPage,
