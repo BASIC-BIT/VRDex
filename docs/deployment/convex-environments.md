@@ -333,8 +333,8 @@ once `DISCORD_REST_BOT_TOKEN` holds a real bot token, so
 `VRDEX_DISCORD_INTAKE_ENABLED` stays off on staging until it does.
 
 `DISCORD_REST_BOT_TOKEN` overrides `DISCORD_BOT_TOKEN` for
-`convex/_discordRest.ts` only, so the Discord event board and the announcement
-connector's REST calls use a real bot while the hosted stub path in
+`convex/_discordRest.ts` only, so the Discord event board, scheduled events,
+and announcement connectors' REST calls use a real bot while the hosted stub path in
 `convex/profileClaims.ts` keeps its token (secret). Unset or empty, those calls
 fall back to `DISCORD_BOT_TOKEN`. It must be the token of the same gateway
 application. Scope: the Convex deployment environment; currently only needed on
