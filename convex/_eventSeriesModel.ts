@@ -43,6 +43,7 @@ export function monthlyOrdinalOf(date: string): 1 | 2 | 3 | 4 | -1 {
 }
 
 export const SERIES_HORIZON_DAYS = 60;
+export const SERIES_MAX_COUNT = 520;
 
 export const SERIES_OWNED_EVENT_FIELDS = [
   "title",

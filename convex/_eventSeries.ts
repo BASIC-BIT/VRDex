@@ -7,6 +7,7 @@ import { eventOutputIsAuthorized } from "./_eventOutputSetup";
 import { eventDateForInstant, normalizeEventSchedule } from "./_eventSchedule";
 import {
   SERIES_HORIZON_DAYS,
+  SERIES_MAX_COUNT,
   SERIES_OWNED_EVENT_FIELDS,
   requireRecurringEventsEnabled,
   type SeriesOwnedEventField,
@@ -32,7 +33,6 @@ import {
 } from "./events";
 
 const DAY_MS = 86_400_000;
-const MAX_COUNT = 520;
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -128,8 +128,8 @@ export function validateSeriesRule(
   if (bounds.endsOn !== undefined && !(toDay(bounds.endsOn) >= start)) {
     throw new Error("Series end date must be a YYYY-MM-DD date on or after the start date.");
   }
-  if (bounds.count !== undefined && (!Number.isInteger(bounds.count) || bounds.count < 1 || bounds.count > MAX_COUNT)) {
-    throw new Error(`Repeat count must be 1 to ${MAX_COUNT}.`);
+  if (bounds.count !== undefined && (!Number.isInteger(bounds.count) || bounds.count < 1 || bounds.count > SERIES_MAX_COUNT)) {
+    throw new Error(`Repeat count must be 1 to ${SERIES_MAX_COUNT}.`);
   }
 }
 
