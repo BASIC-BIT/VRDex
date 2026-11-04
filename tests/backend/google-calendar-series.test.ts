@@ -210,6 +210,20 @@ describe("google series import", () => {
     }
   });
 
+  it("never makes a series of a private or confidential master, even from a cancelled instance that carries no visibility", async () => {
+    for (const visibility of ["private", "confidential"] as const) {
+      const t = convexTest({ schema, modules: seriesSyncModules });
+      const { connectorId } = await seedGoogleConnector(t, { direction: "import" });
+      const fake = fakeFetch(masterFetch({ ...MASTER, visibility }));
+      const { id, recurringEventId } = googleInstance("2026-11-14");
+      await importGoogle(t, connectorId, { id, recurringEventId, status: "cancelled", updated: "2026-11-02T11:30:00.000Z" } as Parameters<typeof importGoogle>[2]);
+      fake.restore();
+      assert.equal((await t.run((ctx) => ctx.db.query("eventSeries").collect())).length, 0);
+      assert.equal((await t.run((ctx) => ctx.db.query("events").collect())).length, 0);
+      assert.equal((await allLinks(t)).length, 0);
+    }
+  });
+
   it("imports through a poll with one master fetch, keeping each instance's original start", async () => {
     const t = convexTest({ schema, modules: seriesSyncModules });
     const { connectorId } = await seedGoogleConnector(t, { direction: "import" });
@@ -405,6 +419,18 @@ describe("google series export", () => {
     const patch = fake.calls.at(-1)!;
     assert.deepEqual([patch.method, patch.url.pathname, (patch.body as { recurrence: string[] }).recurrence],
       ["PATCH", "/calendar/v3/calendars/cal-1/events/m1", ["RRULE:FREQ=WEEKLY;BYDAY=SA;UNTIL=20261206T045959Z"]]);
+  });
+
+  it("posts no master for a series that ended before it was ever exported", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    await t.run((ctx) => ctx.db.patch(seriesId, { state: "ended", endsOn: "2026-11-02" }));
+    const fake = fakeFetch(({ body }) => exported(body));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+    fake.restore();
+    assert.deepEqual(fake.calls.filter((c) => c.method !== "GET"), []);
+    assert.deepEqual((await allLinks(t)).filter((l) => !l.eventId).map((l) => l.externalId), ["none:" + seriesId]);
   });
 
   it("a night with no series link exports nothing and enqueues the series", async () => {

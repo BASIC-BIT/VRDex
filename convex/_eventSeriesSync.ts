@@ -95,8 +95,9 @@ export async function flagSeriesNights(db: DatabaseWriter, connectorId: Id<"even
   for (const night of await upcomingSeriesNights(db, series, now)) {
     const link = await nightLinkFor(db, connectorId, night._id);
     if (link) await db.patch(link._id, { state: "external_deleted", updatedAt: now });
+    // A placeholder names nothing on the source; a provider-shaped ID could already be another event's link.
     else await db.insert("eventSyncLinks", {
-      connectorId, eventId: night._id, seriesId: series._id, externalSeriesId, externalId: externalSeriesId + ":" + night.occurrenceDate,
+      connectorId, eventId: night._id, seriesId: series._id, externalSeriesId, externalId: "none:" + night._id,
       state: "external_deleted", createdAt: now, updatedAt: now,
     });
   }

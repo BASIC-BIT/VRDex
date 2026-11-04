@@ -2,7 +2,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { eventDateForInstant, eventLocalTimeLenient } from "../_eventSchedule";
-import { occurrenceDates, occurrenceTimes } from "../_eventSeries";
+import { occurrenceDates, occurrenceTimes, seriesEnded } from "../_eventSeries";
 import { connectorSeriesEnabled } from "../_eventSeriesModel";
 import { seriesHash, seriesSyncFields, type ExternalSeries, type SeriesSyncFields } from "../_eventSeriesSync";
 import { formatGoogleRecurrence, parseGoogleRecurrence } from "../_recurrenceRules";
@@ -157,8 +157,10 @@ async function listAll(token: string, calendarId: string, params: { syncToken?: 
   return { items, nextSyncToken: page.nextSyncToken, timeZone: page.timeZone };
 }
 
-// A master's series fields, or null when it cannot be one: no title, all-day, a rule outside the fixed set, or a zone Intl refuses.
+// A master's series fields, or null when it cannot be one: private, no title, all-day, a rule outside the fixed set, or a zone Intl refuses.
+// A private master's instances fall back to phase one, which skips them; a cancelled instance carries no visibility of its own.
 function seriesFieldsFromMaster(master: GoogleCalendarEvent, siteUrl: string): SeriesSyncFields | null {
+  if (isPrivateItem(master)) return null;
   try {
     // A recurring master always carries start.timeZone, so the fallback zone never applies.
     const fields = fieldsFromGoogleEvent(master, "UTC", siteUrl);
@@ -447,6 +449,8 @@ export const googleCalendarHandler: SyncKindHandler = {
           if (!isGone(error)) throw error;
         }
       }
+      // A new master for a series with nothing ahead would only add past nights to the calendar.
+      if (seriesEnded(series, eventDateForInstant(Date.now(), series.timezone))) return { externalId: "none:" + series._id };
       return { externalId: (await insertEvent(token, calendarId, body)).id };
     });
   },

@@ -8,7 +8,7 @@ import { DISCORD_IMAGE_MAX_BYTES, parseScheduledEvent, patchKeepingDescription, 
 import { applyEventCandidate, candidateFromConnectorFields } from "../_eventCandidateApply";
 import { carriedFieldsHash, DISCORD_ID, discordScheduledEventsEnabled, pendingLinkDraft, requireConnectorAuthority, sha256Hex } from "../_eventConnectors";
 import { eventDateForInstant, readEventSchedule } from "../_eventSchedule";
-import { occurrenceDates, occurrenceTimes } from "../_eventSeries";
+import { occurrenceTimes, seriesEnded } from "../_eventSeries";
 import { connectorSeriesEnabled, type SeriesRule } from "../_eventSeriesModel";
 import { seriesHash, seriesSyncFields, upcomingSeriesNights, type ExternalSeries } from "../_eventSeriesSync";
 import { enqueueSyncJob, eventIsSyncable } from "../_eventSync";
@@ -170,13 +170,6 @@ export const getSeriesExportState = internalQuery({
   handler: (ctx, { connectorId, seriesId }) => loadSeriesExportState(ctx.db, connectorId, seriesId),
 });
 
-// Ended, past its end date, or with no rule date left: Discord carries no end, so the export cancels the scheduled event instead.
-// endsOn is inclusive, so the final day keeps its night. No night materialised is not an end: the first may be past the horizon.
-// Two months past the later of today and the start always holds a rule date, monthly ones included, unless an end or count stops it.
-const endedOnDiscord = (series: Doc<"eventSeries">, today: string) => {
-  const from = today > series.startsOn ? today : series.startsOn;
-  return series.state !== "active" || occurrenceDates(series, today, new Date(Date.parse(from) + 62 * 86_400_000).toISOString().slice(0, 10)).length === 0;
-};
 // Discord cannot repeat on a last weekday: such a series goes out night by night, as plan 07 sends one-offs.
 const carriedOnDiscord = (rule: SeriesRule) => formatDiscordRecurrence(rule, "") !== null;
 
@@ -237,7 +230,7 @@ async function importScheduledEventSeries(ctx: MutationCtx, connector: Connector
     }
     const { today, source } = await loadSeriesExportState(db, connector._id, link.seriesId);
     // VRDex's own cancel coming back, possibly before completeJob has recorded the export that sent it.
-    if (deleted && action !== "delete" && (endedOnDiscord(series, today) || !carriedOnDiscord(series.rule))) {
+    if (deleted && action !== "delete" && (seriesEnded(series, today) || !carriedOnDiscord(series.rule))) {
       const now = Date.now();
       await db.patch(link._id, { lastImportedAt: now, externalUpdatedAt: Math.max(link.externalUpdatedAt ?? 0, receivedAt), updatedAt: now });
       return true;
@@ -511,8 +504,23 @@ async function exportSeriesNight(ctx: ActionCtx, connector: Connector, event: Do
   const live = await liveEvent(ctx, connector, `${path}/${liveId}`);
   // An organiser who made the copy recurring owns a series now; it stays, and its import converts the link.
   if (live?.recurrence_rule) return { externalId: liveId, unchanged: true };
-  if (live) await removeLive(ctx, connector, `${path}/${liveId}`);
+  if (!live) return none;
+  // Only a one-off the bot posted goes: an organiser's own copy keeps its interested list, and the night shows twice.
+  const bot = await botUserId();
+  if (!bot || live.creator_id !== bot) return { externalId: liveId, unchanged: true };
+  await removeLive(ctx, connector, `${path}/${liveId}`);
   return none;
+}
+
+// The bot's own Discord user ID, or null when Discord does not answer with one. Rule 4 reads it at most once per night job.
+async function botUserId(): Promise<string | null> {
+  try {
+    const response = await discordRequest({ method: "GET", path: "/users/@me" });
+    const id = response.ok ? (await readObject(response)).id : null;
+    return typeof id === "string" && DISCORD_ID.test(id) ? id : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -584,7 +592,8 @@ export const discordScheduledEventsHandler: SyncKindHandler = {
     const liveId = liveExternalId(link);
     const none = { externalId: `none:${series._id}` };
     const { source, firstNight, today, phaseOneExternalSeriesId } = await ctx.runQuery(internal.eventSyncKinds.discordScheduledEvents.getSeriesExportState, { connectorId: connector._id, seriesId: series._id });
-    if (endedOnDiscord(series, today)) {
+    // Discord carries no end, so an ended series cancels its scheduled event. No night materialised is not an end: the first may be past the horizon.
+    if (seriesEnded(series, today)) {
       if (!liveId) return none;
       await cancelScheduled(ctx, connector, `${path}/${liveId}`);
       return { externalId: liveId };

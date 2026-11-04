@@ -11,12 +11,15 @@ type T = TestConvex<typeof schema>;
 const api = "/api/v10/guilds/123456789012345678/scheduled-events";
 const SERIES_ID = "900000000000000001";
 const LATER = NOW + 60_000;
+const BOT = "800000000000000001";
 
 // The guild list answers `list`, a GET by ID finds a scheduled event at `status`, and a write echoes its body with an ID (B13).
+// `/users/@me` is the bot, BOT.
 function fakeDiscord(state: { list?: unknown[]; status?: number; byId?: Record<string, object> } = {}) {
   let next = 1;
   return fakeFetch(({ method, url, body }: FetchCall) => {
     const id = url.pathname.split("/").at(-1);
+    if (method === "GET" && url.pathname === "/api/v10/users/@me") return Response.json({ id: BOT });
     if (method === "GET") return Response.json(url.pathname === api ? (state.list ?? []) : state.byId?.[id!] ?? { id, status: state.status ?? 1 });
     if (method === "DELETE") return new Response(null, { status: 204 });
     return Response.json({ ...(body as object), id: method === "POST" ? `90000000000000000${next++}` : id });
@@ -142,7 +145,7 @@ describe("discord scheduled event series", () => {
     const n14 = await occurrence(t, seriesId, "2026-11-14");
     await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId, eventId: n14._id, externalId: "910000000000000001", state: "linked", lastExportedHash: "h", createdAt: NOW, updatedAt: NOW }));
     await clearJobs(t);
-    const fake = fakeDiscord();
+    const fake = fakeDiscord({ byId: { "910000000000000001": { id: "910000000000000001", status: 1, creator_id: BOT } } });
     await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
     assert.equal(fake.calls.length, 0);
     assert.equal((await allLinks(t)).find((link) => link.eventId === n14._id)!.externalId, "910000000000000001");
@@ -154,6 +157,24 @@ describe("discord scheduled event series", () => {
     fake.restore();
     assert.deepEqual([fake.calls.at(-1)!.method, fake.calls.at(-1)!.url.pathname], ["DELETE", `${api}/910000000000000001`]);
     assert.equal((await allLinks(t)).find((link) => link.eventId === n14._id)!.externalId, "none:" + n14._id);
+  });
+
+  it("keeps an organiser's own one-off on a series night, deleting only the bot's (rule 4)", async () => {
+    for (const creator of ["333333333333333333", null]) {
+      const t = convexTest({ schema, modules: seriesSyncModules });
+      const { connectorId, communityProfileId, staffUserId } = await seedDiscordConnector(t, { direction: "export" });
+      const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+      const n14 = await occurrence(t, seriesId, "2026-11-14");
+      const copy = "910000000000000001";
+      await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId, eventId: n14._id, externalId: copy, state: "linked", lastExportedHash: "h", createdAt: NOW, updatedAt: NOW }));
+      const fake = fakeDiscord({ byId: { [copy]: { id: copy, status: 1, creator_id: creator } } });
+      await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+      fake.calls.length = 0;
+      await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+      fake.restore();
+      assert.deepEqual(fake.calls.map((call) => [call.method, call.url.pathname]), [["GET", `${api}/${copy}`], ["GET", "/api/v10/users/@me"]]);
+      assert.equal((await allLinks(t)).find((link) => link.eventId === n14._id)!.externalId, copy);
+    }
   });
 
   it("keeps the scheduled event on a series' final day, before that night's show (I1)", async () => {

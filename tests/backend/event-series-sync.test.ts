@@ -77,7 +77,21 @@ describe("external series", () => {
     const links = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
     assert.equal(links.length, 9);
     assert.ok(links.every((l) => l.state === "external_deleted"));
-    assert.ok(links.some((l) => l.externalId === "m1:2026-11-07" && l.eventId));
+    const n07 = await occurrence(t, seriesId!, "2026-11-07");
+    assert.ok(links.some((l) => l.externalId === "none:" + n07._id && l.eventId === n07._id && l.externalSeriesId === "m1"));
+  });
+
+  it("flags a night with a placeholder that never takes a leftover phase-one link's ID", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "import" });
+    await applySeries(t, connectorId);
+    // A night the grouping migration left outside the series still holds the `{id}:{date}` shape.
+    const other = await seedEvent(t, communityProfileId, { title: "Other Night", slug: "other-night", eventDate: "2026-11-14", startAt: Date.parse("2026-11-14T20:00:00-05:00") });
+    await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId, eventId: other, externalId: "m1:2026-11-14", externalSeriesId: "m1", state: "linked", createdAt: NOW, updatedAt: NOW }));
+    await applySeries(t, connectorId, { externalUpdatedAt: later(50), deleted: true });
+    const links = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
+    assert.equal(new Set(links.map((l) => l.externalId)).size, links.length);
+    assert.equal(links.filter((l) => l.externalId === "m1:2026-11-14").length, 1);
   });
 
   it("reads a deletion of an ended series as its own end coming back", async () => {
@@ -272,7 +286,7 @@ describe("external series", () => {
     // The duplicate and its nights stay public; its nights show on the staff-attention list.
     assert.ok((await t.run((ctx) => ctx.db.get(duplicate)))?.state === "active");
     const flagged = links.filter((l) => l.eventId && l.state === "external_deleted");
-    assert.ok(flagged.length > 0 && flagged.every((l) => l.externalId.startsWith("none:" + duplicate + ":")));
+    assert.ok(flagged.length > 0 && flagged.every((l) => l.externalSeriesId === "none:" + duplicate && l.externalId === "none:" + l.eventId));
     assert.deepEqual(warn.mock.calls.map((c) => c.arguments[0]), ["SERIES_EXPORT_ID_TAKEN"]);
   });
 

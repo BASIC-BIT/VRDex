@@ -145,6 +145,16 @@ describe("groupOccurrenceLinks", () => {
     });
   }
 
+  it("lists a private master as unparseable and groups nothing", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "import" });
+    await seedNight(t, connectorId, communityProfileId, "2026-11-07");
+    const fake = fakeFetch(masterFetch({ ...MASTER, visibility: "private" }));
+    assert.deepEqual(await t.action(internal.migrations.groupOccurrenceLinks, { connectorId }), { grouped: [], unparseable: ["m1"] });
+    fake.restore();
+    assert.equal((await t.run((ctx) => ctx.db.query("eventSeries").collect())).length, 0);
+  });
+
   it("gives a held connector no series", async () => {
     const t = convexTest({ schema, modules: seriesSyncModules });
     const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "import", mode: "hold" });

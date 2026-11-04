@@ -102,6 +102,16 @@ export function occurrenceDates(
   return dates;
 }
 
+/**
+ * Ended, past its end date, or with no rule date left on or after `today`: a connector has nothing ahead to carry.
+ * endsOn is inclusive, so the final day keeps its night. Two months past the later of today and the start always holds a
+ * rule date, monthly ones included, unless an end or count stops it.
+ */
+export function seriesEnded(series: Pick<Doc<"eventSeries">, "state" | "rule" | "startsOn" | "endsOn" | "count">, today: string): boolean {
+  const from = today > series.startsOn ? today : series.startsOn;
+  return series.state !== "active" || occurrenceDates(series, today, new Date(Date.parse(from) + 62 * DAY_MS).toISOString().slice(0, 10)).length === 0;
+}
+
 /** Throws on a rule, or series bounds, outside the fixed recurrence set. */
 export function validateSeriesRule(
   rule: SeriesRule,
