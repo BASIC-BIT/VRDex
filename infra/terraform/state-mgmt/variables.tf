@@ -16,6 +16,25 @@ variable "github_repository" {
   default     = "BASIC-BIT/VRDex"
 }
 
+# Owner transfer. GitHub OIDC subjects change when the repository moves to a new
+# owner, so the roles also trust the new-owner subjects in a separate statement
+# pinned to the immutable repository and owner IDs. Remove this and the
+# BASIC-BIT subject after a clean week under the new owner. Self-hosted
+# deployments should set this to null.
+variable "github_transfer_trust" {
+  description = "Transitional GitHub OIDC trust for this repository under its new owner. Subjects are owner/name prefixes; the statement also requires the exact repository and owner IDs. Null disables it."
+  type = object({
+    repository_id       = string
+    repository_owner_id = string
+    repositories        = list(string)
+  })
+  default = {
+    repository_id       = "1176245711"
+    repository_owner_id = "350167065"
+    repositories        = ["BITRATE-Labs/VRDex", "BITRATE-Labs@350167065/VRDex@1176245711"]
+  }
+}
+
 variable "route53_zone_id" {
   description = "Route 53 public hosted zone ID that Terraform CI may manage."
   type        = string

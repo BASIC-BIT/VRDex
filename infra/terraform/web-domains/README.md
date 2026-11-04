@@ -35,9 +35,13 @@ Configure > Domains page.
 Hosted values live in the checked-in `hosted.tfvars`. That file is **not**
 auto-loaded — Terraform reads only `terraform.tfvars` and `*.auto.tfvars`
 automatically — and `terraform.yml` passes it with `-var-file` only when the
-repository is `BASIC-BIT/VRDex`. So the hosted DNS is reconstructible from git
-after a dashboard or repository rebuild, while a fork still plans no Clerk
-records.
+repository ID is `1176245711`. So the hosted DNS is reconstructible from git
+after a dashboard rebuild, while a fork still plans no Clerk records.
+
+The check matches the numeric repository ID rather than `owner/name`, so it keeps
+working after an owner transfer or rename. A repository that is deleted and
+recreated gets a new ID: update both checks in `terraform.yml` before the first
+run from main, or the plan drops the Clerk records.
 
 **Run this stack through the workflow, not locally.** Without that file a local
 `terraform plan` against this deployment's state reports `5 to destroy`, and

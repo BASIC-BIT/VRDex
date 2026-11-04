@@ -15,6 +15,25 @@ locals {
   profile_asset_role_arn         = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.profile_asset_runtime_role_name}"
   staging_profile_asset_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.staging_profile_asset_runtime_role_name}"
 
+  # Transitional main-only trust for the release roles under the new owner. Kept
+  # as its own statement because conditions in one statement are ANDed, and the
+  # ID pins would otherwise also apply to the existing BASIC-BIT subject.
+  github_transfer_main_trust_statements = [
+    for t in(var.github_transfer_trust == null ? [] : [var.github_transfer_trust]) : {
+      Effect    = "Allow"
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Principal = { Federated = data.aws_iam_openid_connect_provider.github_actions.arn }
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud"                 = "sts.amazonaws.com"
+          "token.actions.githubusercontent.com:repository_id"       = t.repository_id
+          "token.actions.githubusercontent.com:repository_owner_id" = t.repository_owner_id
+          "token.actions.githubusercontent.com:sub"                 = [for r in t.repositories : "repo:${r}:ref:refs/heads/main"]
+        }
+      }
+    }
+  ]
+
   tags = merge(
     {
       Project   = "VRDex"
@@ -119,6 +138,47 @@ data "aws_iam_policy_document" "github_actions_terraform_assume_role" {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
       values   = ["repo:${var.github_repository}:*"]
+    }
+  }
+
+  # Transitional trust for the new owner, pinned to the repository and owner IDs.
+  # See `github_transfer_trust` in variables.tf.
+  dynamic "statement" {
+    for_each = var.github_transfer_trust == null ? [] : [var.github_transfer_trust]
+
+    content {
+      effect = "Allow"
+
+      principals {
+        type        = "Federated"
+        identifiers = [data.aws_iam_openid_connect_provider.github_actions.arn]
+      }
+
+      actions = ["sts:AssumeRoleWithWebIdentity"]
+
+      condition {
+        test     = "StringEquals"
+        variable = "token.actions.githubusercontent.com:aud"
+        values   = ["sts.amazonaws.com"]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "token.actions.githubusercontent.com:repository_id"
+        values   = [statement.value.repository_id]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "token.actions.githubusercontent.com:repository_owner_id"
+        values   = [statement.value.repository_owner_id]
+      }
+
+      condition {
+        test     = "StringLike"
+        variable = "token.actions.githubusercontent.com:sub"
+        values   = [for r in statement.value.repositories : "repo:${r}:*"]
+      }
     }
   }
 }

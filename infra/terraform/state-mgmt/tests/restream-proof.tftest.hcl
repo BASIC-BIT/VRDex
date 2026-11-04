@@ -48,19 +48,37 @@ run "enabled_publisher" {
   assert {
     condition = jsondecode(aws_iam_role.restream_proof_image[0].assume_role_policy) == {
       Version = "2012-10-17"
-      Statement = [{
-        Effect    = "Allow"
-        Action    = "sts:AssumeRoleWithWebIdentity"
-        Principal = { Federated = "arn:aws:iam::079358094174:oidc-provider/token.actions.githubusercontent.com" }
-        Condition = {
-          StringEquals = {
-            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-            "token.actions.githubusercontent.com:sub" = "repo:BASIC-BIT/VRDex:ref:refs/heads/main"
+      Statement = [
+        {
+          Effect    = "Allow"
+          Action    = "sts:AssumeRoleWithWebIdentity"
+          Principal = { Federated = "arn:aws:iam::079358094174:oidc-provider/token.actions.githubusercontent.com" }
+          Condition = {
+            StringEquals = {
+              "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+              "token.actions.githubusercontent.com:sub" = "repo:BASIC-BIT/VRDex:ref:refs/heads/main"
+            }
           }
-        }
-      }]
+        },
+        {
+          Effect    = "Allow"
+          Action    = "sts:AssumeRoleWithWebIdentity"
+          Principal = { Federated = "arn:aws:iam::079358094174:oidc-provider/token.actions.githubusercontent.com" }
+          Condition = {
+            StringEquals = {
+              "token.actions.githubusercontent.com:aud"                 = "sts.amazonaws.com"
+              "token.actions.githubusercontent.com:repository_id"       = "1176245711"
+              "token.actions.githubusercontent.com:repository_owner_id" = "350167065"
+              "token.actions.githubusercontent.com:sub" = [
+                "repo:BITRATE-Labs/VRDex:ref:refs/heads/main",
+                "repo:BITRATE-Labs@350167065/VRDex@1176245711:ref:refs/heads/main",
+              ]
+            }
+          }
+        },
+      ]
     }
-    error_message = "Trust must allow only the existing GitHub provider, STS audience and exact repository main subject."
+    error_message = "Trust must allow only the existing GitHub provider, STS audience and exact repository main subject, plus the new-owner main subjects pinned to the repository and owner IDs."
   }
 
   assert {
@@ -105,5 +123,19 @@ run "configured_repository" {
   assert {
     condition     = jsondecode(aws_iam_role.restream_proof_image[0].assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:test-owner/proof-publisher:ref:refs/heads/main"
     error_message = "The main-only subject must follow the configured repository."
+  }
+}
+
+run "transfer_trust_disabled" {
+  command = plan
+
+  variables {
+    enable_restream_proof_image_permissions = true
+    github_transfer_trust                   = null
+  }
+
+  assert {
+    condition     = length(jsondecode(aws_iam_role.restream_proof_image[0].assume_role_policy).Statement) == 1
+    error_message = "A null transfer trust must leave only the configured repository statement."
   }
 }

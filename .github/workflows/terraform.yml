@@ -390,7 +390,9 @@ jobs:
           # silently drops the hosted values would plan 5 to destroy against the
           # live Clerk CNAMEs and apply it unattended, taking production
           # authentication DNS with it. Skipping the stack is the safe failure.
-          if [ "${{ matrix.stack.requires_clerk_dns }}" = "true" ] && [ "$GITHUB_REPOSITORY" = "BASIC-BIT/VRDex" ]; then
+          # The canonical repository is matched by its numeric ID, not its name,
+          # so an owner transfer or rename cannot silently turn this check off.
+          if [ "${{ matrix.stack.requires_clerk_dns }}" = "true" ] && [ "$GITHUB_REPOSITORY_ID" = "1176245711" ]; then
             if [ ! -f "${{ matrix.stack.path }}/hosted.tfvars" ]; then missing+=("${{ matrix.stack.path }}/hosted.tfvars"); fi
           fi
 
@@ -484,11 +486,12 @@ jobs:
               ;;
             web-domains)
               if [ -n "$TERRAFORM_ROUTE53_ZONE_ID" ]; then args+=("-var=route53_zone_id=$TERRAFORM_ROUTE53_ZONE_ID"); fi
-              # Canonical repository only. `hosted.tfvars` is checked in so the
+              # Canonical repository only, matched by repository ID so it
+              # survives an owner transfer. `hosted.tfvars` is checked in so the
               # hosted DNS is reconstructible from git, and is not auto-loaded, so
               # a fork plans no Clerk records and never delegates its own
               # authentication-email DNS to this Clerk tenant.
-              if [ "$GITHUB_REPOSITORY" = "BASIC-BIT/VRDex" ]; then args+=("-var-file=hosted.tfvars"); fi
+              if [ "$GITHUB_REPOSITORY_ID" = "1176245711" ]; then args+=("-var-file=hosted.tfvars"); fi
               ;;
             ses)
               args+=("-var=domain_name=$TERRAFORM_SES_DOMAIN_NAME")
