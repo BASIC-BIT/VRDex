@@ -10,7 +10,7 @@ import { eventDateForInstant } from "./_eventSchedule";
 import { fanOutSeriesEdit, materializeSeries, retireOccurrences, seriesOverridesFor, seriesUpdatePatch, validateSeriesRule } from "./_eventSeries";
 import { connectorSeriesEnabled, SERIES_HORIZON_DAYS, type SeriesRule } from "./_eventSeriesModel";
 import {
-  enqueueSeriesSync, flagSeriesNights, nightLinkFor, restoreSeriesNights, seriesHash, seriesLinkFor, seriesSyncFields, seriesSyncFieldsValidator, upcomingSeriesNights,
+  enqueueSeriesSync, flagSeriesNights, nightLinkFor, restoreSeriesNights, seriesHash, seriesJobQueued, seriesLinkFor, seriesSyncFields, seriesSyncFieldsValidator, upcomingSeriesNights,
   type SeriesSyncFields,
 } from "./_eventSeriesSync";
 import { enqueueEventSync } from "./_eventSync";
@@ -38,11 +38,15 @@ const withSeriesDoors = (rule: SeriesRule, doorsTime: string | undefined): Serie
 };
 
 // An active community series of this title with no link here. A series already linked here belongs to another external series (a split, or two of one name).
-async function unlinkedSeriesByTitle(db: DatabaseReader, connector: Doc<"eventConnectors">, title: string): Promise<Doc<"eventSeries"> | null> {
+// `claimable` also takes one whose link names nothing yet (`none:`), or whose export is queued or running here: an import is then that export's echo,
+// which can land before completeJob records the new ID. The returned link is that series' own, for the caller to patch.
+async function unlinkedSeriesByTitle(db: DatabaseReader, connector: Doc<"eventConnectors">, title: string, claimable = false): Promise<{ series: Doc<"eventSeries">; link: Doc<"eventSyncLinks"> | null } | null> {
   const wanted = title.trim().toLowerCase();
   const candidates = await db.query("eventSeries").withIndex("by_communityProfileId_state", q => q.eq("communityProfileId", connector.communityProfileId).eq("state", "active")).collect();
   for (const candidate of candidates) {
-    if (candidate.title.trim().toLowerCase() === wanted && !await seriesLinkFor(db, connector._id, candidate._id)) return candidate;
+    if (candidate.title.trim().toLowerCase() !== wanted) continue;
+    const link = await seriesLinkFor(db, connector._id, candidate._id);
+    if (!link || (claimable && (link.externalId.startsWith("none:") || await seriesJobQueued(db, connector._id, candidate._id)))) return { series: candidate, link };
   }
   return null;
 }
@@ -142,16 +146,16 @@ export async function applyExternalSeriesFor(ctx: MutationCtx, args: ExternalSer
     await db.patch(oneOff._id, { externalId, externalSeriesId: args.externalSeriesId, updatedAt: now });
   }
   // The baseline hash: linking applies nothing, so the next delivery of these same fields is an echo.
-  const writeLink = async (seriesId: Id<"eventSeries">) => {
+  const writeLink = async (seriesId: Id<"eventSeries">, existing = link) => {
     const linkFields = { seriesId, externalId: args.externalSeriesId, externalSeriesId: args.externalSeriesId, state: "linked" as const, lastExportedHash: hash, ...seen };
-    if (link) await db.patch(link._id, linkFields);
+    if (existing) await db.patch(existing._id, linkFields);
     else await db.insert("eventSyncLinks", { connectorId: connector._id, ...linkFields, createdAt: now });
   };
-  const candidate = await unlinkedSeriesByTitle(db, connector, clean.title);
+  const candidate = await unlinkedSeriesByTitle(db, connector, clean.title, true);
   if (candidate) {
     // Connecting links and never overwrites.
-    await writeLink(candidate._id);
-    return { outcome: "linked", seriesId: candidate._id };
+    await writeLink(candidate.series._id, candidate.link);
+    return { outcome: "linked", seriesId: candidate.series._id };
   }
 
   const seriesId = await db.insert("eventSeries", {
@@ -296,7 +300,7 @@ export const groupLinks = internalMutation({
       } catch {
         return null;
       }
-      series = await unlinkedSeriesByTitle(db, connector, clean.title);
+      series = (await unlinkedSeriesByTitle(db, connector, clean.title))?.series ?? null;
       if (!series) {
         created = true;
         series = (await db.get(await db.insert("eventSeries", {

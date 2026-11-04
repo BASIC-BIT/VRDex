@@ -375,8 +375,9 @@ rotate; change it with `npx convex env set VRDEX_CONNECTOR_SERIES_ENABLED true`,
 and only after the live checks in
 [Connector series](../backend/event-schema.md#before-turning-the-gate-on).
 Turning it off returns both kinds to phase-one import and export at once. Series
-and series links stay; a night whose link is `none:` then exports as a
-standalone copy beside the master already on the source.
+and series links stay, and a night whose link is `none:` goes to the phase-one
+export: on Google an overridden night then gets a standalone copy beside the
+master, and on Discord a night the scheduled event already shows writes nothing.
 
 ## Locked Decision
 

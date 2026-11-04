@@ -8,7 +8,7 @@ import { DISCORD_IMAGE_MAX_BYTES, parseScheduledEvent, patchKeepingDescription, 
 import { applyEventCandidate, candidateFromConnectorFields } from "../_eventCandidateApply";
 import { carriedFieldsHash, DISCORD_ID, discordScheduledEventsEnabled, pendingLinkDraft, requireConnectorAuthority, sha256Hex } from "../_eventConnectors";
 import { eventDateForInstant, readEventSchedule } from "../_eventSchedule";
-import { occurrenceTimes } from "../_eventSeries";
+import { occurrenceDates, occurrenceTimes } from "../_eventSeries";
 import { connectorSeriesEnabled, type SeriesRule } from "../_eventSeriesModel";
 import { seriesHash, seriesSyncFields, upcomingSeriesNights, type ExternalSeries } from "../_eventSeriesSync";
 import { enqueueSyncJob, eventIsSyncable } from "../_eventSync";
@@ -18,7 +18,7 @@ import { applyExternalSeriesFor, seriesExportContextFor } from "../eventSeriesSy
 import { correctionFields } from "../eventCorrections";
 import { EventIntakeLocalTimeSchema } from "../../packages/api-contracts/src/event-intake";
 import { liveMessageId as liveExternalId, pause, publicEventProjection, readObject } from "./discordBoard";
-import type { SyncKindHandler } from "./types";
+import type { ExportResult, SyncKindHandler } from "./types";
 
 type Connector = Doc<"eventConnectors">;
 // `externalIds` limits a reconcile's job to the nights it could not place. A relayed job has none and walks every night.
@@ -170,10 +170,13 @@ export const getSeriesExportState = internalQuery({
   handler: (ctx, { connectorId, seriesId }) => loadSeriesExportState(ctx.db, connectorId, seriesId),
 });
 
-// Ended, past its end date, or with no night ahead: Discord carries no end, so the export cancels the scheduled event instead.
-// endsOn is inclusive, so the final day keeps its night. The date check stays beside `!firstNight` for nights an end date has not retired.
-const endedOnDiscord = (series: Doc<"eventSeries">, firstNight: Doc<"events"> | null, today: string) =>
-  series.state !== "active" || (series.endsOn !== undefined && series.endsOn < today) || !firstNight;
+// Ended, past its end date, or with no rule date left: Discord carries no end, so the export cancels the scheduled event instead.
+// endsOn is inclusive, so the final day keeps its night. No night materialised is not an end: the first may be past the horizon.
+// Two months past the later of today and the start always holds a rule date, monthly ones included, unless an end or count stops it.
+const endedOnDiscord = (series: Doc<"eventSeries">, today: string) => {
+  const from = today > series.startsOn ? today : series.startsOn;
+  return series.state !== "active" || occurrenceDates(series, today, new Date(Date.parse(from) + 62 * 86_400_000).toISOString().slice(0, 10)).length === 0;
+};
 // Discord cannot repeat on a last weekday: such a series goes out night by night, as plan 07 sends one-offs.
 const carriedOnDiscord = (rule: SeriesRule) => formatDiscordRecurrence(rule, "") !== null;
 
@@ -232,9 +235,9 @@ async function importScheduledEventSeries(ctx: MutationCtx, connector: Connector
       console.warn("DISCORD_SERIES_CONTEXT_MISSING", connector._id, link.seriesId);
       return true;
     }
-    const { firstNight, today, source } = await loadSeriesExportState(db, connector._id, link.seriesId);
+    const { today, source } = await loadSeriesExportState(db, connector._id, link.seriesId);
     // VRDex's own cancel coming back, possibly before completeJob has recorded the export that sent it.
-    if (deleted && action !== "delete" && (endedOnDiscord(series, firstNight, today) || !carriedOnDiscord(series.rule))) {
+    if (deleted && action !== "delete" && (endedOnDiscord(series, today) || !carriedOnDiscord(series.rule))) {
       const now = Date.now();
       await db.patch(link._id, { lastImportedAt: now, externalUpdatedAt: Math.max(link.externalUpdatedAt ?? 0, receivedAt), updatedAt: now });
       return true;
@@ -483,21 +486,23 @@ const ONE_OFF_FIELDS = new Set(["title", "summary", "venueLabel", "startAt", "en
  * A night of a series, with the series gate on: the scheduled event carries every night, so a night writes only its own one-off.
  * Null for a series Discord cannot carry, whose nights export as plan 07's one-offs.
  */
-async function exportSeriesNight(ctx: ActionCtx, connector: Connector, event: Doc<"events">, link: Doc<"eventSyncLinks"> | null, path: string): Promise<{ externalId: string } | null> {
+async function exportSeriesNight(ctx: ActionCtx, connector: Connector, event: Doc<"events">, link: Doc<"eventSyncLinks"> | null, path: string): Promise<ExportResult | null> {
   const seriesId = event.seriesId!;
   const { rule, seriesLink } = await ctx.runQuery(internal.eventSyncKinds.discordScheduledEvents.getSeriesNightState, { connectorId: connector._id, seriesId });
   if (!rule || !carriedOnDiscord(rule)) return null;
-  if (link?.state === "external_deleted") return { externalId: link.externalId };
+  if (link?.state === "external_deleted") return { externalId: link.externalId, unchanged: true };
   const none = { externalId: `none:${event._id}` };
   const own = link && !link.externalId.startsWith("none:") ? link : null;
+  // The night's own copy, left as it is: the runner writes nothing to its link.
+  const keep = own && { externalId: own.externalId, unchanged: true as const };
   // No scheduled event yet (a night job can run before its series job): the series export queues this night again.
   // The night's own copy keeps its ID, so that follow-up still sees it and retracts it.
   if (!seriesLink || seriesLink.externalId.startsWith("none:")) {
     await ctx.runMutation(internal.eventSeriesSync.requestSeriesExport, { seriesId });
-    return own ? { externalId: own.externalId } : none;
+    return keep || none;
   }
   // The organiser deleted the series on Discord: its nights have nothing to write to.
-  if (seriesLink.state === "external_deleted") return own ? { externalId: own.externalId } : none;
+  if (seriesLink.state === "external_deleted") return keep || none;
   if ((event.overrides ?? []).some(field => ONE_OFF_FIELDS.has(field))) return await exportOneOff(ctx, connector, event, link, path, seriesLink.externalId);
   // ponytail: a cancelled night with nothing of its own stays on the scheduled event; Discord has no per-night cancel through this export.
   const liveId = liveExternalId(link);
@@ -505,7 +510,7 @@ async function exportSeriesNight(ctx: ActionCtx, connector: Connector, event: Do
   if (!liveId || liveId === seriesLink.externalId) return none;
   const live = await liveEvent(ctx, connector, `${path}/${liveId}`);
   // An organiser who made the copy recurring owns a series now; it stays, and its import converts the link.
-  if (live?.recurrence_rule) return { externalId: liveId };
+  if (live?.recurrence_rule) return { externalId: liveId, unchanged: true };
   if (live) await removeLive(ctx, connector, `${path}/${liveId}`);
   return none;
 }
@@ -564,7 +569,7 @@ async function exportOneOff(ctx: ActionCtx, connector: Connector, event: Doc<"ev
 }
 
 export const discordScheduledEventsHandler: SyncKindHandler = {
-  async exportUpsert(ctx, connector, event, link): Promise<{ externalId: string }> {
+  async exportUpsert(ctx, connector, event, link): Promise<ExportResult> {
     const path = `/guilds/${scheduledEventsGuildId(connector)}/scheduled-events`;
     if (connectorSeriesEnabled() && event.seriesId) {
       const night = await exportSeriesNight(ctx, connector, event, link, path);
@@ -572,18 +577,20 @@ export const discordScheduledEventsHandler: SyncKindHandler = {
     }
     return await exportOneOff(ctx, connector, event, link, path);
   },
-  async exportSeries(ctx, connector, series, link): Promise<{ externalId: string }> {
+  async exportSeries(ctx, connector, series, link): Promise<ExportResult> {
     const path = `/guilds/${scheduledEventsGuildId(connector)}/scheduled-events`;
-    // The organiser deleted the scheduled event; never bring it back.
-    if (link?.state === "external_deleted") return { externalId: link.externalId };
+    // The organiser deleted the scheduled event; never bring it back, and write nothing to its link.
+    if (link?.state === "external_deleted") return { externalId: link.externalId, unchanged: true };
     const liveId = liveExternalId(link);
     const none = { externalId: `none:${series._id}` };
     const { source, firstNight, today, phaseOneExternalSeriesId } = await ctx.runQuery(internal.eventSyncKinds.discordScheduledEvents.getSeriesExportState, { connectorId: connector._id, seriesId: series._id });
-    if (endedOnDiscord(series, firstNight, today) || source.startAt === undefined) {
+    if (endedOnDiscord(series, today)) {
       if (!liveId) return none;
       await cancelScheduled(ctx, connector, `${path}/${liveId}`);
       return { externalId: liveId };
     }
+    // No public night ahead yet (the first is past the horizon, or every one is private): nothing to send, and the link stays as it is.
+    if (!firstNight || source.startAt === undefined) return link ? { externalId: link.externalId, unchanged: true } : none;
     const { startAt } = source;
     const recurrence_rule = formatDiscordRecurrence(series.rule, new Date(startAt).toISOString());
     if (!recurrence_rule) {
@@ -593,7 +600,7 @@ export const discordScheduledEventsHandler: SyncKindHandler = {
       await ctx.runMutation(internal.eventSyncKinds.discordScheduledEvents.enqueueOneOffNights, { connectorId: connector._id, seriesId: series._id });
       return none;
     }
-    if (liveId && link!.lastExportedHash === seriesHash(seriesSyncFields(series))) return { externalId: liveId };
+    if (liveId && link!.lastExportedHash === seriesHash(seriesSyncFields(series))) return { externalId: liveId, unchanged: true };
     const body = { ...toScheduledEventBody({ ...source, startAt }, source.artworkImageUrl && await artworkDataUri(source.artworkImageUrl)), recurrence_rule };
     // A recurring event phase one imported nights from becomes the series' scheduled event rather than a second one beside it.
     const targetId = liveId ?? (phaseOneExternalSeriesId && DISCORD_ID.test(phaseOneExternalSeriesId) ? phaseOneExternalSeriesId : null);

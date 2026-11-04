@@ -253,4 +253,62 @@ describe("external series", () => {
     assert.deepEqual(links.map((l) => [l.externalId, l.externalSeriesId]), [["s1", "s1"]]);
     assert.deepEqual((await pendingJobs(t)).map((j) => [j.eventId, j.payload]), [[undefined, { seriesId }], [n14._id, null]]);
   });
+
+  it("keeps one row per external ID when an early echo gave the new ID to a duplicate series, and leaves that series for staff (I2)", async (context) => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "bidirectional" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    const duplicate = await seedSeries(t, communityProfileId, staffUserId);
+    const duplicateLink = await t.run(async (ctx) => {
+      await ctx.db.insert("eventSyncLinks", { connectorId, seriesId, externalId: "none:" + seriesId, externalSeriesId: "none:" + seriesId, state: "linked", createdAt: NOW, updatedAt: NOW });
+      return await ctx.db.insert("eventSyncLinks", { connectorId, seriesId: duplicate, externalId: "s1", externalSeriesId: "s1", state: "linked", createdAt: NOW, updatedAt: NOW });
+    });
+    const warn = context.mock.method(console, "warn", () => undefined);
+    await t.mutation(internal.eventSync.completeJob, { jobId: await runningSeriesJob(t, connectorId, seriesId), externalId: "s1", exportedHash: "h", durationMs: 0 });
+    const links = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
+    assert.deepEqual(links.filter((l) => l.externalId === "s1").map((l) => [l.seriesId, l.eventId]), [[seriesId, undefined]]);
+    const released = links.find((l) => l._id === duplicateLink)!;
+    assert.deepEqual([released.externalId, released.state], ["none:" + duplicate, "external_deleted"]);
+    // The duplicate and its nights stay public; its nights show on the staff-attention list.
+    assert.ok((await t.run((ctx) => ctx.db.get(duplicate)))?.state === "active");
+    const flagged = links.filter((l) => l.eventId && l.state === "external_deleted");
+    assert.ok(flagged.length > 0 && flagged.every((l) => l.externalId.startsWith("none:" + duplicate + ":")));
+    assert.deepEqual(warn.mock.calls.map((c) => c.arguments[0]), ["SERIES_EXPORT_ID_TAKEN"]);
+  });
+
+  it("keeps the failure streak through a series job that writes nothing", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    const gone = await seedSeries(t, communityProfileId, staffUserId, { title: "Gone Night" });
+    await t.run(async (ctx) => {
+      await ctx.db.delete(gone);
+      await ctx.db.patch(connectorId, { consecutiveFailures: 3, lastError: "google_500" });
+    });
+    const streak = async () => {
+      const connector = (await t.run((ctx) => ctx.db.get(connectorId)))!;
+      return [connector.consecutiveFailures, connector.lastError];
+    };
+    const google = syncKindHandlers.google_calendar;
+    const original = google.exportSeries;
+    try {
+      // The series gate off, the series gone, and a kind with no series export.
+      process.env.VRDEX_CONNECTOR_SERIES_ENABLED = "false";
+      await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+      process.env.VRDEX_CONNECTOR_SERIES_ENABLED = "true";
+      await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId: gone } });
+      google.exportSeries = undefined;
+      await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+      assert.deepEqual(await streak(), [3, "google_500"]);
+      // An unchanged answer is no write either; a real one clears the streak.
+      google.exportSeries = async () => ({ externalId: "s1", unchanged: true });
+      await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+      assert.deepEqual(await streak(), [3, "google_500"]);
+      google.exportSeries = async () => ({ externalId: "s1" });
+      await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+    } finally {
+      google.exportSeries = original;
+    }
+    assert.deepEqual(await streak(), [0, undefined]);
+  });
 });

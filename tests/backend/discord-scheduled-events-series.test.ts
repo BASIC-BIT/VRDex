@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { convexTest, type TestConvex } from "convex-test";
+import { internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { occurrence, occurrences } from "./_eventSeriesFixture";
 import { fakeFetch, NOW, runSyncJob, schema, type FetchCall } from "./_googleCalendarFixture";
@@ -234,6 +235,62 @@ describe("discord scheduled event series", () => {
     await runSyncJob(t, { connectorId, kind: "reconcile" });
     fake.restore();
     assert.deepEqual((await allLinks(t)).filter((link) => link.externalId.startsWith(SERIES_ID + ":")), []);
+  });
+
+  it("never deletes the series' own scheduled event through a night link that names it (rule 4)", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedDiscordConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    const n14 = await occurrence(t, seriesId, "2026-11-14");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("eventSyncLinks", { connectorId, seriesId, externalId: SERIES_ID, externalSeriesId: SERIES_ID, lastExportedHash: "h", state: "linked", createdAt: NOW, updatedAt: NOW });
+      await ctx.db.insert("eventSyncLinks", { connectorId, eventId: n14._id, externalId: SERIES_ID, state: "linked", createdAt: NOW, updatedAt: NOW });
+    });
+    const fake = fakeDiscord();
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+    fake.restore();
+    assert.deepEqual(fake.calls, []);
+  });
+
+  it("writes nothing for an imported series whose first night is past the horizon, and flags a cancel of it (C1)", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId } = await seedDiscordConnector(t, { direction: "bidirectional" });
+    const start = "2027-02-06T01:00:00+00:00";
+    const item = discordSeriesEvent({ scheduled_start_time: start, scheduled_end_time: "2027-02-06T04:00:00+00:00", recurrence_rule: { ...discordSeriesEvent().recurrence_rule!, start } });
+    await importDiscord(t, connectorId, "create", item);
+    const [series] = await allSeries(t);
+    assert.deepEqual([series!.startsOn, (await occurrences(t, series!._id)).length], ["2027-02-06", 0]);
+    const jobs = (await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((job) => job.state === "pending" && (job.payload as { seriesId?: string } | null)?.seriesId);
+    assert.equal(jobs.length, 1);
+    const before = await seriesLink(t);
+    const fake = fakeDiscord();
+    assert.equal((await runSyncJob(t, { connectorId, kind: "export_upsert", payload: jobs[0]!.payload })).state, "done");
+    fake.restore();
+    assert.deepEqual(fake.calls, []);
+    const after = await seriesLink(t);
+    assert.deepEqual([after.externalId, after.lastExportedHash, after.lastExportedAt], [before.externalId, before.lastExportedHash, before.lastExportedAt]);
+    // VRDex sent no cancel, so a cancel from Discord is the organiser's: staff see it.
+    await importDiscord(t, connectorId, "update", { ...item, status: 4 }, { receivedAt: LATER });
+    assert.equal((await seriesLink(t)).state, "external_deleted");
+  });
+
+  it("links an echo that lands before completeJob to the series being exported, never a second series (I2)", async () => {
+    // A `none:` link, an old ID with the export running, and a `none:` link with no job queued.
+    for (const [held, running] of [["none:", true], ["910000000000000009", true], ["none:", false]] as const) {
+      const t = convexTest({ schema, modules: seriesSyncModules });
+      const { connectorId, communityProfileId, staffUserId } = await seedDiscordConnector(t, { direction: "bidirectional" });
+      const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+      const old = held === "none:" ? "none:" + seriesId : held;
+      await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId, seriesId, externalId: old, externalSeriesId: old, state: "linked", createdAt: NOW, updatedAt: NOW }));
+      await clearJobs(t);
+      // The series job POSTs (a gone event, or a rule Discord can now carry); its echo is applied first.
+      const jobId = running && await t.run((ctx) => ctx.db.insert("eventSyncJobs", { connectorId, kind: "export_upsert", payload: { seriesId }, dueAt: NOW, attempts: 1, state: "running", createdAt: NOW, updatedAt: NOW }));
+      await importDiscord(t, connectorId, "create", discordSeriesEvent(), { receivedAt: LATER });
+      if (jobId) await t.mutation(internal.eventSync.completeJob, { jobId, externalId: SERIES_ID, exportedHash: "h", durationMs: 0 });
+      const label = `${held} ${running}`;
+      assert.equal((await allSeries(t)).length, 1, label);
+      assert.deepEqual((await allLinks(t)).filter((link) => link.externalId === SERIES_ID).map((link) => link.seriesId), [seriesId], label);
+    }
   });
 
   it("imports a weekly recurring scheduled event as one series", async () => {

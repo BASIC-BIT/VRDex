@@ -11,7 +11,7 @@ import {
   type GoogleCalendarEvent, type GoogleEventBody, type GoogleEventDateTime,
 } from "../_googleCalendar";
 import { EventIntakeLocalTimeSchema, type EventIntakeFields } from "../../packages/api-contracts/src/event-intake";
-import type { SyncKindHandler } from "./types";
+import type { ExportResult, SyncKindHandler } from "./types";
 
 const DAY_MS = 86_400_000;
 const addDays = (date: string, days: number) => new Date(Date.parse(date) + days * DAY_MS).toISOString().slice(0, 10);
@@ -249,7 +249,7 @@ const isGone = (error: unknown) => error instanceof GoogleApiError && (error.sta
  * A night of a series, with the series gate on: the master carries every night, so a night writes only its own exception.
  * Returns the export's result, or, for a night that is not a series', the link plan 08 exports with.
  */
-async function exportSeriesNight(ctx: ActionCtx, connector: Doc<"eventConnectors">, event: Doc<"events">, link: Doc<"eventSyncLinks"> | null): Promise<{ externalId: string } | { link: Doc<"eventSyncLinks"> | null }> {
+async function exportSeriesNight(ctx: ActionCtx, connector: Doc<"eventConnectors">, event: Doc<"events">, link: Doc<"eventSyncLinks"> | null, exportedHash: string): Promise<ExportResult | { link: Doc<"eventSyncLinks"> | null }> {
   const connectorId = connector._id;
   // Detached by the series' end: UNTIL removed the instance the link named, so the night exports as a one-off.
   if (!event.seriesId) {
@@ -260,33 +260,38 @@ async function exportSeriesNight(ctx: ActionCtx, connector: Doc<"eventConnectors
   const none = { externalId: "none:" + event._id };
   const seriesLink = await ctx.runQuery(internal.eventSeriesSync.readSeriesLink, { connectorId, seriesId: event.seriesId });
   const own = link && !link.externalId.startsWith("none:") ? link : null;
+  // The night's own link, left as it is: the runner writes nothing to it, so R2's test below still reads it as it was.
+  const keep = own && { externalId: own.externalId, unchanged: true as const };
   // No master yet (a night job can run before its series job): the series export queues this night again.
   // The night's own copy keeps its ID, so that follow-up still sees it and retracts or leaves it.
   if (!seriesLink || seriesLink.externalId.startsWith("none:")) {
     await ctx.runMutation(internal.eventSeriesSync.requestSeriesExport, { seriesId: event.seriesId });
-    return own ? { externalId: own.externalId } : none;
+    return keep || none;
   }
   // The organiser deleted the master: its nights have nothing to write to.
-  if (seriesLink.state === "external_deleted") return own ? { externalId: own.externalId } : none;
+  if (seriesLink.state === "external_deleted") return keep || none;
   const master = seriesLink.externalId;
   // An ID named for the master is its instance whatever the link's tags say: a reconcile match carries none.
   let instanceId = own && (own.externalSeriesId === master || own.externalId.startsWith(master + "_")) ? own.externalId : null;
   if (own && !instanceId) {
     // A copy is retracted only when VRDex evidently made it; an organiser's own entry stays, and takes nothing.
     // ponytail: a hand-made copy plan 08's list match adopted looks VRDex-made and is deleted; an origin field on the link would tell them apart.
-    if (own.lastImportedAt !== undefined || own.lastExportedHash === undefined || own.externalSeriesId !== undefined) return { externalId: own.externalId };
+    if (own.lastImportedAt !== undefined || own.lastExportedHash === undefined || own.externalSeriesId !== undefined) return keep!;
     const { credentialId, calendarId } = googleTarget(connector);
     await withGoogleToken(ctx, credentialId, token => deleteEvent(token, calendarId, own.externalId));
   }
-  // The master already says everything about a night with nothing of its own.
-  // ponytail: Reset to series leaves an exception already written on Google; patching it back to the master's values is the upgrade.
-  if (!(event.overrides ?? []).length && event.eventStatus !== "cancelled") return instanceId ? { externalId: instanceId } : none;
+  // The master already says everything about a night with nothing of its own, unless VRDex wrote its instance (an exception, a cancel,
+  // or a retraction): that one goes back to the night's values, which are the master's. An imported instance VRDex never wrote stays as it is.
+  const plain = !(event.overrides ?? []).length && event.eventStatus !== "cancelled";
+  const written = instanceId !== null && (own!.lastExportedHash !== undefined || own!.state === "vrdex_retracted");
+  if (plain && !written) return instanceId ? { externalId: instanceId, unchanged: true } : none;
   const [{ eventUrl, siteUrl, credentialId, calendarId }, { series }] = await Promise.all([
     ctx.runQuery(internal.googleCalendarConnector.exportContext, { connectorId, eventId: event._id }),
     ctx.runQuery(internal.eventSeriesSync.seriesExportContext, { connectorId, seriesId: event.seriesId }),
   ]);
   const body = googleBodyFromEvent(event, eventUrl);
   const patch = { ...body, start: patchTime(body.start), end: patchTime(body.end) };
+  let kept = false;
   instanceId = await withGoogleToken(ctx, credentialId, async token => {
     let item: GoogleCalendarEvent | undefined;
     if (instanceId) {
@@ -305,7 +310,12 @@ async function exportSeriesNight(ctx: ActionCtx, connector: Doc<"eventConnectors
       if (item && (await ctx.runQuery(internal.googleCalendarConnector.linkedExternalIds, { connectorId, externalIds: [item.id] })).length) item = undefined;
     }
     if (!item) return null;
-    // Patching an instance is how Google records one night's exception; a cancelled status cancels that night alone.
+    // Unchanged since VRDex last wrote it, and not cancelled on Google: a cancel is not in the hash, so the instance itself says.
+    if (plain && item.id === instanceId && own!.state !== "vrdex_retracted" && own!.lastExportedHash === exportedHash && item.status !== "cancelled") {
+      kept = true;
+      return item.id;
+    }
+    // Patching an instance is how Google records one night's exception; a cancelled status cancels that night alone, and a confirmed one restores it.
     await patchEvent(token, calendarId, item.id, patchKeepingGoogle(patch, item, event, eventUrl, siteUrl));
     return item.id;
   });
@@ -314,6 +324,7 @@ async function exportSeriesNight(ctx: ActionCtx, connector: Doc<"eventConnectors
     console.warn("GOOGLE_INSTANCE_MISSING", connectorId, event._id);
     return none;
   }
+  if (kept) return { externalId: instanceId, unchanged: true };
   await ctx.runMutation(internal.eventSeriesSync.tagNightLink, { connectorId, eventId: event._id, externalId: instanceId, seriesId: event.seriesId, externalSeriesId: master });
   return { externalId: instanceId };
 }
@@ -366,12 +377,12 @@ export const googleCalendarHandler: SyncKindHandler = {
     await ensureWatch(ctx, connector, false).catch(() => undefined);
   },
 
-  async exportUpsert(ctx, connector, event, link) {
+  async exportUpsert(ctx, connector, event, link, _job, exportedHash) {
     requireGoogleCalendarEnabled();
     // The organiser deleted the copy in Google; never bring it back.
     if (link?.state === "external_deleted") return { externalId: link.externalId };
     if (connectorSeriesEnabled()) {
-      const night = await exportSeriesNight(ctx, connector, event, link);
+      const night = await exportSeriesNight(ctx, connector, event, link, exportedHash);
       if ("externalId" in night) return night;
       link = night.link;
     }
@@ -414,10 +425,10 @@ export const googleCalendarHandler: SyncKindHandler = {
 
   async exportSeries(ctx, connector, series, link) {
     requireGoogleCalendarEnabled();
-    // The organiser deleted the master in Google; never bring it back.
-    if (link?.state === "external_deleted") return { externalId: link.externalId };
+    // The organiser deleted the master in Google; never bring it back, and write nothing to its link.
+    if (link?.state === "external_deleted") return { externalId: link.externalId, unchanged: true };
     const linkedId = link && !link.externalId.startsWith("none:") ? link.externalId : null;
-    if (linkedId && link!.lastExportedHash === seriesHash(seriesSyncFields(series))) return { externalId: linkedId };
+    if (linkedId && link!.lastExportedHash === seriesHash(seriesSyncFields(series))) return { externalId: linkedId, unchanged: true };
     const { seriesUrl, phaseOneExternalSeriesId } = await ctx.runQuery(internal.eventSeriesSync.seriesExportContext, { connectorId: connector._id, seriesId: series._id });
     const body = googleSeriesBody(series, seriesUrl);
     const { credentialId, calendarId } = googleTarget(connector);

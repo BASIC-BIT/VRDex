@@ -4,13 +4,13 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, type DatabaseReader, type MutationCtx } from "./_generated/server";
 import { carriedFieldsHash, connectorsEnabled, pendingLinkDraft, userHasCommunityPermission } from "./_eventConnectors";
 import { connectorSeriesEnabled } from "./_eventSeriesModel";
-import { enqueueSeriesJob, jobSeriesId, seriesHash, seriesLinkFor, seriesSyncFields, upcomingSeriesNights } from "./_eventSeriesSync";
+import { enqueueSeriesJob, flagSeriesNights, jobSeriesId, seriesHash, seriesLinkFor, seriesSyncFields, upcomingSeriesNights } from "./_eventSeriesSync";
 import { cancelPendingSchedule, enqueueSyncJob, eventIsPublic, eventIsSyncable, failureAlertKey } from "./_eventSync";
 import { notifyOps, resolveOps } from "./_opsAlerts";
 import { enqueueProductAnalytics } from "./_productAnalytics";
 import { correctionFields } from "./eventCorrections";
 import { syncKindHandlers } from "./eventSyncKinds/index";
-import { AwaitingClubOperation, OPERATION_WAIT_MS } from "./eventSyncKinds/types";
+import { AwaitingClubOperation, OPERATION_WAIT_MS, type ExportResult } from "./eventSyncKinds/types";
 
 export const MAX_ATTEMPTS = 5;
 export const BACKOFF_MINUTES = [1, 2, 4, 8, 16];
@@ -103,13 +103,25 @@ async function enqueueUnlinkedExports(ctx: MutationCtx, connector: Connector, no
 }
 
 // The series link, then each upcoming night the series export does not carry: one already on the source, an overridden one, a cancelled one.
-async function recordSeriesExport(ctx: MutationCtx, job: Job, seriesId: Id<"eventSeries">, externalId: string, exportedHash: string | undefined, now: number) {
+async function recordSeriesExport(ctx: MutationCtx, job: Job, seriesId: Id<"eventSeries">, externalId: string, exportedHash: string | undefined, unchanged: boolean, now: number) {
   const { db } = ctx;
   // Both IDs on every write, so a `none:` link that later gains a real copy keeps externalId === externalSeriesId.
   const exported = { seriesId, externalId, externalSeriesId: externalId, lastExportedAt: now, lastExportedHash: exportedHash, updatedAt: now };
   const link = await seriesLinkFor(db, job.connectorId, seriesId);
-  if (link) await db.patch(link._id, exported);
-  else await db.insert("eventSyncLinks", { connectorId: job.connectorId, ...exported, state: "linked", createdAt: now });
+  if (!unchanged) {
+    // The new item's echo can land before this, and an import may have given its ID to another row (a duplicate series it created).
+    // That row gives the ID up and shows on the staff-attention list; nothing public is removed.
+    const holder = await db.query("eventSyncLinks").withIndex("by_connectorId_externalId", q => q.eq("connectorId", job.connectorId).eq("externalId", externalId)).unique();
+    if (holder && holder._id !== link?._id) {
+      const released = "none:" + (holder.seriesId ?? holder._id);
+      await db.patch(holder._id, { externalId: released, externalSeriesId: released, state: "external_deleted", updatedAt: now });
+      const duplicate = holder.seriesId !== undefined && holder.eventId === undefined ? await db.get(holder.seriesId) : null;
+      if (duplicate) await flagSeriesNights(db, job.connectorId, duplicate, released, now);
+      console.warn("SERIES_EXPORT_ID_TAKEN", job.connectorId, seriesId, holder._id);
+    }
+    if (link) await db.patch(link._id, exported);
+    else await db.insert("eventSyncLinks", { connectorId: job.connectorId, ...exported, state: "linked", createdAt: now });
+  }
   const series = await db.get(seriesId);
   if (!series) return;
   // enqueueSeriesSync skipped any edit made while this job ran; send it now.
@@ -179,14 +191,14 @@ export const claimJob = internalMutation({
 });
 
 export const completeJob = internalMutation({
-  args: { jobId: v.id("eventSyncJobs"), externalId: v.optional(v.string()), exportedHash: v.optional(v.string()), durationMs: v.number() },
+  args: { jobId: v.id("eventSyncJobs"), externalId: v.optional(v.string()), exportedHash: v.optional(v.string()), unchanged: v.optional(v.boolean()), durationMs: v.number() },
   handler: async (ctx, args) => {
     const now = Date.now();
     const job = await ctx.db.get(args.jobId);
     if (job?.state !== "running") return;
     await ctx.db.patch(job._id, { state: "done", leaseExpiresAt: undefined, lastError: undefined, updatedAt: now });
     const link = job.eventId ? await linkFor(ctx.db, job.connectorId, job.eventId) : null;
-    if (job.eventId && job.kind === "export_upsert" && args.externalId) {
+    if (job.eventId && job.kind === "export_upsert" && args.externalId && !args.unchanged) {
       const externalId = args.externalId;
       const exported = { externalId, lastExportedAt: now, lastExportedHash: args.exportedHash, updatedAt: now };
       // The kind may match an external item an import already linked (say to a held draft); adopt that row so the external ID stays unique.
@@ -198,12 +210,14 @@ export const completeJob = internalMutation({
       if (!eventIsPublic(await ctx.db.get(job.eventId))) await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: job.connectorId, eventId: job.eventId, kind: "export_delete" });
     }
     const seriesId = jobSeriesId(job);
-    if (seriesId && job.kind === "export_upsert" && args.externalId) await recordSeriesExport(ctx, job, seriesId, args.externalId, args.exportedHash, now);
+    if (seriesId && job.kind === "export_upsert" && args.externalId) await recordSeriesExport(ctx, job, seriesId, args.externalId, args.exportedHash, args.unchanged === true, now);
     if (job.kind === "export_delete" && link) await ctx.db.patch(link._id, { state: "vrdex_retracted", updatedAt: now });
     await wakePendingSibling(ctx, job);
     const connector = await ctx.db.get(job.connectorId);
     // A bidirectional connector's reads prove nothing about its writes (a list needs no provider grant), so only an export clears its streak.
-    const readOnly = connector?.direction === "bidirectional" && (job.kind === "import_poll" || job.kind === "import_item" || job.kind === "reconcile");
+    // An export that wrote nothing proves nothing either: an unchanged answer, or a series job with no series or no series export.
+    const readOnly = (connector?.direction === "bidirectional" && (job.kind === "import_poll" || job.kind === "import_item" || job.kind === "reconcile"))
+      || args.unchanged === true || (seriesId !== null && !args.externalId);
     if (!readOnly) await resolveOps(ctx, failureAlertKey(job.connectorId));
     if (!connector) return;
     await ctx.db.patch(connector._id, { lastSyncedAt: now, ...(readOnly ? {} : { lastError: undefined, consecutiveFailures: 0 }), updatedAt: now });
@@ -259,7 +273,7 @@ export const runJob = internalAction({
           // A kind that waits on a club operation records what that write carried: the event may have moved on since.
           const dispatched = (job.payload as { exportedHash?: unknown } | null)?.exportedHash;
           exportedHash = typeof dispatched === "string" ? dispatched : carriedFieldsHash(connector.kind, fields);
-          result = await handler.exportUpsert(ctx, connector, event, link, job);
+          result = await handler.exportUpsert(ctx, connector, event, link, job, exportedHash);
           break;
         case "export_delete":
           if (!handler.exportDelete) throw missing();
@@ -280,8 +294,8 @@ export const runJob = internalAction({
           break;
       }
       if (result === AwaitingClubOperation) return void await ctx.runMutation(internal.eventSync.awaitJob, { jobId });
-      const externalId = (result as { externalId?: string } | undefined)?.externalId;
-      await ctx.runMutation(internal.eventSync.completeJob, { jobId, externalId, exportedHash, durationMs: Date.now() - started });
+      const { externalId, unchanged } = (result as ExportResult | undefined) ?? {};
+      await ctx.runMutation(internal.eventSync.completeJob, { jobId, externalId, exportedHash, ...(unchanged ? { unchanged } : {}), durationMs: Date.now() - started });
     } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).slice(0, 500);
       await ctx.runMutation(internal.eventSync.failJob, { jobId, error: message, durationMs: Date.now() - started });

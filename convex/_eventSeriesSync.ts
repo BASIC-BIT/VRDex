@@ -63,13 +63,19 @@ export async function upcomingSeriesNights(db: DatabaseReader, series: Doc<"even
   return nights.filter(night => eventIsPublic(night) && night.startAt !== undefined && night.startAt > now);
 }
 
-/** One series export per connector at a time: a job already pending reads the series at claim, and two running would insert two masters. */
-export async function enqueueSeriesJob(db: DatabaseWriter, scheduler: Scheduler, connectorId: Id<"eventConnectors">, seriesId: Id<"eventSeries">): Promise<void> {
+/** Whether a series export for this series is pending or running on the connector. */
+export async function seriesJobQueued(db: DatabaseReader, connectorId: Id<"eventConnectors">, seriesId: Id<"eventSeries">): Promise<boolean> {
   for (const state of ["pending", "running"] as const) {
     for await (const job of db.query("eventSyncJobs").withIndex("by_connectorId_eventId_state", q => q.eq("connectorId", connectorId).eq("eventId", undefined).eq("state", state))) {
-      if (jobSeriesId(job) === seriesId) return;
+      if (jobSeriesId(job) === seriesId) return true;
     }
   }
+  return false;
+}
+
+/** One series export per connector at a time: a job already pending reads the series at claim, and two running would insert two masters. */
+export async function enqueueSeriesJob(db: DatabaseWriter, scheduler: Scheduler, connectorId: Id<"eventConnectors">, seriesId: Id<"eventSeries">): Promise<void> {
+  if (await seriesJobQueued(db, connectorId, seriesId)) return;
   await enqueueSyncJob(db, scheduler, { connectorId, kind: "export_upsert", payload: { seriesId } });
 }
 

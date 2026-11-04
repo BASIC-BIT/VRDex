@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { convexTest, type TestConvex } from "convex-test";
+import { carriedFieldsHash } from "../../convex/_eventConnectors";
 import { seriesHash } from "../../convex/_eventSeriesSync";
+import { correctionFields } from "../../convex/eventCorrections";
 import type { GoogleEventBody } from "../../convex/_googleCalendar";
 import { internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
@@ -458,6 +460,25 @@ describe("google series export", () => {
     }
   });
 
+  it("keeps a reconcile-matched organiser entry through the night job, the series export, and its follow-up (I3)", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "bidirectional" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    const n14 = await occurrence(t, seriesId, "2026-11-14");
+    // As reconcileItems links an organiser's one-off by title and date: neither lastImportedAt nor lastExportedHash.
+    const own = await insertLink(t, { connectorId, eventId: n14._id, externalId: "organiser-14" });
+    await clearJobs(t);
+    const fake = fakeFetch(({ method, body }) => method === "DELETE" ? new Response(null, { status: 204 }) : exported(body));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+    await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+    assert.ok((await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).some((j) => j.eventId === n14._id && j.state === "pending"));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+    fake.restore();
+    assert.deepEqual(fake.calls.map((c) => c.method), ["POST"]);
+    const after = (await t.run((ctx) => ctx.db.get(own)))!;
+    assert.deepEqual([after.externalId, after.lastExportedHash, after.lastExportedAt], ["organiser-14", undefined, undefined]);
+  });
+
   it("cancels a VRDex-cancelled night with no overrides on its own instance (B6, rule 5)", async () => {
     const t = convexTest({ schema, modules: seriesSyncModules });
     const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
@@ -482,12 +503,107 @@ describe("google series export", () => {
     const n21 = await occurrence(t, seriesId, "2026-11-21");
     await insertLink(t, { connectorId, eventId: n14._id, externalId: "organiser-14", lastExportedHash: "old", lastImportedAt: NOW });
     await insertLink(t, { connectorId, eventId: n21._id, externalId: "m1_20261122T010000Z", lastExportedHash: "old" });
-    const fake = fakeFetch(() => new Response("", { status: 500 }));
+    const fake = fakeFetch(({ method, body }) => method === "GET" ? Response.json(googleInstance("2026-11-21")) : exported(body));
     await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
     await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n21._id });
     fake.restore();
-    assert.equal(fake.calls.length, 0);
+    // VRDex once wrote the instance (its hash is set), so it goes back to the night's values; it is never deleted as a copy.
+    assert.deepEqual(fake.calls.map((c) => [c.method, c.url.pathname.split("/").pop()]), [["GET", "m1_20261122T010000Z"], ["PATCH", "m1_20261122T010000Z"]]);
     assert.deepEqual((await allLinks(t)).filter((l) => l.eventId).map((l) => [l.externalId, l.state]), [["organiser-14", "linked"], ["m1_20261122T010000Z", "linked"]]);
+  });
+
+  it("restores an un-cancelled or re-published night's instance, and writes nothing again once it matches (I1)", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    await seriesLink(t, connectorId, seriesId);
+    const n14 = await occurrence(t, seriesId, "2026-11-14");
+    const instance = await insertLink(t, { connectorId, eventId: n14._id, seriesId, externalSeriesId: "m1", externalId: "m1_20261115T010000Z" });
+    let status = "confirmed";
+    const fake = fakeFetch(({ method, body }) => {
+      if (method === "PATCH" || method === "DELETE") status = method === "DELETE" ? "cancelled" : (body as { status: string }).status;
+      return method === "DELETE" ? new Response(null, { status: 204 }) : Response.json(googleInstance("2026-11-14", { status }));
+    });
+    const patches = () => fake.calls.filter((c) => c.method === "PATCH").map((c) => (c.body as { status: string }).status);
+    await t.run((ctx) => ctx.db.patch(n14._id, { eventStatus: "cancelled" }));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+    await t.run((ctx) => ctx.db.patch(n14._id, { eventStatus: "scheduled" }));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+    assert.deepEqual(patches(), ["cancelled", "confirmed"]);
+    // Nothing changed since: one GET, no write.
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+    assert.deepEqual([patches().length, fake.calls.at(-1)!.method], [2, "GET"]);
+    // Unpublished (export_delete), then published again.
+    await t.run((ctx) => ctx.db.patch(n14._id, { publicationState: "draft_private" }));
+    await runSyncJob(t, { connectorId, kind: "export_delete", eventId: n14._id });
+    assert.equal((await t.run((ctx) => ctx.db.get(instance)))!.state, "vrdex_retracted");
+    await t.run((ctx) => ctx.db.patch(n14._id, { publicationState: "published" }));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+    fake.restore();
+    assert.deepEqual(patches(), ["cancelled", "confirmed", "confirmed"]);
+    assert.deepEqual([(await t.run((ctx) => ctx.db.get(instance)))!.state, status], ["linked", "confirmed"]);
+  });
+
+  it("restores a re-published night's instance that VRDex retracted, written by VRDex or not (I1)", async () => {
+    for (const written of [false, true]) {
+      const t = convexTest({ schema, modules: seriesSyncModules });
+      const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "bidirectional" });
+      const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+      await seriesLink(t, connectorId, seriesId);
+      const n14 = await occurrence(t, seriesId, "2026-11-14");
+      // Imported and never written (no hash), or last written with the night as it is now.
+      const lastExportedHash = written ? await t.run(async (ctx) => carriedFieldsHash("google_calendar", await correctionFields(ctx.db, (await ctx.db.get(n14._id))!))) : undefined;
+      const link = await insertLink(t, { connectorId, eventId: n14._id, seriesId, externalSeriesId: "m1", externalId: "m1_20261115T010000Z", lastImportedAt: NOW, lastExportedHash });
+      // The GET answers confirmed, so only the link's retracted state can say the instance needs restoring.
+      const fake = fakeFetch(({ method, body }) => method === "DELETE" ? new Response(null, { status: 204 })
+        : method === "GET" ? Response.json(googleInstance("2026-11-14", { status: "confirmed" })) : exported(body));
+      await t.run((ctx) => ctx.db.patch(n14._id, { publicationState: "draft_private" }));
+      await runSyncJob(t, { connectorId, kind: "export_delete", eventId: n14._id });
+      await t.run((ctx) => ctx.db.patch(n14._id, { publicationState: "published" }));
+      await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+      fake.restore();
+      assert.deepEqual(fake.calls.map((c) => [c.method, (c.body as { status?: string } | undefined)?.status ?? null]), [["DELETE", null], ["GET", null], ["PATCH", "confirmed"]], String(written));
+      assert.equal((await t.run((ctx) => ctx.db.get(link)))!.state, "linked");
+    }
+  });
+
+  it("an imported series' instances take no PATCH from a series edit (B6)", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "bidirectional" });
+    const fake = fakeFetch(({ method, url, body }) => method === "GET" && url.pathname.endsWith("/events/m1") ? Response.json(MASTER) : exported(body));
+    await importGoogle(t, connectorId, googleInstance("2026-11-14"));
+    await importGoogle(t, connectorId, googleInstance("2026-11-21"));
+    const series = (await t.run((ctx) => ctx.db.query("eventSeries").collect()))[0]!;
+    await t.run(async (ctx) => {
+      await ctx.db.patch(series._id, { title: "Bass Temple Weekly", updatedAt: NOW + 1 });
+      for (const night of await ctx.db.query("events").withIndex("by_seriesId_occurrenceDate", (q) => q.eq("seriesId", series._id)).collect()) await ctx.db.patch(night._id, { title: "Bass Temple Weekly" });
+    });
+    await clearJobs(t);
+    await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId: series._id } });
+    for (const job of (await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((j) => j.eventId && j.state === "pending")) {
+      await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: job.eventId });
+    }
+    fake.restore();
+    assert.deepEqual(fake.calls.filter((c) => c.method === "PATCH").map((c) => c.url.pathname.split("/").pop()), ["m1"]);
+    const nightLinks = (await allLinks(t)).filter((l) => l.eventId);
+    assert.ok(nightLinks.length >= 2 && nightLinks.every((l) => l.lastExportedHash === undefined));
+  });
+
+  it("matches a moved instance to its night by originalStartTime, not start", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    await seriesLink(t, connectorId, seriesId);
+    const n21 = await occurrence(t, seriesId, "2026-11-21");
+    await t.run((ctx) => ctx.db.patch(n21._id, { title: "Bass Temple Live", overrides: ["title"] }));
+    const moved = (date: string, to: string) => googleInstance(date, { start: { dateTime: to + "T20:00:00-05:00", timeZone: "America/New_York" }, end: { dateTime: to + "T23:00:00-05:00", timeZone: "America/New_York" } });
+    // The 21st's instance moved to the 22nd; the 20th's moved onto the 21st.
+    const fake = fakeFetch(({ url, body }) => url.pathname.endsWith("/instances")
+      ? Response.json({ items: [moved("2026-11-20", "2026-11-21"), moved("2026-11-21", "2026-11-22")] })
+      : exported(body));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n21._id });
+    fake.restore();
+    assert.deepEqual(fake.calls.filter((c) => c.method === "PATCH").map((c) => c.url.pathname.split("/").pop()), ["m1_20261122T010000Z"]);
   });
 
   it("writes nothing for an instance with no overrides, and refinds an overridden night's instance after a time edit (B6, B23)", async () => {
