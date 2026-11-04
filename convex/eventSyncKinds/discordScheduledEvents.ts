@@ -441,7 +441,7 @@ async function matchOnGuild(ctx: ActionCtx, connector: Connector, path: string, 
   const copies = named.filter(item => !item.recurrence_rule && night(Date.parse(item.scheduled_start_time)) === date);
   const { current, taken } = await ctx.runQuery(internal.eventSyncKinds.discordScheduledEvents.getExportLinks, { connectorId: connector._id, eventId, externalIds: copies.map(item => item.id) });
   // ponytail: an event past the 90-day horizon sees no series night, so it still POSTs and the night imports beside it; extend the horizon to the event's start if such events appear.
-  // With the connector series gate on, a VRDex series' own nights never reach this: the series export carries them, and an overridden one ignores the series.
+  // With the connector series gate on, a VRDex series night reaches this only as an overridden night's one-off, which ignores onSeries, or as a night of a series Discord cannot carry.
   const onSeries = named.some(item => item.recurrence_rule && scheduledEventOccurrences(item, now, RECONCILE_HORIZON_MS).some(occurrence => night(occurrence.startAt) === date));
   return { current, copy: copies.find(item => !taken.includes(item.id)), onSeries };
 }

@@ -1,10 +1,13 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalMutation, internalQuery, type DatabaseReader, type MutationCtx } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, type DatabaseReader, type MutationCtx } from "./_generated/server";
+import { getAccountFeatureAccess } from "./_accountFeatures";
+import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import type { ConnectorKind } from "./_eventConnectors";
 import { sanitizeEventDraftInput, type EventOwnerDraftInput } from "./_eventInputs";
 import { eventDateForInstant } from "./_eventSchedule";
-import { fanOutSeriesEdit, materializeSeries, retireOccurrences, seriesUpdatePatch, validateSeriesRule } from "./_eventSeries";
+import { fanOutSeriesEdit, materializeSeries, retireOccurrences, seriesOverridesFor, seriesUpdatePatch, validateSeriesRule } from "./_eventSeries";
 import { connectorSeriesEnabled, SERIES_HORIZON_DAYS, type SeriesRule } from "./_eventSeriesModel";
 import {
   enqueueSeriesSync, flagSeriesNights, nightLinkFor, restoreSeriesNights, seriesHash, seriesLinkFor, seriesSyncFields, seriesSyncFieldsValidator, upcomingSeriesNights,
@@ -33,6 +36,16 @@ const withSeriesDoors = (rule: SeriesRule, doorsTime: string | undefined): Serie
   const { doorsTime: _doorsTime, ...rest } = rule;
   return doorsTime === undefined ? rest : { ...rest, doorsTime };
 };
+
+// An active community series of this title with no link here. A series already linked here belongs to another external series (a split, or two of one name).
+async function unlinkedSeriesByTitle(db: DatabaseReader, connector: Doc<"eventConnectors">, title: string): Promise<Doc<"eventSeries"> | null> {
+  const wanted = title.trim().toLowerCase();
+  const candidates = await db.query("eventSeries").withIndex("by_communityProfileId_state", q => q.eq("communityProfileId", connector.communityProfileId).eq("state", "active")).collect();
+  for (const candidate of candidates) {
+    if (candidate.title.trim().toLowerCase() === wanted && !await seriesLinkFor(db, connector._id, candidate._id)) return candidate;
+  }
+  return null;
+}
 
 /**
  * Creates, updates, links, or flags a series from one external series. The kind decides whether an item is a series;
@@ -134,11 +147,8 @@ export async function applyExternalSeriesFor(ctx: MutationCtx, args: ExternalSer
     if (link) await db.patch(link._id, linkFields);
     else await db.insert("eventSyncLinks", { connectorId: connector._id, ...linkFields, createdAt: now });
   };
-  // A series already linked here belongs to another external series (a split, or two of one name).
-  const title = clean.title.trim().toLowerCase();
-  const candidates = await db.query("eventSeries").withIndex("by_communityProfileId_state", q => q.eq("communityProfileId", connector.communityProfileId).eq("state", "active")).collect();
-  for (const candidate of candidates) {
-    if (candidate.title.trim().toLowerCase() !== title || await seriesLinkFor(db, connector._id, candidate._id)) continue;
+  const candidate = await unlinkedSeriesByTitle(db, connector, clean.title);
+  if (candidate) {
     // Connecting links and never overwrites.
     await writeLink(candidate._id);
     return { outcome: "linked", seriesId: candidate._id };
@@ -212,4 +222,113 @@ export const tagNightLink = internalMutation({
 export const requestSeriesExport = internalMutation({
   args: { seriesId: v.id("eventSeries") },
   handler: (ctx, { seriesId }) => enqueueSeriesSync(ctx.db, ctx.scheduler, seriesId),
+});
+
+export const readConnector = internalQuery({
+  args: { connectorId: v.id("eventConnectors") },
+  handler: (ctx, { connectorId }) => ctx.db.get(connectorId),
+});
+
+/** Phase-one night links, imported one by one before series existed, grouped by the external series that holds them. */
+export const occurrenceLinkGroups = internalQuery({
+  args: { connectorId: v.id("eventConnectors") },
+  handler: async (ctx, { connectorId }): Promise<Array<{ externalSeriesId: string; eventIds: Id<"events">[] }>> => {
+    const groups = new Map<string, Id<"events">[]>();
+    // ponytail: one read of every untagged link on the connector; page it if a connector outgrows a query's read limit.
+    const links = await ctx.db.query("eventSyncLinks").withIndex("by_connectorId_seriesId_eventId", q => q.eq("connectorId", connectorId).eq("seriesId", undefined)).collect();
+    for (const link of links) {
+      if (link.state !== "linked" || link.eventId === undefined || link.externalSeriesId === undefined) continue;
+      groups.set(link.externalSeriesId, [...groups.get(link.externalSeriesId) ?? [], link.eventId]);
+    }
+    return [...groups].map(([externalSeriesId, eventIds]) => ({ externalSeriesId, eventIds }));
+  },
+});
+
+/**
+ * Groups one external series' phase-one nights into a series: the one linked to it here, else an unlinked one of the same
+ * title (rule 7's match), else a new one. Only upcoming nights in no series are attached; a night of another series, or a
+ * second night on a date the series holds, keeps its link untagged and comes back in `skipped`. Null when the group cannot be a series.
+ */
+export const groupLinks = internalMutation({
+  args: { connectorId: v.id("eventConnectors"), externalSeriesId: v.string(), externalUpdatedAt: v.number(), fields: seriesSyncFieldsValidator, eventIds: v.array(v.id("events")) },
+  handler: async (ctx, args): Promise<{ wrote: boolean; skipped: Id<"events">[] } | null> => {
+    const { db } = ctx;
+    const now = Date.now();
+    const connector = await db.get(args.connectorId);
+    if (!connectorSeriesEnabled() || connector?.state !== "active" || connector.direction === "export" || connector.direction === "off") return null;
+    const row = await linkByExternalId(db, connector._id, args.externalSeriesId);
+    // A one-off still holds the series' ID; the next import of the series converts it.
+    if (row && (row.seriesId === undefined || row.eventId !== undefined)) return null;
+    let series = row?.seriesId ? await db.get(row.seriesId) : null;
+    // A flagged series is staff's call, and a series that ended takes no nights.
+    if (row && (row.state !== "linked" || series?.state !== "active")) return null;
+    const fresh = !series;
+    let created = false;
+    if (!series) {
+      const fields: SeriesSyncFields = { ...args.fields, endsOn: args.fields.endsOn ?? null, count: args.fields.count ?? null };
+      let clean: { title: string; summary?: string; venueLabel?: string };
+      try {
+        // As applyExternalSeriesFor's create path.
+        validateSeriesRule(fields.rule, { startsOn: fields.startsOn, endsOn: fields.endsOn ?? undefined, count: fields.count ?? undefined });
+        clean = sanitizeEventDraftInput({
+          title: fields.title, summary: fields.summary ?? undefined, venueLabel: fields.venueLabel ?? undefined, timezone: fields.timezone, startAt: now,
+        } as EventOwnerDraftInput);
+      } catch {
+        return null;
+      }
+      series = await unlinkedSeriesByTitle(db, connector, clean.title);
+      if (!series) {
+        created = true;
+        series = (await db.get(await db.insert("eventSeries", {
+          communityProfileId: connector.communityProfileId, title: clean.title, summary: clean.summary, venueLabel: clean.venueLabel, timezone: fields.timezone,
+          rule: fields.rule, startsOn: fields.startsOn, endsOn: fields.endsOn ?? undefined, count: fields.count ?? undefined,
+          horizonDays: SERIES_HORIZON_DAYS, authorityUserId: connector.authorityUserId, state: "active", createdAt: now, updatedAt: now,
+        })))!;
+      }
+      await db.insert("eventSyncLinks", {
+        connectorId: connector._id, seriesId: series._id, externalId: args.externalSeriesId, externalSeriesId: args.externalSeriesId, state: "linked",
+        lastExportedHash: seriesHash(fields), lastImportedAt: now, externalUpdatedAt: args.externalUpdatedAt, createdAt: now, updatedAt: now,
+      });
+    }
+    const seriesId = series._id;
+    const skipped: Id<"events">[] = [];
+    let wrote = fresh;
+    for (const eventId of args.eventIds) {
+      const link = await nightLinkFor(db, connector._id, eventId);
+      const event = await db.get(eventId);
+      if (!link || link.seriesId !== undefined || link.externalSeriesId !== args.externalSeriesId || !event) continue;
+      if (event.seriesId === undefined) {
+        // As adoption: a started or moderation-removed night stays a plain event, quietly.
+        if ((event.startAt !== undefined && event.startAt <= now) || event.moderationRemovedAt !== undefined) continue;
+        const date = event.eventDate;
+        const taken = date && await db.query("events").withIndex("by_seriesId_occurrenceDate", q => q.eq("seriesId", seriesId).eq("occurrenceDate", date)).first();
+        if (!date || taken) {
+          skipped.push(eventId);
+          continue;
+        }
+        await db.patch(eventId, { seriesId, occurrenceDate: date, overrides: await seriesOverridesFor(db, series, event, date), updatedAt: now });
+      } else if (event.seriesId !== seriesId) {
+        skipped.push(eventId);
+        continue;
+      }
+      await db.patch(link._id, { seriesId, updatedAt: now });
+      wrote = true;
+    }
+    // Attached first, so materialising skips their dates.
+    if (wrote) await materializeSeries(ctx, seriesId, now);
+    // As applyExternalSeriesFor: only a new series needs exporting to the community's other connectors.
+    if (created) await enqueueSeriesSync(db, ctx.scheduler, seriesId);
+    return { wrote, skipped };
+  },
+});
+
+/** Schedules the grouping migration for one connector; super-admin only, as the statistics admin commands. */
+export const groupOccurrenceLinksForConnector = mutation({
+  args: { connectorId: v.id("eventConnectors") }, returns: v.null(),
+  handler: async (ctx, { connectorId }) => {
+    const session = await requireActiveBrowserSessionSubject(ctx);
+    if (!(await getAccountFeatureAccess(ctx.db, session.userId)).superAdmin) throw new Error("Super-admin access is required.");
+    await ctx.scheduler.runAfter(0, internal.migrations.groupOccurrenceLinks, { connectorId });
+    return null;
+  },
 });
