@@ -74,7 +74,9 @@ jobs:
   deploy-staging:
     name: Deploy Staging
     if: (github.event_name == 'workflow_dispatch' && !inputs.media_recovery) || github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
 
     steps:

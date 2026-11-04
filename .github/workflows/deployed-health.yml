@@ -60,7 +60,9 @@ jobs:
   hosted-data-flow:
     name: Hosted Data Flow Health
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'staging-mutation'))
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -240,7 +242,9 @@ jobs:
   production-smoke:
     name: Production Smoke Health
     if: (github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && (github.event.deployment.environment == 'Production' || github.event.deployment.environment == 'production')) || github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'production-smoke'))
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -402,7 +406,9 @@ jobs:
   hosted-mcp-smoke:
     name: Hosted MCP Smoke Health
     if: github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'hosted-mcp-smoke')
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
