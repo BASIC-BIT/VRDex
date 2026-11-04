@@ -127,3 +127,5 @@ Do not depend on VRCTL / `vrc.tl` access from this environment.
 5. Discord bot commands that return profile cards
 6. Field-level privacy controls and profile customization
 7. Basic import/export hooks for partners
+
+<!-- Shared Claude reviewer canary; this PR is closed without merging. -->
