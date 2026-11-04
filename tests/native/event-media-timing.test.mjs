@@ -887,7 +887,8 @@ test("real prewarmed 30fps mono source stays synchronized in a 60fps stereo prog
     width: 854,
     height: 480,
     windows: [{ identity: "a", start: first, end: first + 6 }],
-    maxSeconds: 15,
+    // Byte guard only; covers 2s + 5s ack + 8s + the 4s of hold deadlines.
+    maxSeconds: 25,
   });
   assert(
     facts.avDriftMs <= 100,
