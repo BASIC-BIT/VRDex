@@ -512,7 +512,9 @@ jobs:
     name: Playwright Public Smoke
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
     needs: [build-web, visual-selection]
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -568,7 +570,9 @@ jobs:
     name: Playwright Data Flow
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
     needs: [build-web, visual-selection]
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     # The serial flow suite plus composed-media checks exceeds 30 minutes on hosted runners.
     timeout-minutes: 45
     permissions:
@@ -709,7 +713,9 @@ jobs:
     name: Playwright Hosted Data Flow
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true' && github.event.pull_request.head.repo.fork == false
     needs: [build-web, visual-selection]
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -900,7 +906,9 @@ jobs:
     name: Playwright Public Preview
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
     needs: [build-web, visual-selection]
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1023,7 +1031,9 @@ jobs:
     name: Playwright Image Diff
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.visuals == 'true'
     needs: [build-web, visual-selection]
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1099,7 +1109,9 @@ jobs:
     name: Storybook Component Preview
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
     needs: [build-storybook, visual-selection]
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1169,7 +1181,9 @@ jobs:
     name: Storybook Image Diff
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.visuals == 'true'
     needs: [build-storybook, visual-selection]
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
