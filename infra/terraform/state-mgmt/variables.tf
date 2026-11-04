@@ -16,6 +16,31 @@ variable "github_repository" {
   default     = "BASIC-BIT/VRDex"
 }
 
+# Owner transfer. GitHub OIDC subjects change when the repository moves to a new
+# owner, so the roles also trust the new-owner subjects in a separate statement
+# pinned to the immutable repository and owner IDs. Remove this and the
+# BASIC-BIT subject after a clean week under the new owner. Defaults to null so
+# self-hosted deployments never trust this repository; the hosted deployment sets
+# it in terraform.tfvars (see terraform.tfvars.example).
+variable "github_transfer_trust" {
+  description = "Transitional GitHub OIDC trust for this repository under its new owner. Subjects are owner/name prefixes; the statement also requires the exact repository and owner IDs. Null disables it."
+  type = object({
+    repository_id       = string
+    repository_owner_id = string
+    repositories        = list(string)
+  })
+  default = null
+
+  validation {
+    condition = var.github_transfer_trust == null ? true : (
+      length(var.github_transfer_trust.repositories) > 0 &&
+      can(regex("^[0-9]+$", var.github_transfer_trust.repository_id)) &&
+      can(regex("^[0-9]+$", var.github_transfer_trust.repository_owner_id))
+    )
+    error_message = "github_transfer_trust needs at least one repository and numeric repository_id and repository_owner_id."
+  }
+}
+
 variable "route53_zone_id" {
   description = "Route 53 public hosted zone ID that Terraform CI may manage."
   type        = string

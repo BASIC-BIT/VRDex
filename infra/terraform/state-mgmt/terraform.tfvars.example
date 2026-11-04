@@ -7,6 +7,16 @@ github_repository = "BASIC-BIT/VRDex"
 route53_zone_id   = "Z0000000000000000000"
 ses_domain_name   = "vrdex.net"
 
+# Transitional trust for the move to BITRATE-Labs, pinned to the repository and
+# owner IDs. Remove it and the BASIC-BIT subject after a clean week under the new
+# owner. Hosted deployment only: uncomment in the hosted terraform.tfvars.
+# Self-hosted deployments leave it commented out.
+# github_transfer_trust = {
+#   repository_id       = "1176245711"
+#   repository_owner_id = "350167065"
+#   repositories        = ["BITRATE-Labs/VRDex", "BITRATE-Labs@350167065/VRDex@1176245711"]
+# }
+
 # Optional overrides. Defaults use the AWS account ID and match profile-assets.
 # profile_asset_bucket_name = "vrdex-profile-assets-123456789012"
 # staging_profile_asset_bucket_name = "vrdex-profile-assets-staging-123456789012"

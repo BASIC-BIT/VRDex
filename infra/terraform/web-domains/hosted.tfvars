@@ -8,7 +8,9 @@
 #
 # NOT auto-loaded. Terraform reads `terraform.tfvars` and `*.auto.tfvars`
 # automatically; this file is applied only when passed with `-var-file`, and
-# `terraform.yml` passes it only for the canonical BASIC BIT repository. A fork
+# `terraform.yml` passes it only for the canonical repository, matched by its
+# repository ID (1176245711) or its old or new owner/name, so an owner transfer
+# does not drop it. A fork
 # therefore plans no Clerk records and never delegates its authentication-email
 # DNS to this Clerk tenant, which `docs/developers/self-hosting-and-iac.md`
 # requires. Self-hosted deployments should copy this file and substitute their

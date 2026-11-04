@@ -34,10 +34,15 @@ Configure > Domains page.
 
 Hosted values live in the checked-in `hosted.tfvars`. That file is **not**
 auto-loaded — Terraform reads only `terraform.tfvars` and `*.auto.tfvars`
-automatically — and `terraform.yml` passes it with `-var-file` only when the
-repository is `BASIC-BIT/VRDex`. So the hosted DNS is reconstructible from git
-after a dashboard or repository rebuild, while a fork still plans no Clerk
-records.
+automatically — and `terraform.yml` passes it with `-var-file` only for the
+canonical repository. So the hosted DNS is reconstructible from git after a
+dashboard rebuild, while a fork still plans no Clerk records.
+
+The canonical check matches repository ID `1176245711` or the names
+`BASIC-BIT/VRDex` and `BITRATE-Labs/VRDex`. The ID keeps it working after an owner
+transfer or rename; the names keep it working if the ID is ever wrong or stale,
+for example after the repository is deleted and recreated. Erring toward
+canonical only adds records, while erring toward fork would destroy them.
 
 **Run this stack through the workflow, not locally.** Without that file a local
 `terraform plan` against this deployment's state reports `5 to destroy`, and

@@ -9,7 +9,7 @@ resource "aws_iam_role" "restream_proof_image" {
   name  = "vrdex-restream-proof-image"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
+    Statement = concat([{
       Effect    = "Allow"
       Action    = "sts:AssumeRoleWithWebIdentity"
       Principal = { Federated = data.aws_iam_openid_connect_provider.github_actions.arn }
@@ -19,7 +19,7 @@ resource "aws_iam_role" "restream_proof_image" {
           "token.actions.githubusercontent.com:sub" = "repo:${var.github_repository}:ref:refs/heads/main"
         }
       }
-    }]
+    }], local.github_transfer_main_trust_statements)
   })
 }
 
