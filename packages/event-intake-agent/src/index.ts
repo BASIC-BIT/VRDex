@@ -30,10 +30,9 @@ export type EventIntakeSink = { start(meta: EventIntakeRunMeta): EventIntakeRunH
 export { composeSinks, createLangfuseSink, createPostHogSink } from "./sinks";
 // One cap for every sink: a stalled sink end must not hold the extraction response.
 const SINK_END_TIMEOUT_MS = 5_000;
-// USD per million tokens, standard tier. Source: OpenAI's 2026-07-31 Luna price cut as reported at
-// https://propakistani.pk/2026/08/01/openai-cuts-gpt-5-6-luna-price-by-80-soon-after-launch/ (checked 2026-10-29;
-// https://developers.openai.com/api/docs/pricing returned 403 to automated fetch that day).
+// USD per million tokens, standard tier, short context, from https://developers.openai.com/api/docs/pricing (checked 2026-11-03).
 export const EVENT_INTAKE_MODEL_PRICES: Record<string, { inputPerMillion: number; outputPerMillion: number }> = {
+  "gpt-6-luna": { inputPerMillion: 0.1, outputPerMillion: 0.5 },
   "gpt-5.6-luna": { inputPerMillion: 0.2, outputPerMillion: 1.2 },
 };
 export function estimateCostUsd(model: string, inputTokens: number, outputTokens: number): number | null {
@@ -110,7 +109,7 @@ export async function extractEventIntake(input: EventIntakeAgentInput, deps: Eve
   const enabled = deps.enabled ?? process.env.VRDEX_EVENT_INTAKE_AI_ENABLED === "true";
   const authority = await deps.authorize(input, Boolean(enabled && apiKey));
   if (!enabled || !apiKey) return fallback("extraction_unavailable");
-  const started = Date.now(), model = deps.model ?? process.env.VRDEX_EVENT_INTAKE_MODEL ?? "gpt-5.6-luna", context = input.context;
+  const started = Date.now(), model = deps.model ?? process.env.VRDEX_EVENT_INTAKE_MODEL ?? "gpt-6-luna", context = input.context;
   const meta: EventIntakeRunMeta = { trigger: context?.trigger ?? "web", actorUserId: authority.actorUserId, draftId: input.draftId,
     ...(context?.connectorId ? { connectorId: context.connectorId } : {}), ...(context?.communitySlug ? { communitySlug: context.communitySlug } : {}), ...(context?.mode ? { mode: context.mode } : {}) };
   let handle: EventIntakeRunHandle | undefined;

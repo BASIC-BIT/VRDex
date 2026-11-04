@@ -215,10 +215,10 @@ No provider changes or deployment were made for Task 6.
 | --- | --- | --- |
 | `OPENAI_API_KEY` | Web extraction; Convex classification only when enabled | Unset |
 | `VRDEX_EVENT_INTAKE_AI_ENABLED` | Web | `false` |
-| `VRDEX_EVENT_INTAKE_MODEL` | Web | `gpt-5.6-luna` |
+| `VRDEX_EVENT_INTAKE_MODEL` | Web | `gpt-6-luna` |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` | Web and Convex, optional tracing | Unset (Langfuse Cloud host) |
 | `VRDEX_EVENT_SPAM_MODE` | Convex | `off` |
-| `VRDEX_EVENT_SPAM_MODEL` | Convex | `gpt-5.6-luna` |
+| `VRDEX_EVENT_SPAM_MODEL` | Convex | `gpt-6-luna` |
 | `VRDEX_EVENT_SPAM_BLOCK_THRESHOLD` | Convex | Unset |
 | `VRDEX_EVENT_SPAM_EVALUATION` | Convex, JSON with fields described above | Unset |
 | Existing profile asset bucket/region/role settings | Web | Existing S3 configuration |
@@ -254,6 +254,6 @@ Current OpenAI facts were checked on 2026-09-28: [Responses migration](https://d
 [function calling](https://developers.openai.com/api/docs/guides/function-calling),
 [strict output](https://developers.openai.com/api/docs/guides/structured-outputs),
 [vision](https://developers.openai.com/api/docs/guides/images-vision), and the
-[GPT-5.6 Luna model](https://developers.openai.com/api/docs/models/gpt-5.6-luna).
+[GPT-6 Luna model](https://developers.openai.com/api/docs/models/gpt-6-luna).
 `store:false` removes application-state persistence, but does not promise zero
 provider abuse-monitoring retention. See [data controls](https://developers.openai.com/api/docs/guides/your-data).

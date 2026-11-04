@@ -3,7 +3,7 @@ import { afterEach, beforeEach, it, type TestContext } from "node:test";
 import { DISCORD_BOT_PERMISSIONS, discordRequest } from "../../convex/_discordRest";
 
 beforeEach(() => { process.env.DISCORD_BOT_TOKEN = "test-bot-token"; });
-afterEach(() => { delete process.env.DISCORD_BOT_TOKEN; });
+afterEach(() => { delete process.env.DISCORD_BOT_TOKEN; delete process.env.DISCORD_REST_BOT_TOKEN; });
 
 type Seen = { url: string; init: RequestInit };
 function fakeFetch(test: TestContext, responses: Array<() => Response>) {
@@ -31,6 +31,14 @@ it("omits the body and content type without a body, and prefers an explicit toke
   await discordRequest({ method: "DELETE", path: "/channels/1/messages/2", token: "other" });
   assert.deepEqual(seen[0].init.headers, { Authorization: "Bot other" });
   assert.equal(seen[0].init.body, undefined);
+});
+
+it("sends DISCORD_REST_BOT_TOKEN over DISCORD_BOT_TOKEN, and an explicit token over both", async (test) => {
+  process.env.DISCORD_REST_BOT_TOKEN = "rest-bot-token";
+  const seen = fakeFetch(test, []);
+  await discordRequest({ method: "GET", path: "/x" });
+  await discordRequest({ method: "GET", path: "/x", token: "other" });
+  assert.deepEqual(seen.map(({ init }) => init.headers), [{ Authorization: "Bot rest-bot-token" }, { Authorization: "Bot other" }]);
 });
 
 it("throws a short code when no token is configured", async (test) => {

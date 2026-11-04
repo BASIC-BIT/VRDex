@@ -5,7 +5,7 @@ import { readIntegrationRollups, readPublicGroupId, resolveGroupObservationPolic
 import { readClubVisibility } from "./_clubAccess";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
-import { CURRENT_FRESHNESS_MS, TELEMETRY_ROLLUP_VERSION } from "./_communityTelemetry";
+import { MAX_INTERPOLATION_GAP_MS, CURRENT_FRESHNESS_MS, TELEMETRY_ROLLUP_VERSION } from "./_communityTelemetry";
 
 export const PUBLIC_TELEMETRY_DEFINITIONS = {
   currentPopulation: { unit: "people", grain: "latest_poll", gapPolicy: "omitted_when_stale" },
@@ -203,8 +203,8 @@ export function publicStatisticsRange(now: number, input?: { startAt: number; en
 
 async function readPopulationSeries(db: DatabaseReader, integrationId: Id<"communityVrchatIntegrations">,
   historyStartAt: number, now: number, range: { startAt: number; endAt: number }) {
-  const floor = Math.max(historyStartAt, range.startAt - 300_000);
-  const ceiling = Math.min(now, range.endAt + 300_000);
+  const floor = Math.max(historyStartAt, range.startAt - MAX_INTERPOLATION_GAP_MS);
+  const ceiling = Math.min(now, range.endAt + MAX_INTERPOLATION_GAP_MS);
   // One bounded page also carries the adjacent samples needed for clipped integration.
   const observations = await db.query("communityPopulationObservations")
     .withIndex("by_integrationId_observedAt", q => q.eq("integrationId", integrationId)

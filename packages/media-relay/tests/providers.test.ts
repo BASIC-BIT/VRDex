@@ -154,6 +154,9 @@ test("deployment defaults disabled and enabled deployment rejects missing measur
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 test("successful immutable uploads cache only bounded matching digests", async () => {
   const directory = await mkdtemp(join(tmpdir(), "relay-provider-"));
   const path = join(directory, "segment");
@@ -201,6 +204,39 @@ test("successful immutable uploads cache only bounded matching digests", async (
     assert.equal(puts, 4);
   } finally {
     client.destroy();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+test("an abort after hashing is not a process-fatal stream error on a cache hit", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "relay-provider-"));
+  const path = join(directory, "segment");
+  await writeFile(path, "segment-bytes");
+  const abort = new AbortController();
+  const client = { send: async () => ({}) } as unknown as S3Client;
+  const storage = createAwsStorage(client, "fixture");
+  const upload = () =>
+    storage.putSegment({
+      objectKey: "vrcdn/Alpha/1/epochs/1/attempt/video-0.ts",
+      filePath: path,
+      signal: abort.signal,
+      retireAfterMs: 600000,
+    });
+  await upload();
+  // Teardown aborts in the gap between reading the segment and uploading it.
+  const { createReadStream } = fs;
+  let streams = 0;
+  fs.createReadStream = ((...args: Parameters<typeof createReadStream>) => {
+    if (++streams === 2) abort.abort();
+    return createReadStream(...args);
+  }) as typeof createReadStream;
+  syncBuiltinESMExports();
+  try {
+    await upload();
+    assert.equal(abort.signal.aborted, true);
+    await delay(50);
+  } finally {
+    fs.createReadStream = createReadStream;
+    syncBuiltinESMExports();
     await rm(directory, { recursive: true, force: true });
   }
 });

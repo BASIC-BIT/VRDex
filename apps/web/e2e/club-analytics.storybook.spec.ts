@@ -1,5 +1,19 @@
 import { expect, test } from "@playwright/test";
 
+test("population outages remain separate chart segments @storybook-visual", async ({page,isMobile}) => {
+  await page.goto('/iframe.html?id=clubs-analytics--population-outage&viewMode=story');
+  await expect(page.getByRole('group',{name:'Population',exact:true})).toBeVisible();
+  const line=page.locator('.recharts-line-curve');
+  await expect(line).toHaveAttribute('d',/M.*M/);
+  if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+    await page.screenshot({path:`../../.cache/artifacts/population-outage-${isMobile?'mobile':'desktop'}.png`,fullPage:true});
+  }
+  await page.getByRole('button',{name:'Show data table'}).click();
+  await expect(page.getByRole('table')).toContainText('12');
+  await expect(page.getByRole('table')).toContainText('14');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
 test("event managers review private suggestions from Analytics @storybook-visual", async ({ page, isMobile }) => {
   await page.goto("/iframe.html?id=clubs-analytics--analytics&viewMode=story");
   await expect(page.getByRole("heading", { name: "Analytics", exact: true })).toBeVisible();

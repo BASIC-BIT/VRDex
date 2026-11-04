@@ -36,6 +36,27 @@ test("resumes persisted offset and advances raw count even when upper-boundary e
   assert.deepEqual(page.rawAuditIds, ["audit1"]);
   assert.equal(page.exhausted, true);
 });
+
+test("new backfill windows use the existing 31-day bound and fixed past cutoff", async () => {
+  const day = 86400000;
+  for (const historyDays of [5, 40]) {
+    const { args, sends } = fixture();
+    const now = args.assignment.epochStartedAt + historyDays * day + 60000;
+    args.clock = () => now;
+    args.authority.observedAt = now;
+    let scan = null;
+    const send = args.control.send;
+    args.control.send = async (op, body) => {
+      if (op === "membership_scan_resume") return scan;
+      if (op === "membership_scan_begin") scan = { scanId: "scan", ...body, nextOffset: 0, nextPage: 0, phase: "collect", complete: false };
+      return send(op, body);
+    };
+    await collectMembershipPage(args);
+    const started = sends.find(value => value.op === "membership_scan_begin").body;
+    assert.equal(started.startAt, args.assignment.epochStartedAt);
+    assert.equal(started.endAt, Math.min(now - 60000, started.startAt + 31 * day));
+  }
+});
 test("provider failure never marks a page exhausted and budget denial never reads", async () => {
   const failed = fixture({ fail: true });
   await assert.rejects(collectMembershipPage(failed.args));
@@ -43,6 +64,29 @@ test("provider failure never marks a page exhausted and budget denial never read
   const denied = fixture({ granted: false });
   assert.equal((await collectMembershipPage(denied.args)).collected, false);
   assert.equal(denied.reads.length, 0);
+});
+
+test("changed submission conditions during reservation prevent audit transport", async () => {
+  for (const reason of ["shutdown", "deadline", "authority", "window", "capacity"]) {
+    const { args, sends, reads } = fixture();
+    let now = 100000, stopping = false;
+    args.clock = () => now;
+    args.shouldStop = () => stopping;
+    args.deadline = 200000;
+    const send = args.control.send;
+    args.control.send = async (op, body) => {
+      const result = await send(op, body);
+      if (op === "budget") {
+        if (reason === "shutdown") stopping = true;
+        else if (reason === "capacity") args.accountBudget.tryConsume(10, now);
+        else now = reason === "deadline" ? 200000 : reason === "window" ? 120000 : 160001;
+      }
+      return result;
+    };
+    assert.equal((await collectMembershipPage(args)).collected, false, reason);
+    assert.equal(reads.length, 0, reason);
+    assert.equal(sends.some(value => value.op === "membership_scan_page"), false);
+  }
 });
 test("disabled analytics or stale grants do not touch audit collection", async () => {
   for (const stale of [true, false]) {

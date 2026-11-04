@@ -1,4 +1,6 @@
-export type SeriesPoint = { at: number; value: number; coverage: string };
+export type SeriesPoint = { at: number; value: number; coverage: string; breakBefore?: boolean };
+export type PopulationEndpoint = Pick<SeriesPoint, "at" | "value" | "breakBefore"> & { eligible: boolean };
+export type PopulationGap = { startAt: number; endAt: number };
 export type SeriesSummary = {
   peak: number | null;
   average: number | null;
@@ -6,7 +8,28 @@ export type SeriesSummary = {
   lastValue: number | null;
   coverageRatio: number;
 };
-export const MAX_OBSERVED_GAP_MS = 5 * 60_000;
+export const MAX_OBSERVED_GAP_MS = 6 * 60_000;
+
+export function integratePopulationPair({ from, to, startAt, endAt }: {
+  from: PopulationEndpoint; to: PopulationEndpoint; startAt: number; endAt: number;
+}): { area: number; duration: number } | null {
+  const delta = to.at - from.at;
+  if (!from.eligible || !to.eligible || to.breakBefore || !Number.isFinite(delta) ||
+      delta <= 0 || delta > MAX_OBSERVED_GAP_MS ||
+      !Number.isFinite(from.value) || !Number.isFinite(to.value) || from.value < 0 || to.value < 0) return null;
+  const left = Math.max(startAt, from.at), right = Math.min(endAt, to.at);
+  if (right <= left) return null;
+  const valueAt = (at: number) => from.value + (to.value - from.value) * (at - from.at) / delta;
+  return { area: (valueAt(left) + valueAt(right)) / 2 * (right - left), duration: right - left };
+}
+
+export function markPopulationBreaks(points: SeriesPoint[], gaps: PopulationGap[]): SeriesPoint[] {
+  return [...points].sort((a, b) => a.at - b.at).map((point, index, sorted) => {
+    const previous = sorted[index - 1];
+    return previous && gaps.some(gap => gap.startAt < point.at && gap.endAt > previous.at)
+      ? { ...point, breakBefore: true } : point;
+  });
+}
 
 export type SeriesSegment = {
   peak: number | null;
@@ -102,24 +125,9 @@ export function summarizeSeries(
   for (let index = 1; index < sorted.length; index++) {
     const a = sorted[index - 1]!,
       b = sorted[index]!;
-    if (
-      !observed(a) ||
-      !observed(b) ||
-      b.at - a.at > MAX_OBSERVED_GAP_MS ||
-      b.at <= startAt ||
-      a.at >= endAt
-    )
-      continue;
-    const left = Math.max(startAt, a.at),
-      right = Math.min(endAt, b.at);
-    if (right <= left) continue;
-    const valueAt = (at: number) =>
-      a.value + ((b.value - a.value) * (at - a.at)) / (b.at - a.at);
-    const first = valueAt(left),
-      last = valueAt(right);
-    area += ((first + last) / 2) * (right - left);
-    duration += right - left;
-    peak = Math.max(peak ?? 0, first, last);
+    const interval = integratePopulationPair({ from: { ...a, eligible: observed(a) },
+      to: { ...b, eligible: observed(b) }, startAt, endAt });
+    if (interval) { area += interval.area; duration += interval.duration; }
   }
   return {
     peak,
