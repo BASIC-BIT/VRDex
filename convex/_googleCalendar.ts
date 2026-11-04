@@ -136,7 +136,7 @@ export async function listEvents(token: string, calendarId: string, params: { sy
   return { ...page, items: (page.items ?? []).map(pickItem) };
 }
 
-export function insertEvent(token: string, calendarId: string, body: GoogleEventBody): Promise<GoogleCalendarEvent> {
+export function insertEvent(token: string, calendarId: string, body: GoogleEventBody & { recurrence?: string[] }): Promise<GoogleCalendarEvent> {
   return google(token, "POST", eventsPath(calendarId), { body });
 }
 
@@ -145,8 +145,14 @@ export async function getEvent(token: string, calendarId: string, eventId: strin
 }
 
 // A patch may null the start/end member it switches away from or omit a member to keep Google's, so the body is looser than an insert.
-export function patchEvent(token: string, calendarId: string, eventId: string, body: Partial<Record<keyof GoogleEventBody, unknown>>): Promise<GoogleCalendarEvent> {
+export function patchEvent(token: string, calendarId: string, eventId: string, body: Partial<Record<keyof GoogleEventBody | "recurrence", unknown>>): Promise<GoogleCalendarEvent> {
   return google(token, "PATCH", `${eventsPath(calendarId)}/${encodeURIComponent(eventId)}`, { body });
+}
+
+// One recurring master's instances in a window; a window of days holds one page.
+export async function listInstances(token: string, calendarId: string, eventId: string, params: { timeMin: string; timeMax: string }): Promise<GoogleCalendarEvent[]> {
+  const page = await google<{ items?: GoogleCalendarEvent[] }>(token, "GET", `${eventsPath(calendarId)}/${encodeURIComponent(eventId)}/instances`, { query: { ...params, maxResults: "250" } });
+  return (page.items ?? []).map(pickItem);
 }
 
 export async function deleteEvent(token: string, calendarId: string, eventId: string): Promise<void> {

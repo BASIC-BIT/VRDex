@@ -218,6 +218,8 @@ describe("external series", () => {
     await clearJobs(t);
     const google = syncKindHandlers.google_calendar;
     const exported: string[] = [];
+    // Restored, not deleted: Google's real exportSeries serves later tests in this process.
+    const original = google.exportSeries;
     google.exportSeries = async (_ctx, _connector, series) => { exported.push(series._id); return { externalId: "s1" }; };
     try {
       process.env.VRDEX_CONNECTOR_SERIES_ENABLED = "false";
@@ -226,7 +228,7 @@ describe("external series", () => {
       process.env.VRDEX_CONNECTOR_SERIES_ENABLED = "true";
       assert.equal((await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } })).state, "done");
     } finally {
-      delete google.exportSeries;
+      google.exportSeries = original;
     }
     assert.deepEqual(exported, [seriesId]);
     const series = (await t.run((ctx) => ctx.db.get(seriesId)))!;

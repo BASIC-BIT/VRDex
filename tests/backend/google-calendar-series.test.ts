@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { convexTest, type TestConvex } from "convex-test";
 import { seriesHash } from "../../convex/_eventSeriesSync";
+import type { GoogleEventBody } from "../../convex/_googleCalendar";
 import { internal } from "../../convex/_generated/api";
+import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { occurrence, occurrences } from "./_eventSeriesFixture";
-import { fakeFetch, runSyncJob, schema, seedEvent, seedGoogleConnector } from "./_googleCalendarFixture";
-import { googleInstance, importGoogle, MASTER, masterFetch, SERIES_FIELDS, seedSeries, seriesSyncModules, setupSeriesEnv } from "./_seriesSyncFixture";
+import { fakeFetch, NOW, runSyncJob, schema, seedEvent, seedGoogleConnector, SITE } from "./_googleCalendarFixture";
+import { clearJobs, googleInstance, importGoogle, MASTER, masterFetch, SERIES_FIELDS, seedSeries, seriesSyncModules, setupSeriesEnv } from "./_seriesSyncFixture";
 
 describe("google series import", () => {
   beforeEach(setupSeriesEnv);
@@ -345,5 +347,210 @@ describe("google series import", () => {
     assert.equal((await allLinks(t)).length, linksBefore);
     const jobs = await t.run((ctx) => ctx.db.query("eventSyncJobs").collect());
     assert.deepEqual(jobs.filter((j) => j.kind === "import_item" && j.state === "pending").map((j) => (j.payload as { item: { id: string } }).item.id), ["m1_20261122T010000Z"]);
+  });
+});
+
+describe("google series export", () => {
+  beforeEach(setupSeriesEnv);
+  type T = TestConvex<typeof schema>;
+  type Link = Doc<"eventSyncLinks">;
+  const exported = (body: unknown) => Response.json({ id: "m1", updated: "2026-11-02T12:00:01.000Z", ...(body as object) });
+  const allLinks = (t: T) => t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
+  const insertLink = (t: T, link: Omit<Link, "_id" | "_creationTime" | "createdAt" | "updatedAt" | "state"> & { state?: Link["state"] }) =>
+    t.run((ctx) => ctx.db.insert("eventSyncLinks", { state: "linked", createdAt: NOW, updatedAt: NOW, ...link }));
+  const seriesLink = (t: T, connectorId: Id<"eventConnectors">, seriesId: Id<"eventSeries">, over: Partial<Link> = {}) =>
+    insertLink(t, { connectorId, seriesId, externalId: "m1", externalSeriesId: "m1", lastExportedHash: seriesHash(SERIES_FIELDS), ...over });
+
+  it("exports one recurring master, then patches only the overridden night's instance", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    const n21 = await occurrence(t, seriesId, "2026-11-21");
+    await t.run((ctx) => ctx.db.patch(n21._id, { title: "Bass Temple Live", overrides: ["title"] }));
+    const fake = fakeFetch(({ url, body }) => url.pathname.endsWith("/instances")
+      ? Response.json({ items: [googleInstance("2026-11-14"), googleInstance("2026-11-21")] })
+      : exported(body));
+    await clearJobs(t);
+    await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+    const insert = fake.calls.find((c) => c.method === "POST")!.body as GoogleEventBody & { recurrence: string[] };
+    assert.deepEqual([insert.summary, insert.recurrence, insert.start], ["Bass Temple", ["RRULE:FREQ=WEEKLY;BYDAY=SA"], { dateTime: "2026-11-08T01:00:00.000Z", timeZone: "America/New_York" }]);
+    assert.equal(insert.description.split("\n").at(-1), `${SITE}/basic-nights/series/${seriesId}`);
+    const nightJobs = (await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((j) => j.eventId && j.state === "pending");
+    assert.deepEqual(nightJobs.map((j) => j.eventId), [n21._id]);
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n21._id });
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: (await occurrence(t, seriesId, "2026-11-14"))._id });
+    fake.restore();
+    assert.equal(fake.calls.filter((c) => c.method === "POST").length, 1);
+    const patch = fake.calls.find((c) => c.method === "PATCH")!;
+    assert.deepEqual([patch.url.pathname, (patch.body as GoogleEventBody).summary], ["/calendar/v3/calendars/cal-1/events/m1_20261122T010000Z", "Bass Temple Live"]);
+    const n14 = await occurrence(t, seriesId, "2026-11-14");
+    const links = await allLinks(t);
+    assert.deepEqual(links.map((l) => [l.externalId, l.eventId ?? null, l.seriesId ?? null, l.externalSeriesId ?? null]), [
+      ["m1", null, seriesId, "m1"], ["m1_20261122T010000Z", n21._id, seriesId, "m1"], ["none:" + n14._id, n14._id, null, null]]);
+  });
+
+  it("patches UNTIL when the series ends and does nothing on an unchanged rerun", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    const fake = fakeFetch(({ body }) => exported(body));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+    await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+    assert.equal(fake.calls.length, 1);
+    await t.run((ctx) => ctx.db.patch(seriesId, { state: "ended", endsOn: "2026-12-05" }));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+    fake.restore();
+    const patch = fake.calls.at(-1)!;
+    assert.deepEqual([patch.method, patch.url.pathname, (patch.body as { recurrence: string[] }).recurrence],
+      ["PATCH", "/calendar/v3/calendars/cal-1/events/m1", ["RRULE:FREQ=WEEKLY;BYDAY=SA;UNTIL=20261206T045959Z"]]);
+  });
+
+  it("a night with no series link exports nothing and enqueues the series", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    await clearJobs(t);
+    const fake = fakeFetch(() => new Response("", { status: 500 }));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: (await occurrence(t, seriesId, "2026-11-14"))._id });
+    fake.restore();
+    assert.equal(fake.calls.length, 0);
+    const pending = (await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((j) => j.state === "pending");
+    assert.deepEqual(pending.map((j) => j.payload), [{ seriesId }]);
+  });
+
+  it("retracts a standalone copy once the series exists", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    const n14 = await occurrence(t, seriesId, "2026-11-14");
+    const standalone = await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId, eventId: n14._id, externalId: "standalone-14", state: "linked", lastExportedHash: "old", createdAt: NOW, updatedAt: NOW }));
+    const fake = fakeFetch(({ method, body }) => method === "DELETE" ? new Response(null, { status: 204 }) : exported(body));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+    fake.restore();
+    assert.deepEqual(fake.calls.filter((c) => c.method !== "POST").map((c) => [c.method, c.url.pathname]), [["DELETE", "/calendar/v3/calendars/cal-1/events/standalone-14"]]);
+    const after = (await t.run((ctx) => ctx.db.get(standalone)))!;
+    assert.deepEqual([after.externalId, after.state], ["none:" + n14._id, "linked"]);
+  });
+
+  it("leaves an organiser's entry and an untagged instance of the master in place (R2, B8)", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    await seriesLink(t, connectorId, seriesId);
+    const n14 = await occurrence(t, seriesId, "2026-11-14");
+    const n21 = await occurrence(t, seriesId, "2026-11-21");
+    await insertLink(t, { connectorId, eventId: n14._id, externalId: "organiser-14", lastExportedHash: "old", lastImportedAt: NOW });
+    await insertLink(t, { connectorId, eventId: n21._id, externalId: "m1_20261122T010000Z", lastExportedHash: "old" });
+    const fake = fakeFetch(() => new Response("", { status: 500 }));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n21._id });
+    fake.restore();
+    assert.equal(fake.calls.length, 0);
+    assert.deepEqual((await allLinks(t)).filter((l) => l.eventId).map((l) => [l.externalId, l.state]), [["organiser-14", "linked"], ["m1_20261122T010000Z", "linked"]]);
+  });
+
+  it("writes nothing for an instance with no overrides, and refinds an overridden night's instance after a time edit (B6, B23)", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    await seriesLink(t, connectorId, seriesId);
+    const n14 = await occurrence(t, seriesId, "2026-11-14");
+    const n21 = await occurrence(t, seriesId, "2026-11-21");
+    await t.run((ctx) => ctx.db.patch(n21._id, { title: "Bass Temple Live", overrides: ["title"] }));
+    await insertLink(t, { connectorId, eventId: n14._id, seriesId, externalSeriesId: "m1", externalId: "m1_20261115T010000Z" });
+    // Named for the night's old start: Google renamed it when the series time moved.
+    const stale = await insertLink(t, { connectorId, eventId: n21._id, seriesId, externalSeriesId: "m1", externalId: "m1_20261122T000000Z" });
+    const fake = fakeFetch(({ method, url, body }) => url.pathname.endsWith("/instances") ? Response.json({ items: [googleInstance("2026-11-21")] })
+      : method === "GET" ? new Response("", { status: 404 }) : exported(body));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+    assert.equal(fake.calls.length, 0);
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n21._id });
+    fake.restore();
+    assert.deepEqual(fake.calls.map((c) => [c.method, c.url.pathname.split("/").pop()]), [["GET", "m1_20261122T000000Z"], ["GET", "instances"], ["PATCH", "m1_20261122T010000Z"]]);
+    assert.equal((await t.run((ctx) => ctx.db.get(stale)))!.externalId, "m1_20261122T010000Z");
+  });
+
+  it("leaves an instance another event's link holds, so external IDs stay unique", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    await seriesLink(t, connectorId, seriesId);
+    const n21 = await occurrence(t, seriesId, "2026-11-21");
+    await t.run((ctx) => ctx.db.patch(n21._id, { title: "Bass Temple Live", overrides: ["title"] }));
+    const stray = await seedEvent(t, communityProfileId, { slug: "bass-temple-stray", eventDate: "2026-11-21", startAt: Date.parse("2026-11-22T01:00:00.000Z") });
+    await insertLink(t, { connectorId, eventId: stray, externalId: "m1_20261122T010000Z" });
+    const fake = fakeFetch(({ url, body }) => url.pathname.endsWith("/instances") ? Response.json({ items: [googleInstance("2026-11-21")] }) : exported(body));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n21._id });
+    fake.restore();
+    assert.deepEqual(fake.calls.map((c) => c.method), ["GET"]);
+    assert.deepEqual((await allLinks(t)).filter((l) => l.externalId === "m1_20261122T010000Z").map((l) => l.eventId), [stray]);
+  });
+
+  it("writes nothing through a series link the organiser deleted (B22)", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    await seriesLink(t, connectorId, seriesId, { state: "external_deleted", lastExportedHash: "old" });
+    const n21 = await occurrence(t, seriesId, "2026-11-21");
+    await t.run((ctx) => ctx.db.patch(n21._id, { title: "Bass Temple Live", overrides: ["title"] }));
+    const fake = fakeFetch(() => new Response("", { status: 500 }));
+    assert.equal((await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } })).state, "done");
+    assert.equal((await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n21._id })).state, "done");
+    fake.restore();
+    assert.equal(fake.calls.length, 0);
+  });
+
+  it("inserts a new master when the linked one is gone (B23)", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    await seriesLink(t, connectorId, seriesId, { lastExportedHash: "old" });
+    const fake = fakeFetch(({ method, body }) => method === "GET" ? new Response("", { status: 410 }) : Response.json({ id: "m2", ...(body as object) }));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+    fake.restore();
+    assert.deepEqual(fake.calls.map((c) => c.method), ["GET", "POST"]);
+    assert.deepEqual((await allLinks(t)).filter((l) => !l.eventId).map((l) => [l.externalId, l.externalSeriesId]), [["m2", "m2"]]);
+  });
+
+  it("exports a detached night as a one-off, never adopting an instance of the linked series (rule 1, C16)", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    await seriesLink(t, connectorId, seriesId);
+    const n14 = await occurrence(t, seriesId, "2026-11-14");
+    await t.run((ctx) => ctx.db.patch(n14._id, { seriesId: undefined }));
+    const link = await insertLink(t, { connectorId, eventId: n14._id, seriesId, externalSeriesId: "m1", externalId: "none:" + n14._id });
+    const fake = fakeFetch(({ method, body }) => method === "GET"
+      ? Response.json({ items: [googleInstance("2026-11-14")], timeZone: "America/New_York" })
+      : Response.json({ id: "one-off-14", ...(body as object) }));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+    fake.restore();
+    assert.deepEqual(fake.calls.map((c) => c.method), ["GET", "POST"]);
+    assert.equal((fake.calls[1]!.body as { recurrence?: unknown }).recurrence, undefined);
+    const after = (await t.run((ctx) => ctx.db.get(link)))!;
+    assert.deepEqual([after.externalId, after.seriesId, after.externalSeriesId], ["one-off-14", undefined, undefined]);
+  });
+
+  it("with the series gate off exports a series night as plan 08 did, and never sends a none: ID to Google (B7)", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    process.env.VRDEX_CONNECTOR_SERIES_ENABLED = "false";
+    const n14 = await occurrence(t, seriesId, "2026-11-14");
+    const n21 = await occurrence(t, seriesId, "2026-11-21");
+    await insertLink(t, { connectorId, eventId: n14._id, seriesId, externalId: "none:" + n14._id });
+    await insertLink(t, { connectorId, eventId: n21._id, seriesId, externalId: "none:" + n21._id });
+    await t.run((ctx) => ctx.db.patch(n21._id, { publicationState: "draft_private" }));
+    const fake = fakeFetch(({ method, body }) => method === "GET"
+      ? Response.json({ items: [], timeZone: "America/New_York" })
+      : Response.json({ id: "one-off-14", ...(body as object) }));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+    const deleted = await runSyncJob(t, { connectorId, kind: "export_delete", eventId: n21._id });
+    fake.restore();
+    assert.deepEqual(fake.calls.map((c) => [c.method, c.url.pathname.split("/").pop()]), [["GET", "events"], ["POST", "events"]]);
+    const insert = fake.calls[1]!.body as GoogleEventBody & { recurrence?: unknown };
+    assert.deepEqual([insert.summary, insert.recurrence, insert.start.dateTime], ["Bass Temple", undefined, "2026-11-15T01:00:00.000Z"]);
+    assert.equal(deleted.state, "done");
   });
 });

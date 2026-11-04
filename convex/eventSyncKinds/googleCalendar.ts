@@ -2,11 +2,12 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { eventDateForInstant, eventLocalTimeLenient } from "../_eventSchedule";
+import { occurrenceDates, occurrenceTimes } from "../_eventSeries";
 import { connectorSeriesEnabled } from "../_eventSeriesModel";
-import type { ExternalSeries, SeriesSyncFields } from "../_eventSeriesSync";
-import { parseGoogleRecurrence } from "../_recurrenceRules";
+import { seriesHash, seriesSyncFields, type ExternalSeries, type SeriesSyncFields } from "../_eventSeriesSync";
+import { formatGoogleRecurrence, parseGoogleRecurrence } from "../_recurrenceRules";
 import {
-  deleteEvent, ensureWatch, getEvent, GoogleApiError, googleTarget, insertEvent, listEvents, patchEvent, requireGoogleCalendarEnabled, withGoogleToken,
+  deleteEvent, ensureWatch, getEvent, GoogleApiError, googleTarget, insertEvent, listEvents, listInstances, patchEvent, requireGoogleCalendarEnabled, withGoogleToken,
   type GoogleCalendarEvent, type GoogleEventBody, type GoogleEventDateTime,
 } from "../_googleCalendar";
 import { EventIntakeLocalTimeSchema, type EventIntakeFields } from "../../packages/api-contracts/src/event-intake";
@@ -31,6 +32,20 @@ export function googleBodyFromEvent(event: Doc<"events">, eventUrl: string): Goo
   return {
     summary: event.title, description: event.summary ? `${event.summary}\n\n${eventUrl}` : eventUrl, location: event.venueLabel ?? "",
     start, end, status: event.eventStatus === "cancelled" ? "cancelled" : "confirmed",
+  };
+}
+
+/** A series as one recurring master: Google requires the zone on its start, and UNTIL is the series' last local minute. */
+export function googleSeriesBody(series: Doc<"eventSeries">, seriesUrl: string): GoogleEventBody & { recurrence: string[] } {
+  // Unbounded, so a series ended before its first night still has a start; a night lost to a DST gap gives way to the next.
+  const first = occurrenceDates({ rule: series.rule, startsOn: series.startsOn }, series.startsOn, addDays(series.startsOn, 62))
+    .map(date => occurrenceTimes(series, date)).find(times => times !== null);
+  if (!first) throw new Error("EVENT_SCHEDULE");
+  const timeZone = series.timezone;
+  return {
+    summary: series.title, description: series.summary ? `${series.summary}\n\n${seriesUrl}` : seriesUrl, location: series.venueLabel ?? "",
+    start: { dateTime: new Date(first.startAt).toISOString(), timeZone }, end: { dateTime: new Date(first.endAt ?? first.startAt).toISOString(), timeZone },
+    status: "confirmed", recurrence: formatGoogleRecurrence(series.rule, series.endsOn, series.count, series.timezone),
   };
 }
 
@@ -75,7 +90,9 @@ function plainDescription(description: string | undefined, siteUrl: string): str
 
 // VRDex's field caps must not cost an organiser their entry: where the clipped read-back already equals VRDex's value, Google's richer one stays.
 // Reads the item's title, description, location, and date directly, so a zone Google sent that Intl refuses cannot fail the export.
-function patchKeepingGoogle(full: Record<keyof GoogleEventBody, unknown>, item: GoogleCalendarEvent, event: Doc<"events">, eventUrl: string, siteUrl: string) {
+// A series master passes its series: no schedule kind, so its times always go.
+type KeptFields = Pick<Doc<"events">, "title" | "summary" | "venueLabel"> & Partial<Pick<Doc<"events">, "scheduleKind" | "eventDate">>;
+function patchKeepingGoogle(full: Record<keyof GoogleEventBody, unknown>, item: GoogleCalendarEvent, event: KeptFields, eventUrl: string, siteUrl: string) {
   const patch: Partial<typeof full> = { ...full };
   if (clip(item.summary, 120) === clip(event.title, 120)) delete patch.summary;
   if (plainDescription(item.description, siteUrl) === clip(event.summary, 240)) {
@@ -226,6 +243,80 @@ async function importGoogleItem(ctx: ActionCtx, connector: Doc<"eventConnectors"
   await ctx.runMutation(internal.googleCalendarConnector.applyImport, args);
 }
 
+const isGone = (error: unknown) => error instanceof GoogleApiError && (error.status === 404 || error.status === 410);
+
+/**
+ * A night of a series, with the series gate on: the master carries every night, so a night writes only its own exception.
+ * Returns the export's result, or, for a night that is not a series', the link plan 08 exports with.
+ */
+async function exportSeriesNight(ctx: ActionCtx, connector: Doc<"eventConnectors">, event: Doc<"events">, link: Doc<"eventSyncLinks"> | null): Promise<{ externalId: string } | { link: Doc<"eventSyncLinks"> | null }> {
+  const connectorId = connector._id;
+  // Detached by the series' end: UNTIL removed the instance the link named, so the night exports as a one-off.
+  if (!event.seriesId) {
+    if (link?.seriesId === undefined) return { link };
+    await ctx.runMutation(internal.eventSeriesSync.tagNightLink, { connectorId, eventId: event._id, externalId: link.externalId });
+    return { link: null };
+  }
+  const none = { externalId: "none:" + event._id };
+  const seriesLink = await ctx.runQuery(internal.eventSeriesSync.readSeriesLink, { connectorId, seriesId: event.seriesId });
+  // No master yet (a night job can run before its series job): the series export queues this night again.
+  if (!seriesLink || seriesLink.externalId.startsWith("none:")) {
+    await ctx.runMutation(internal.eventSeriesSync.requestSeriesExport, { seriesId: event.seriesId });
+    return none;
+  }
+  const own = link && !link.externalId.startsWith("none:") ? link : null;
+  // The organiser deleted the master: its nights have nothing to write to.
+  if (seriesLink.state === "external_deleted") return own ? { externalId: own.externalId } : none;
+  const master = seriesLink.externalId;
+  // An ID named for the master is its instance whatever the link's tags say: a reconcile match carries none.
+  let instanceId = own && (own.externalSeriesId === master || own.externalId.startsWith(master + "_")) ? own.externalId : null;
+  if (own && !instanceId) {
+    // A copy is retracted only when VRDex evidently made it; an organiser's own entry stays, and takes nothing.
+    // ponytail: a hand-made copy plan 08's list match adopted looks VRDex-made and is deleted; an origin field on the link would tell them apart.
+    if (own.lastImportedAt !== undefined || own.lastExportedHash === undefined || own.externalSeriesId !== undefined) return { externalId: own.externalId };
+    const { credentialId, calendarId } = googleTarget(connector);
+    await withGoogleToken(ctx, credentialId, token => deleteEvent(token, calendarId, own.externalId));
+  }
+  // The master already says everything about a night with nothing of its own.
+  // ponytail: Reset to series leaves an exception already written on Google; patching it back to the master's values is the upgrade.
+  if (!(event.overrides ?? []).length && event.eventStatus !== "cancelled") return instanceId ? { externalId: instanceId } : none;
+  const [{ eventUrl, siteUrl, credentialId, calendarId }, { series }] = await Promise.all([
+    ctx.runQuery(internal.googleCalendarConnector.exportContext, { connectorId, eventId: event._id }),
+    ctx.runQuery(internal.eventSeriesSync.seriesExportContext, { connectorId, seriesId: event.seriesId }),
+  ]);
+  const body = googleBodyFromEvent(event, eventUrl);
+  const patch = { ...body, start: patchTime(body.start), end: patchTime(body.end) };
+  instanceId = await withGoogleToken(ctx, credentialId, async token => {
+    let item: GoogleCalendarEvent | undefined;
+    if (instanceId) {
+      try {
+        item = await getEvent(token, calendarId, instanceId);
+      } catch (error) {
+        // A series time edit renames every instance; find this night's again.
+        if (!isGone(error)) throw error;
+      }
+    }
+    if (!item) {
+      const date = event.occurrenceDate ?? event.eventDate!;
+      const instances = await listInstances(token, calendarId, master, { timeMin: `${addDays(date, -1)}T00:00:00Z`, timeMax: `${addDays(date, 2)}T00:00:00Z` });
+      item = instances.find(instance => itemDate({ ...instance, start: instance.originalStartTime }, series.timezone) === date);
+      // Another event's link holds it (a phase-one copy left for staff): external IDs stay unique.
+      if (item && (await ctx.runQuery(internal.googleCalendarConnector.linkedExternalIds, { connectorId, externalIds: [item.id] })).length) item = undefined;
+    }
+    if (!item) return null;
+    // Patching an instance is how Google records one night's exception; a cancelled status cancels that night alone.
+    await patchEvent(token, calendarId, item.id, patchKeepingGoogle(patch, item, event, eventUrl, siteUrl));
+    return item.id;
+  });
+  if (!instanceId) {
+    // Deleted on Google, or held by another event: nothing to write this night to.
+    console.warn("GOOGLE_INSTANCE_MISSING", connectorId, event._id);
+    return none;
+  }
+  await ctx.runMutation(internal.eventSeriesSync.tagNightLink, { connectorId, eventId: event._id, externalId: instanceId, seriesId: event.seriesId, externalSeriesId: master });
+  return { externalId: instanceId };
+}
+
 export const googleCalendarHandler: SyncKindHandler = {
   async importItem(ctx, connector, payload) {
     requireGoogleCalendarEnabled();
@@ -278,6 +369,13 @@ export const googleCalendarHandler: SyncKindHandler = {
     requireGoogleCalendarEnabled();
     // The organiser deleted the copy in Google; never bring it back.
     if (link?.state === "external_deleted") return { externalId: link.externalId };
+    if (connectorSeriesEnabled()) {
+      const night = await exportSeriesNight(ctx, connector, event, link);
+      if ("externalId" in night) return night;
+      link = night.link;
+    }
+    // A none: link names no Google item: a series night the master carried.
+    if (link?.externalId.startsWith("none:")) link = null;
     const { eventUrl, siteUrl, credentialId, calendarId } = await ctx.runQuery(internal.googleCalendarConnector.exportContext, { connectorId: connector._id, eventId: event._id });
     const body = googleBodyFromEvent(event, eventUrl);
     const patch = { ...body, start: patchTime(body.start), end: patchTime(body.end) };
@@ -299,8 +397,43 @@ export const googleCalendarHandler: SyncKindHandler = {
         const candidates = page.items
           .filter(item => !isPrivateItem(item) && itemDate(item, timezone) === eventDate && clip(item.summary, 120)?.toLowerCase() === title);
         const linked = candidates.length ? await ctx.runQuery(internal.googleCalendarConnector.linkedExternalIds, { connectorId: connector._id, externalIds: candidates.map(item => item.id) }) : [];
-        const match = candidates.find(item => !linked.includes(item.id));
+        // An instance of a series linked here is that series' night, never a hand-made copy: a detached night must not adopt the one it replaces.
+        const seriesMasters = new Set<string>();
+        if (connectorSeriesEnabled()) {
+          for (const masterId of new Set(candidates.flatMap(item => item.recurringEventId ? [item.recurringEventId] : []))) {
+            if (await ctx.runQuery(internal.eventSeriesSync.readSeriesLink, { connectorId: connector._id, externalSeriesId: masterId })) seriesMasters.add(masterId);
+          }
+        }
+        const match = candidates.find(item => !linked.includes(item.id) && !(item.recurringEventId && seriesMasters.has(item.recurringEventId)));
         if (match) return { externalId: (await patchEvent(token, calendarId, match.id, patchKeepingGoogle(patch, match, event, eventUrl, siteUrl))).id };
+      }
+      return { externalId: (await insertEvent(token, calendarId, body)).id };
+    });
+  },
+
+  async exportSeries(ctx, connector, series, link) {
+    requireGoogleCalendarEnabled();
+    // The organiser deleted the master in Google; never bring it back.
+    if (link?.state === "external_deleted") return { externalId: link.externalId };
+    const linkedId = link && !link.externalId.startsWith("none:") ? link.externalId : null;
+    if (linkedId && link!.lastExportedHash === seriesHash(seriesSyncFields(series))) return { externalId: linkedId };
+    const { seriesUrl, phaseOneExternalSeriesId } = await ctx.runQuery(internal.eventSeriesSync.seriesExportContext, { connectorId: connector._id, seriesId: series._id });
+    const body = googleSeriesBody(series, seriesUrl);
+    const { credentialId, calendarId } = googleTarget(connector);
+    // A master phase one imported nights from becomes the series' master rather than a second one beside it.
+    const masterId = linkedId ?? phaseOneExternalSeriesId;
+    return await withGoogleToken(ctx, credentialId, async token => {
+      if (masterId) {
+        try {
+          const item = await getEvent(token, calendarId, masterId);
+          // seriesExportContext has already checked SITE_URL.
+          const patch = patchKeepingGoogle({ ...body, start: patchTime(body.start), end: patchTime(body.end) }, item, series, seriesUrl, process.env.SITE_URL!);
+          // An ended or removed series is the same patch: its endsOn is the UNTIL that ends it.
+          return { externalId: (await patchEvent(token, calendarId, masterId, { ...patch, recurrence: body.recurrence })).id };
+        } catch (error) {
+          // Gone on Google: post a new master, as plan 08 does for a one-off.
+          if (!isGone(error)) throw error;
+        }
       }
       return { externalId: (await insertEvent(token, calendarId, body)).id };
     });
@@ -308,6 +441,8 @@ export const googleCalendarHandler: SyncKindHandler = {
 
   async exportDelete(ctx, connector, link) {
     requireGoogleCalendarEnabled();
+    // A none: link names no Google item.
+    if (link.externalId.startsWith("none:")) return;
     const { credentialId, calendarId } = googleTarget(connector);
     await withGoogleToken(ctx, credentialId, token => deleteEvent(token, calendarId, link.externalId));
   },
