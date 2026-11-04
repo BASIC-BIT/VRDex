@@ -68,6 +68,11 @@ export function recurringEventsEnabled(): boolean {
   return process.env.VRDEX_RECURRING_EVENTS_ENABLED === "true";
 }
 
+/** Connector series import and export: off unless both flags are on, so turning series on for connectors is its own step. */
+export function connectorSeriesEnabled(): boolean {
+  return recurringEventsEnabled() && process.env.VRDEX_CONNECTOR_SERIES_ENABLED === "true";
+}
+
 export function requireRecurringEventsEnabled(): void {
   if (!recurringEventsEnabled()) throw new Error("Recurring events are not enabled.");
 }

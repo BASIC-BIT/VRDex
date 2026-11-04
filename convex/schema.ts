@@ -1224,7 +1224,10 @@ export default defineSchema({
     flagReviewedAt: v.optional(v.number()),
     // discord_scheduled_events: a series night as Discord last stated it, so a packet that changes nothing about the night leaves a VRDex edit alone.
     lastImportedHash: v.optional(v.string()),
+    // Plan 11: a series link has this and no eventId, with externalId === externalSeriesId; a night link has both.
+    seriesId: v.optional(v.id("eventSeries")),
   }).index("by_connectorId_externalId", ["connectorId", "externalId"])
+    .index("by_connectorId_seriesId_eventId", ["connectorId", "seriesId", "eventId"])
     .index("by_eventId", ["eventId"])
     .index("by_draftId", ["draftId"])
     .index("by_connectorId_state_flagReviewedAt", ["connectorId", "state", "flagReviewedAt"]),

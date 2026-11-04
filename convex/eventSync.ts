@@ -3,6 +3,8 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, type DatabaseReader, type MutationCtx } from "./_generated/server";
 import { carriedFieldsHash, connectorsEnabled, pendingLinkDraft, userHasCommunityPermission } from "./_eventConnectors";
+import { connectorSeriesEnabled } from "./_eventSeriesModel";
+import { enqueueSeriesJob, jobSeriesId, seriesHash, seriesLinkFor, seriesSyncFields, upcomingSeriesNights } from "./_eventSeriesSync";
 import { cancelPendingSchedule, enqueueSyncJob, eventIsPublic, eventIsSyncable, failureAlertKey } from "./_eventSync";
 import { notifyOps, resolveOps } from "./_opsAlerts";
 import { enqueueProductAnalytics } from "./_productAnalytics";
@@ -100,6 +102,28 @@ async function enqueueUnlinkedExports(ctx: MutationCtx, connector: Connector, no
   }
 }
 
+// The series link, then each upcoming night the series export does not carry: one already on the source, an overridden one, a cancelled one.
+async function recordSeriesExport(ctx: MutationCtx, job: Job, seriesId: Id<"eventSeries">, externalId: string, exportedHash: string | undefined, now: number) {
+  const { db } = ctx;
+  // Both IDs on every write, so a `none:` link that later gains a real copy keeps externalId === externalSeriesId.
+  const exported = { seriesId, externalId, externalSeriesId: externalId, lastExportedAt: now, lastExportedHash: exportedHash, updatedAt: now };
+  const link = await seriesLinkFor(db, job.connectorId, seriesId);
+  if (link) await db.patch(link._id, exported);
+  else await db.insert("eventSyncLinks", { connectorId: job.connectorId, ...exported, state: "linked", createdAt: now });
+  const series = await db.get(seriesId);
+  if (!series) return;
+  // enqueueSeriesSync skipped any edit made while this job ran; send it now.
+  if (seriesHash(seriesSyncFields(series)) !== exportedHash) await enqueueSeriesJob(db, ctx.scheduler, job.connectorId, seriesId);
+  // No copy on the source, or one the organiser deleted: its nights have nothing to write to.
+  if (externalId.startsWith("none:") || link?.state === "external_deleted") return;
+  for (const night of await upcomingSeriesNights(db, series, now)) {
+    const nightLink = await linkFor(db, job.connectorId, night._id);
+    if ((nightLink && !nightLink.externalId.startsWith("none:")) || (night.overrides ?? []).length > 0 || night.eventStatus === "cancelled") {
+      await enqueueSyncJob(db, ctx.scheduler, { connectorId: job.connectorId, eventId: night._id, kind: "export_upsert" });
+    }
+  }
+}
+
 export const claimJob = internalMutation({
   args: { jobId: v.id("eventSyncJobs") },
   handler: async (ctx, { jobId }) => {
@@ -127,7 +151,13 @@ export const claimJob = internalMutation({
     let kind = job.kind;
     let event: Doc<"events"> | null = null;
     let link: Doc<"eventSyncLinks"> | null = null;
-    if (job.eventId && (kind === "export_upsert" || kind === "export_delete")) {
+    let series: Doc<"eventSeries"> | null = null;
+    const seriesId = jobSeriesId(job);
+    if (seriesId && kind === "export_upsert") {
+      // A series job: `link` is the series link. Ended and removed series still export, so their end reaches the source.
+      series = await ctx.db.get(seriesId);
+      link = await seriesLinkFor(ctx.db, connector._id, seriesId);
+    } else if (job.eventId && (kind === "export_upsert" || kind === "export_delete")) {
       event = await ctx.db.get(job.eventId);
       link = await linkFor(ctx.db, connector._id, job.eventId);
       // A re-claim settles the operation in flight; it never re-decides the job. completeJob retracts what went private, and a re-publish has its own job.
@@ -144,7 +174,7 @@ export const claimJob = internalMutation({
     if (kind === "reconcile" && job.state === "pending" && (connector.direction === "export" || connector.direction === "bidirectional")) await enqueueUnlinkedExports(ctx, connector, now);
     const fields = kind === "export_upsert" && event ? await correctionFields(ctx.db, event) : null;
     await ctx.db.patch(jobId, { state: "running", attempts: job.attempts + 1, leaseExpiresAt: now + LEASE_MS, kind, updatedAt: now });
-    return { job: (await ctx.db.get(jobId))!, connector, event, link, fields };
+    return { job: (await ctx.db.get(jobId))!, connector, event, link, fields, series };
   },
 });
 
@@ -167,6 +197,8 @@ export const completeJob = internalMutation({
       // The event went private while this export was in flight; enqueueEventSync saw no link then, so retract the copy now.
       if (!eventIsPublic(await ctx.db.get(job.eventId))) await enqueueSyncJob(ctx.db, ctx.scheduler, { connectorId: job.connectorId, eventId: job.eventId, kind: "export_delete" });
     }
+    const seriesId = jobSeriesId(job);
+    if (seriesId && job.kind === "export_upsert" && args.externalId) await recordSeriesExport(ctx, job, seriesId, args.externalId, args.exportedHash, now);
     if (job.kind === "export_delete" && link) await ctx.db.patch(link._id, { state: "vrdex_retracted", updatedAt: now });
     await wakePendingSibling(ctx, job);
     const connector = await ctx.db.get(job.connectorId);
@@ -204,7 +236,7 @@ export const runJob = internalAction({
   handler: async (ctx, { jobId }): Promise<void> => {
     const claimed = await ctx.runMutation(internal.eventSync.claimJob, { jobId });
     if (!claimed) return;
-    const { job, connector, event, link, fields } = claimed;
+    const { job, connector, event, link, fields, series } = claimed;
     const started = Date.now();
     try {
       const handler = syncKindHandlers[connector.kind];
@@ -215,6 +247,13 @@ export const runJob = internalAction({
         // A missing reconcile means the generic part in claimJob was the whole job.
         case "reconcile": result = await handler.reconcile?.(ctx, connector, job); break;
         case "export_upsert":
+          if (jobSeriesId(job)) {
+            // With the flag off, the series gone, or a kind that exports nights only, the job completes and writes nothing.
+            if (!connectorSeriesEnabled() || !series || !handler.exportSeries) break;
+            exportedHash = seriesHash(seriesSyncFields(series));
+            result = await handler.exportSeries(ctx, connector, series, link, job);
+            break;
+          }
           if (!handler.exportUpsert) throw missing();
           if (!event || !fields) throw new Error("export_upsert job " + job._id + " has no event.");
           // A kind that waits on a club operation records what that write carried: the event may have moved on since.

@@ -21,6 +21,7 @@ import {
   seriesRepeatValidator,
   type SeriesOwnedEventField,
 } from "./_eventSeriesModel";
+import { enqueueSeriesSync } from "./_eventSeriesSync";
 import { enqueueEventSync } from "./_eventSync";
 import { getEventBySlug, validateEventSlug } from "./_eventSlugs";
 import { requireUser } from "./_identity";
@@ -155,7 +156,9 @@ export const end = mutation({
     const now = Date.now();
     const ended = { ...series, state, endsOn: eventDateForInstant(now, series.timezone), updatedAt: now };
     await ctx.db.patch(seriesId, { state, endsOn: ended.endsOn, updatedAt: now });
-    return retireOccurrences(ctx, ended, now);
+    const retired = await retireOccurrences(ctx, ended, now);
+    await enqueueSeriesSync(ctx.db, ctx.scheduler, seriesId);
+    return retired;
   },
 });
 
@@ -195,6 +198,7 @@ export const update = mutation({
       }
       await materializeSeries(ctx, seriesId, now);
     }
+    await enqueueSeriesSync(ctx.db, ctx.scheduler, seriesId);
     return { seriesId, changed };
   },
 });

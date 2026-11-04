@@ -15,6 +15,7 @@ import {
   monthlyOrdinalOf,
   type SeriesRule,
 } from "./_eventSeriesModel";
+import { enqueueSeriesSync } from "./_eventSeriesSync";
 import { enqueueEventSync } from "./_eventSync";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter, MutationCtx } from "./_generated/server";
@@ -472,6 +473,7 @@ export async function createSeriesFromEvent(
   // this event and this replaces that pending job. Materialised nights enqueue inside insertCommunityEventRecord.
   await enqueueEventSync(ctx.db, ctx.scheduler, event._id, "upsert");
   const { created } = await materializeSeries(ctx, seriesId, now);
+  await enqueueSeriesSync(ctx.db, ctx.scheduler, seriesId);
   return { seriesId, created: created.length };
 }
 
