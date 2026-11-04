@@ -12,11 +12,11 @@ const SERIES_ID = "900000000000000001";
 const LATER = NOW + 60_000;
 
 // The guild list answers `list`, a GET by ID finds a scheduled event at `status`, and a write echoes its body with an ID (B13).
-function fakeDiscord(state: { list?: unknown[]; status?: number } = {}) {
+function fakeDiscord(state: { list?: unknown[]; status?: number; byId?: Record<string, object> } = {}) {
   let next = 1;
   return fakeFetch(({ method, url, body }: FetchCall) => {
     const id = url.pathname.split("/").at(-1);
-    if (method === "GET") return Response.json(url.pathname === api ? (state.list ?? []) : { id, status: state.status ?? 1 });
+    if (method === "GET") return Response.json(url.pathname === api ? (state.list ?? []) : state.byId?.[id!] ?? { id, status: state.status ?? 1 });
     if (method === "DELETE") return new Response(null, { status: 204 });
     return Response.json({ ...(body as object), id: method === "POST" ? `90000000000000000${next++}` : id });
   });
@@ -84,8 +84,8 @@ describe("discord scheduled event series", () => {
     const state = { status: 1 };
     const fake = fakeDiscord(state);
     await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
-    // Still active, but past its end date.
-    await t.run((ctx) => ctx.db.patch(seriesId, { endsOn: "2026-11-02" }));
+    // Still active, but past its end date (inclusive: yesterday was its last day).
+    await t.run((ctx) => ctx.db.patch(seriesId, { endsOn: "2026-11-01" }));
     state.status = 2;
     fake.calls.length = 0;
     await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
@@ -153,6 +153,55 @@ describe("discord scheduled event series", () => {
     fake.restore();
     assert.deepEqual([fake.calls.at(-1)!.method, fake.calls.at(-1)!.url.pathname], ["DELETE", `${api}/910000000000000001`]);
     assert.equal((await allLinks(t)).find((link) => link.eventId === n14._id)!.externalId, "none:" + n14._id);
+  });
+
+  it("keeps the scheduled event on a series' final day, before that night's show (I1)", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedDiscordConnector(t, { direction: "export" });
+    // NOW is 07:00 on Monday 2 November in New York; the last night is that evening.
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId, {
+      rule: { frequency: "weekly", weekday: 1, startTime: "20:00", endTime: "23:00" }, startsOn: "2026-11-02", endsOn: "2026-11-02",
+    });
+    const night = await occurrence(t, seriesId, "2026-11-02");
+    const fake = fakeDiscord();
+    await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: night._id });
+    fake.restore();
+    assert.deepEqual(fake.calls.map((call) => [call.method, "recurrence_rule" in (call.body as object)]), [["POST", true]]);
+    assert.equal((await seriesLink(t)).externalId, SERIES_ID);
+  });
+
+  it("leaves a night's copy alone once the organiser made it recurring (M1)", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedDiscordConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    const n14 = await occurrence(t, seriesId, "2026-11-14");
+    const copy = "910000000000000001";
+    await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId, eventId: n14._id, externalId: copy, state: "linked", lastExportedHash: "h", createdAt: NOW, updatedAt: NOW }));
+    const fake = fakeDiscord({ byId: { [copy]: discordSeriesEvent({ id: copy }) } });
+    await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+    fake.calls.length = 0;
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+    fake.restore();
+    assert.deepEqual(fake.calls.map((call) => [call.method, call.url.pathname]), [["GET", `${api}/${copy}`]]);
+    assert.equal((await allLinks(t)).find((link) => link.eventId === n14._id)!.externalId, copy);
+  });
+
+  it("leaves a linked packet without failing when its series or the site URL is gone (M3)", async (context) => {
+    const warn = context.mock.method(console, "warn", () => undefined);
+    for (const lose of ["series", "siteUrl"] as const) {
+      const t = convexTest({ schema, modules: seriesSyncModules });
+      const { connectorId } = await seedDiscordConnector(t, { direction: "import" });
+      await importDiscord(t, connectorId, "create", discordSeriesEvent());
+      const seriesId = (await seriesLink(t)).seriesId!;
+      // setupSeriesEnv restores SITE_URL for the next test.
+      if (lose === "series") await t.run((ctx) => ctx.db.delete(seriesId));
+      else delete process.env.SITE_URL;
+      const job = await importDiscord(t, connectorId, "update", discordSeriesEvent({ name: "Bass Temple Weekly" }), { receivedAt: LATER });
+      assert.deepEqual([lose, job.state, job.lastError], [lose, "done", undefined]);
+    }
+    assert.equal(warn.mock.calls.length, 2);
+    assert.equal(warn.mock.calls[0]!.arguments[0], "DISCORD_SERIES_CONTEXT_MISSING");
   });
 
   it("writes nothing for a series or its nights once Discord deleted the series (B22)", async () => {

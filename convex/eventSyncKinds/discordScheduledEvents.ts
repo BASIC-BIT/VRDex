@@ -171,8 +171,9 @@ export const getSeriesExportState = internalQuery({
 });
 
 // Ended, past its end date, or with no night ahead: Discord carries no end, so the export cancels the scheduled event instead.
+// endsOn is inclusive, so the final day keeps its night. The date check stays beside `!firstNight` for nights an end date has not retired.
 const endedOnDiscord = (series: Doc<"eventSeries">, firstNight: Doc<"events"> | null, today: string) =>
-  series.state !== "active" || (series.endsOn !== undefined && series.endsOn <= today) || !firstNight;
+  series.state !== "active" || (series.endsOn !== undefined && series.endsOn < today) || !firstNight;
 // Discord cannot repeat on a last weekday: such a series goes out night by night, as plan 07 sends one-offs.
 const carriedOnDiscord = (rule: SeriesRule) => formatDiscordRecurrence(rule, "") !== null;
 
@@ -224,7 +225,14 @@ async function importScheduledEventSeries(ctx: MutationCtx, connector: Connector
   if (!deleted && item.status === 3) return true;
   let linked: ScheduledEventSource | null = null;
   if (link?.seriesId) {
-    const { series, firstNight, today, source } = await loadSeriesExportState(db, connector._id, link.seriesId);
+    // The export context throws without these, and a retry cannot bring them back: leave the packet, as an export would fail it.
+    const series = await db.get(link.seriesId);
+    const community = series && await db.get(series.communityProfileId);
+    if (!series || !community?.slug || !process.env.SITE_URL) {
+      console.warn("DISCORD_SERIES_CONTEXT_MISSING", connector._id, link.seriesId);
+      return true;
+    }
+    const { firstNight, today, source } = await loadSeriesExportState(db, connector._id, link.seriesId);
     // VRDex's own cancel coming back, possibly before completeJob has recorded the export that sent it.
     if (deleted && action !== "delete" && (endedOnDiscord(series, firstNight, today) || !carriedOnDiscord(series.rule))) {
       const now = Date.now();
@@ -494,7 +502,11 @@ async function exportSeriesNight(ctx: ActionCtx, connector: Connector, event: Do
   // ponytail: a cancelled night with nothing of its own stays on the scheduled event; Discord has no per-night cancel through this export.
   const liveId = liveExternalId(link);
   // A copy beside the series would show the night twice. Never the scheduled event itself: deleting that ends every night.
-  if (liveId && liveId !== seriesLink.externalId) await removeLive(ctx, connector, `${path}/${liveId}`);
+  if (!liveId || liveId === seriesLink.externalId) return none;
+  const live = await liveEvent(ctx, connector, `${path}/${liveId}`);
+  // An organiser who made the copy recurring owns a series now; it stays, and its import converts the link.
+  if (live?.recurrence_rule) return { externalId: liveId };
+  if (live) await removeLive(ctx, connector, `${path}/${liveId}`);
   return none;
 }
 
