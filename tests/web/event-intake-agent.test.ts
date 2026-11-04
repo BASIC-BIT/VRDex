@@ -310,13 +310,13 @@ it("reports one generation per model turn and ends once with cost", async () => 
   const { log, sink } = capture(); let turn = 0;
   const final = { status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(blank()) }] }] };
   const call = { status: "completed", output: [{ type: "function_call", name: "search_people", call_id: "a", arguments: JSON.stringify({ query: "DJ", limit: 1 }) }] };
-  await extractEventIntake({ draftId: "draft", sourceText: "Night", posterAssetId: "poster" }, { ...base, model: "gpt-5.6-luna", sink, readPoster: async () => "data:image/png;base64,AAAA", fetchImplementation: async () => usage(++turn === 1 ? call : final) });
+  await extractEventIntake({ draftId: "draft", sourceText: "Night", posterAssetId: "poster" }, { ...base, model: "gpt-6-luna", sink, readPoster: async () => "data:image/png;base64,AAAA", fetchImplementation: async () => usage(++turn === 1 ? call : final) });
   assert.deepEqual(log.metas, [{ trigger: "web", actorUserId: "actor", draftId: "draft" }]);
-  assert.deepEqual(log.generations.map(g => [g.turn, g.model, g.inputTokens, g.outputTokens]), [[1, "gpt-5.6-luna", 1000, 200], [2, "gpt-5.6-luna", 1000, 200]]);
+  assert.deepEqual(log.generations.map(g => [g.turn, g.model, g.inputTokens, g.outputTokens]), [[1, "gpt-6-luna", 1000, 200], [2, "gpt-6-luna", 1000, 200]]);
   assert.ok(log.generations.every(g => typeof g.latencyMs === "number"));
   assert.ok(!JSON.stringify(log.generations).includes("base64,"));
   assert.equal(log.ends.length, 1);
-  const price = EVENT_INTAKE_MODEL_PRICES["gpt-5.6-luna"]!;
+  const price = EVENT_INTAKE_MODEL_PRICES["gpt-6-luna"]!;
   assert.deepEqual({ ...log.ends[0], durationMs: 0 }, { reason: "success", decision: { kind: "new" }, turns: 2, toolCalls: 1, durationMs: 0, inputTokens: 2000, outputTokens: 400, costUsd: (2000 * price.inputPerMillion + 400 * price.outputPerMillion) / 1_000_000 });
 });
 it("reports null cost for an unpriced model, omits decision on failure, and survives a broken sink", async () => {
