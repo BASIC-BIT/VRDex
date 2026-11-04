@@ -4,18 +4,17 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, internalQuery, query, type DatabaseReader, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { encryptSecret } from "./_connectorCrypto";
-import type { EventIntakeDecision, EventIntakeFields } from "../packages/api-contracts/src/event-intake";
+import type { EventIntakeDecision, EventIntakeFields, EventIntakeLocalTime } from "../packages/api-contracts/src/event-intake";
 import { applyEventCandidate, candidateFromConnectorFields, type ApplyEventCandidateOutcome } from "./_eventCandidateApply";
 import { eventPathForRecord } from "./_eventPaths";
 import { connectorsEnabled, requireConnectorAuthority } from "./_eventConnectors";
-import { eventDateForInstant } from "./_eventSchedule";
-import { occurrenceTimes } from "./_eventSeries";
+import { eventDateForInstant, eventLocalTimeLenient } from "./_eventSchedule";
 import { connectorSeriesEnabled } from "./_eventSeriesModel";
 import { nightLinkFor, seriesLinkFor } from "./_eventSeriesSync";
 import { enqueueSyncJob, eventIsPublic } from "./_eventSync";
-import { credentialConnectors, ensureWatch, googleCalendarEnabled, googleReauthKey, googleTarget, listCalendars as fetchCalendars, reportStaleWatches, revokeCredentialIfUnused, withGoogleToken, type GoogleCalendarEvent } from "./_googleCalendar";
+import { credentialConnectors, ensureWatch, googleCalendarEnabled, googleReauthKey, googleTarget, listCalendars as fetchCalendars, reportStaleWatches, revokeCredentialIfUnused, withGoogleToken, type GoogleCalendarEvent, type GoogleEventDateTime } from "./_googleCalendar";
 import { notifyOps, resolveOps } from "./_opsAlerts";
-import { clip, fieldsFromGoogleEvent, isPrivateItem, outsideImportWindow } from "./eventSyncKinds/googleCalendar";
+import { fieldsFromGoogleEvent, isPrivateItem, outsideImportWindow } from "./eventSyncKinds/googleCalendar";
 
 export const readCredential = internalQuery({
   args: { credentialId: v.id("connectorCredentials") },
@@ -156,19 +155,30 @@ export const applyImport = internalMutation({
   },
 });
 
-// The instance says what its master says: link it and apply nothing, so a VRDex override stays and a late copy records none.
-function matchesSeries(item: GoogleCalendarEvent, fields: EventIntakeFields, series: Doc<"eventSeries">, date: string): boolean {
-  const times = occurrenceTimes(series, date);
-  const startAt = Date.parse(item.start?.dateTime ?? "");
-  const endAt = Date.parse(item.end?.dateTime ?? "");
-  return times !== null && startAt === times.startAt && (Number.isNaN(endAt) || endAt === startAt ? undefined : endAt) === times.endAt
-    && fields.timezone === series.timezone && fields.title === clip(series.title, 120)
-    && fields.summary === clip(series.summary, 240) && fields.venueLabel === clip(series.venueLabel, 120);
+// What an instance changes from its master: the carried fields of a Google exception, empty for a plain instance. Read against the
+// master, not the series, so a master value that lost to VRDex at series level never lands night by night as an override.
+function exceptionFields(item: GoogleCalendarEvent, master: GoogleCalendarEvent, date: string, calendarTimeZone: string, site: string): Partial<EventIntakeFields> {
+  const instance = fieldsFromGoogleEvent(item, calendarTimeZone, site);
+  const from = fieldsFromGoogleEvent(master, calendarTimeZone, site);
+  const changes: Partial<EventIntakeFields> = {};
+  for (const key of ["title", "summary", "venueLabel"] as const) if (instance[key] !== from[key]) changes[key] = instance[key];
+  // The instance's clock on its own night's date, against the master's on the master's date.
+  const zone = from.timezone ?? calendarTimeZone;
+  const local = (time: GoogleEventDateTime | undefined, start?: GoogleEventDateTime) => {
+    const at = Date.parse(time?.dateTime ?? "");
+    return Number.isNaN(at) || (start && at === Date.parse(start.dateTime ?? "")) ? null : eventLocalTimeLenient(at, date, zone);
+  };
+  const same = (a: EventIntakeLocalTime | null | undefined, b: EventIntakeLocalTime | null | undefined) => a?.time === b?.time && (a?.dayOffset ?? 0) === (b?.dayOffset ?? 0);
+  if (!same(local(item.start), from.start) || !same(local(item.end, item.start), from.end)) {
+    const { eventDate, timeTba, timezone, start, end } = instance;
+    Object.assign(changes, { eventDate, timeTba, timezone, start, end });
+  }
+  return changes;
 }
 
 /** One instance of a series linked on this connector, applied to its night as that night's own edit. */
 export const applyGoogleOccurrence = internalMutation({
-  args: { connectorId: v.id("eventConnectors"), seriesId: v.id("eventSeries"), item: v.any(), calendarTimeZone: v.string() },
+  args: { connectorId: v.id("eventConnectors"), seriesId: v.id("eventSeries"), item: v.any(), master: v.any(), calendarTimeZone: v.string() },
   handler: async (ctx, args): Promise<"skipped" | "unchanged" | "flagged" | "cancel_echo" | ApplyEventCandidateOutcome> => {
     const { db } = ctx;
     const item = args.item as GoogleCalendarEvent;
@@ -222,17 +232,23 @@ export const applyGoogleOccurrence = internalMutation({
       await db.patch(link._id, { state: "linked", flagReviewedAt: undefined });
       link = { ...link, state: "linked", flagReviewedAt: undefined };
     }
-    const fields = fieldsFromGoogleEvent(item, args.calendarTimeZone, siteUrl());
-    if (matchesSeries(item, fields, series, date!)) {
+    // A gone master leaves nothing to read the instance against; the series flag already shows staff.
+    const master = args.master as GoogleCalendarEvent | null;
+    if (!master) return "skipped";
+    // Only what the exception changes applies: a plain instance is linked with nothing applied, so a VRDex override stays.
+    const changes = exceptionFields(item, master, date!, args.calendarTimeZone, siteUrl());
+    if (!Object.keys(changes).length) {
       await db.patch(link._id, seen);
       return "unchanged";
     }
     const community = await db.get(connector.communityProfileId);
     if (!community?.slug) throw new Error("CONNECTOR_COMMUNITY");
-    // A night with no overrides has no VRDex edit to protect, and its updatedAt may be this poll's own fan-out, so its stale guard is off.
+    // The stale guard protects a night edit made after the last series write. Fan-out stamps a night with the series write's time,
+    // so a night no later than its series holds only series values, which an exception arriving with that same edit must still beat.
+    const nightEdited = night.updatedAt > series.updatedAt;
     const { outcome } = await applyEventCandidate(ctx, {
-      connector, candidate: candidateFromConnectorFields("google_calendar", { ...fields, communitySlug: community.slug }, { kind: "update", slug: night.slug! }),
-      actorUserId: connector.authorityUserId, link, externalId: item.id, ...((night.overrides ?? []).length ? { externalUpdatedAt: updatedMs } : {}),
+      connector, candidate: candidateFromConnectorFields("google_calendar", { ...changes, communitySlug: community.slug }, { kind: "update", slug: night.slug! }),
+      actorUserId: connector.authorityUserId, link, externalId: item.id, ...(nightEdited ? { externalUpdatedAt: updatedMs } : {}),
       idempotencyKey: `google_calendar:${connector._id}:${item.id}:${updatedMs}`,
     });
     // The staff patch records the night's overrides itself.

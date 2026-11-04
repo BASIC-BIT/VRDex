@@ -38,7 +38,7 @@ export function googleBodyFromEvent(event: Doc<"events">, eventUrl: string): Goo
 const patchTime = (time: GoogleEventDateTime) => time.date ? { ...time, dateTime: null, timeZone: null } : { ...time, date: null };
 
 const ENTITIES: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&#39;": "'", "&nbsp;": " " };
-export const clip = (value: string | undefined, max: number) => value?.trim().slice(0, max).trim() || null;
+const clip = (value: string | undefined, max: number) => value?.trim().slice(0, max).trim() || null;
 
 const lastLine = (lines: string[]) => lines[lines.length - 1];
 
@@ -155,8 +155,10 @@ function seriesFieldsFromMaster(master: GoogleCalendarEvent, siteUrl: string): S
       title: fields.title, summary: fields.summary ?? null, venueLabel: fields.venueLabel ?? null, timezone: fields.timezone,
       rule: parsed.rule, startsOn: parsed.startsOn, endsOn: parsed.endsOn ?? null, count: parsed.count ?? null,
     };
-  } catch {
-    return null;
+  } catch (error) {
+    // Only bad source data reads as outside the set; anything else is a bug that must fail the job, not flag every night.
+    if (error instanceof RangeError && /time zone/i.test(error.message)) return null;
+    throw error;
   }
 }
 
@@ -198,8 +200,9 @@ async function importGoogleItem(ctx: ActionCtx, connector: Doc<"eventConnectors"
     if (connector.mode === "hold") {
       if (link) return;
     } else {
+      // Every instance is read against its master, so the master is read once per poll, or once per item job.
+      const external = await fetchExternalSeries(ctx, connector, masterId, masters);
       if (!link || (Date.parse(item.updated) || Date.now()) > (link.externalUpdatedAt ?? 0)) {
-        const external = await fetchExternalSeries(ctx, connector, masterId, masters);
         const series = { connectorId: connector._id, externalSeriesId: masterId, externalUpdatedAt: external.externalUpdatedAt };
         // A master that left the fixed set reads as a deletion of the linked series: staff decide.
         if (external.deleted || !external.fields) {
@@ -214,7 +217,8 @@ async function importGoogleItem(ctx: ActionCtx, connector: Doc<"eventConnectors"
       }
       // A flagged series link still takes its instances: applyGoogleOccurrence stores a cancellation and ignores the rest.
       if (link?.seriesId) {
-        await ctx.runMutation(internal.googleCalendarConnector.applyGoogleOccurrence, { connectorId: connector._id, seriesId: link.seriesId, item, calendarTimeZone: args.calendarTimeZone });
+        const master = external.deleted ? null : masters.get(masterId) ?? null;
+        await ctx.runMutation(internal.googleCalendarConnector.applyGoogleOccurrence, { connectorId: connector._id, seriesId: link.seriesId, item, master, calendarTimeZone: args.calendarTimeZone });
         return;
       }
     }

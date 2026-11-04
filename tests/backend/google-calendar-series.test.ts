@@ -28,7 +28,8 @@ describe("google series import", () => {
       ["m1_20261108T010000Z", series._id, "m1", (await occurrence(t, series._id, "2026-11-07"))._id],
       ["m1_20261115T010000Z", series._id, "m1", (await occurrence(t, series._id, "2026-11-14"))._id],
     ]);
-    assert.equal(fake.calls.length, 1);
+    // Each instance is read against its master: one read per item job (a poll shares one).
+    assert.equal(fake.calls.length, 2);
   });
 
   it("imports an exception instance as overrides on its night only", async () => {
@@ -79,6 +80,58 @@ describe("google series import", () => {
     assert.deepEqual([n28.title, n28.venueLabel, n28.overrides], ["Bass Temple Live", "The Big Temple", ["title"]]);
   });
 
+  it("lands an exception edit on an overridden night that arrives with a series edit", async (context) => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "bidirectional" });
+    let master = MASTER;
+    const fake = fakeFetch((request) => masterFetch(master)(request));
+    await importGoogle(t, connectorId, googleInstance("2026-11-07"));
+    await importGoogle(t, connectorId, googleInstance("2026-11-28", { summary: "Bass Temple Live", updated: "2026-11-02T11:10:00.000Z" }));
+    // Past every source time, so the bidirectional guards compare real clocks.
+    context.mock.timers.setTime(Date.parse("2026-11-02T12:50:00.000Z"));
+    master = { ...MASTER, location: "The Big Temple", updated: "2026-11-02T12:45:00.000Z" };
+    await importGoogle(t, connectorId, googleInstance("2026-11-14", { location: "The Big Temple", updated: "2026-11-02T12:45:00.000Z" }));
+    await importGoogle(t, connectorId, googleInstance("2026-11-28", { location: "The Big Temple", summary: "Bass Temple Live II", updated: "2026-11-02T12:40:00.000Z" }));
+    fake.restore();
+    const n28 = await occurrence(t, (await onlySeries(t))._id, "2026-11-28");
+    assert.deepEqual([n28.title, n28.venueLabel, n28.overrides], ["Bass Temple Live II", "The Big Temple", ["title"]]);
+  });
+
+  it("keeps a VRDex series edit that beat the master off every night", async (context) => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "bidirectional" });
+    let master = MASTER;
+    const fake = fakeFetch((request) => masterFetch(master)(request));
+    await importGoogle(t, connectorId, googleInstance("2026-11-07"));
+    const series = await onlySeries(t);
+    const nights = await occurrences(t, series._id);
+    // As a series edit fans out: one write time on the series and on every night it changed.
+    const vrdexAt = Date.parse("2026-11-02T12:30:00.000Z");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(series._id, { venueLabel: "VRDex Hall", updatedAt: vrdexAt });
+      for (const night of nights) await ctx.db.patch(night._id, { venueLabel: "VRDex Hall", updatedAt: vrdexAt });
+    });
+    context.mock.timers.setTime(Date.parse("2026-11-02T12:40:00.000Z"));
+    master = { ...MASTER, location: "Google Hall", updated: "2026-11-02T12:20:00.000Z" };
+    await importGoogle(t, connectorId, googleInstance("2026-11-14", { location: "Google Hall", updated: "2026-11-02T12:20:00.000Z" }));
+    fake.restore();
+    const n14 = await occurrence(t, series._id, "2026-11-14");
+    assert.deepEqual([(await onlySeries(t)).venueLabel, n14.venueLabel, n14.overrides], ["VRDex Hall", "VRDex Hall", []]);
+  });
+
+  it("keeps a night edit made after the series over an older exception", async (context) => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "bidirectional" });
+    const fake = fakeFetch(masterFetch(MASTER));
+    await importGoogle(t, connectorId, googleInstance("2026-11-07"));
+    const n21 = await occurrence(t, (await onlySeries(t))._id, "2026-11-21");
+    await t.run((ctx) => ctx.db.patch(n21._id, { title: "VRDex Night", overrides: ["title"], updatedAt: Date.parse("2026-11-02T12:30:00.000Z") }));
+    context.mock.timers.setTime(Date.parse("2026-11-02T12:40:00.000Z"));
+    await importGoogle(t, connectorId, googleInstance("2026-11-21", { summary: "Google Night", updated: "2026-11-02T12:20:00.000Z" }));
+    fake.restore();
+    assert.equal((await occurrence(t, n21.seriesId!, "2026-11-21")).title, "VRDex Night");
+  });
+
   it("flags a single cancelled instance without touching the series", async () => {
     const t = convexTest({ schema, modules: seriesSyncModules });
     const { connectorId } = await seedGoogleConnector(t, { direction: "import" });
@@ -93,23 +146,27 @@ describe("google series import", () => {
 
   it("keeps phase-one expansion for a rule outside the fixed set, with the flag off, and in hold mode", async () => {
     for (const setup of [
-      { master: { ...MASTER, recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO,SA"] }, flag: "true", mode: "autopublish" },
-      { master: MASTER, flag: "false", mode: "autopublish" },
-      { master: MASTER, flag: "true", mode: "hold" },
+      { master: { ...MASTER, recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO,SA"] }, flag: "true", seriesFlag: "true", mode: "autopublish", gets: 1 },
+      { master: MASTER, flag: "false", seriesFlag: "true", mode: "autopublish", gets: 0 },
+      // Prod's configuration: recurring events on, the connector series gate off.
+      { master: MASTER, flag: "true", seriesFlag: "false", mode: "autopublish", gets: 0 },
+      { master: MASTER, flag: "true", seriesFlag: "true", mode: "hold", gets: 0 },
       // A BYDAY that is not the master's own weekday would lose the master's night.
-      { master: { ...MASTER, recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=SU"] }, flag: "true", mode: "autopublish" },
+      { master: { ...MASTER, recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=SU"] }, flag: "true", seriesFlag: "true", mode: "autopublish", gets: 1 },
       // A zone Intl refuses is bad source data, never a throw.
-      { master: { ...MASTER, start: { dateTime: "2026-11-07T20:00:00-05:00", timeZone: "Not/A_Zone" } }, flag: "true", mode: "autopublish" },
+      { master: { ...MASTER, start: { dateTime: "2026-11-07T20:00:00-05:00", timeZone: "Not/A_Zone" } }, flag: "true", seriesFlag: "true", mode: "autopublish", gets: 1 },
     ] as const) {
       const t = convexTest({ schema, modules: seriesSyncModules });
       const { connectorId } = await seedGoogleConnector(t, { direction: "import", mode: setup.mode });
       process.env.VRDEX_RECURRING_EVENTS_ENABLED = setup.flag;
+      process.env.VRDEX_CONNECTOR_SERIES_ENABLED = setup.seriesFlag;
       const fake = fakeFetch(masterFetch(setup.master));
       await importGoogle(t, connectorId, googleInstance("2026-11-07"));
       fake.restore();
       assert.equal((await t.run((ctx) => ctx.db.query("eventSeries").collect())).length, 0);
       const [link] = await allLinks(t);
       assert.deepEqual([link!.externalId, link!.externalSeriesId, link!.seriesId], ["m1_20261108T010000Z", "m1", undefined]);
+      assert.equal(fake.calls.filter((c) => c.url.pathname.endsWith("/events/m1")).length, setup.gets);
     }
   });
 
