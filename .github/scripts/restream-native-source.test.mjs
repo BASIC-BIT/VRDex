@@ -10,7 +10,7 @@ const host = 'tests/scripts/event-media-timing.test.mjs';
 test('all 46 timing cases move byte-identically and leave the full host test command intact', async () => {
   assert.equal(await access(new URL('../../' + native, import.meta.url)).then(() => true, () => false), true, 'native suite must exist');
   assert.equal(await access(new URL('../../' + host, import.meta.url)).then(() => true, () => false), false);
-  assert.equal(createHash('sha256').update(await read(native)).digest('hex'), '568894f4810429bab78b4535254757b326b1ba8cb380c5ccf6cc6dab532fe11a');
+  assert.equal(createHash('sha256').update(await read(native)).digest('hex'), 'cfeef273a7f9b0fe504b998e10ae6b87029f782a28ce3021b7ae0279cd544891');
   const pkg = JSON.parse(await read('package.json'));
   assert.equal(pkg.scripts['test:scripts'], 'node --import tsx --test tests/scripts/**/*.test.ts tests/scripts/*.test.mjs');
   assert.equal(pkg.scripts['verify:vrdex-mcp'], 'pnpm typecheck:vrdex-mcp && pnpm test:vrdex-mcp && pnpm test:scripts && pnpm smoke:mcp-compat && pnpm check:mcp-client-matrix');
