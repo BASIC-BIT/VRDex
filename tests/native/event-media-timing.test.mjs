@@ -862,7 +862,7 @@ test("real prewarmed 30fps mono source stays synchronized in a 60fps stereo prog
   while (!lit() && performance.now() < litDeadline) await sleep(5);
   assert.equal(lit(), true, "hold must start inside a lit flash");
   const litTick = renderer.getState().ticks,
-    tickDeadline = performance.now() + 1000;
+    tickDeadline = performance.now() + 500;
   while (
     renderer.getState().ticks < litTick + 2 &&
     performance.now() < tickDeadline
