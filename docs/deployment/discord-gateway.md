@@ -109,7 +109,7 @@ Future media enqueue integration should add a scoped service credential. Do not 
 | `VRDEX_DISCORD_POSTER_TOKEN` | Web app first, then Convex production | `openssl rand -base64 32`. Web side is Vercel Terraform variable `discord_poster_token`, but see the note below this table before using it | For posters. Unset on either side, runs continue with the post text |
 | `OPENAI_API_KEY` | Convex production | OpenAI project API keys | Yes |
 | `VRDEX_EVENT_INTAKE_AI_ENABLED` | Convex production | `true` | Yes |
-| `VRDEX_EVENT_INTAKE_MODEL` | Convex production | A model name | No, defaults to `gpt-5.6-luna` |
+| `VRDEX_EVENT_INTAKE_MODEL` | Convex production | A model name | No, defaults to `gpt-6-luna` |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` | Convex production | Langfuse project settings | No. Missing keys disable tracing |
 | `VRDEX_EVENT_CONNECTORS_ENABLED` | Convex production | `true`. While it is off, runs close as `connector_inactive` | Yes |
 | `VRDEX_DISCORD_INTAKE_ENABLED` | Convex production | `true`, at step 9 of the bootstrap | Yes |
