@@ -132,6 +132,42 @@ describe("google series import", () => {
     assert.equal((await occurrence(t, n21.seriesId!, "2026-11-21")).title, "VRDex Night");
   });
 
+  it("keeps a staff night edit guarded across a later series write that skips that night", async (context) => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "bidirectional" });
+    const fake = fakeFetch(masterFetch(MASTER));
+    await importGoogle(t, connectorId, googleInstance("2026-11-07"));
+    const series = await onlySeries(t);
+    const n21 = await occurrence(t, series._id, "2026-11-21");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(n21._id, { title: "VRDex Night", overrides: ["title"], updatedAt: Date.parse("2026-11-02T12:30:00.000Z") });
+      // An unrelated series write that does not fan out to n21.
+      await ctx.db.patch(series._id, { updatedAt: Date.parse("2026-11-02T12:40:00.000Z") });
+    });
+    context.mock.timers.setTime(Date.parse("2026-11-02T12:50:00.000Z"));
+    await importGoogle(t, connectorId, googleInstance("2026-11-21", { summary: "Google Night", updated: "2026-11-02T12:20:00.000Z" }));
+    fake.restore();
+    assert.equal((await occurrence(t, series._id, "2026-11-21")).title, "VRDex Night");
+  });
+
+  it("applies an exception older than the night the daily cron materialised", async (context) => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "bidirectional" });
+    const fake = fakeFetch(masterFetch(MASTER));
+    await importGoogle(t, connectorId, googleInstance("2026-11-07"));
+    const series = await onlySeries(t);
+    // The week-later clock must not send the stored token through a refresh.
+    await t.run(async (ctx) => { for (const c of await ctx.db.query("connectorCredentials").collect()) await ctx.db.patch(c._id, { accessTokenExpiresAt: Date.parse("2027-06-01T00:00:00Z") }); });
+    context.mock.timers.setTime(Date.parse("2026-11-09T06:20:00.000Z"));
+    await t.mutation(internal.eventSeries.materialize, { seriesId: series._id });
+    // Made before the cron ran, read in on a later job.
+    context.mock.timers.setTime(Date.parse("2026-11-09T07:00:00.000Z"));
+    await importGoogle(t, connectorId, googleInstance("2027-01-02", { summary: "Bass Temple NYE", updated: "2026-11-08T12:00:00.000Z" }));
+    fake.restore();
+    const nye = await occurrence(t, series._id, "2027-01-02");
+    assert.deepEqual([nye.title, nye.overrides], ["Bass Temple NYE", ["title"]]);
+  });
+
   it("flags a single cancelled instance without touching the series", async () => {
     const t = convexTest({ schema, modules: seriesSyncModules });
     const { connectorId } = await seedGoogleConnector(t, { direction: "import" });

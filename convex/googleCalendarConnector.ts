@@ -243,9 +243,10 @@ export const applyGoogleOccurrence = internalMutation({
     }
     const community = await db.get(connector.communityProfileId);
     if (!community?.slug) throw new Error("CONNECTOR_COMMUNITY");
-    // The stale guard protects a night edit made after the last series write. Fan-out stamps a night with the series write's time,
-    // so a night no later than its series holds only series values, which an exception arriving with that same edit must still beat.
-    const nightEdited = night.updatedAt > series.updatedAt;
+    // The stale guard protects a staff night edit. Fan-out stamps a night with the series write's own time, so a night equal to its
+    // series holds a fanned edit that an exception arriving with it must still beat; a night the cron made has no overrides to protect.
+    // ponytail: a staff edit followed by a series write that fans another field to the night loses this guard; a per-night edit clock fixes it.
+    const nightEdited = (night.overrides ?? []).length > 0 && night.updatedAt !== series.updatedAt;
     const { outcome } = await applyEventCandidate(ctx, {
       connector, candidate: candidateFromConnectorFields("google_calendar", { ...changes, communitySlug: community.slug }, { kind: "update", slug: night.slug! }),
       actorUserId: connector.authorityUserId, link, externalId: item.id, ...(nightEdited ? { externalUpdatedAt: updatedMs } : {}),
