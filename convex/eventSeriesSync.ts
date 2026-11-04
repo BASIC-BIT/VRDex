@@ -117,9 +117,10 @@ export async function applyExternalSeriesFor(ctx: MutationCtx, args: ExternalSer
     return { outcome: "skipped" };
   }
   if (oneOff) {
-    await db.patch(oneOff._id, {
-      externalId: nightExternalId(connector.kind, args.externalSeriesId, oneOff.eventId ? await db.get(oneOff.eventId) : null), externalSeriesId: args.externalSeriesId, updatedAt: now,
-    });
+    let externalId = nightExternalId(connector.kind, args.externalSeriesId, oneOff.eventId ? await db.get(oneOff.eventId) : null);
+    // A phase-one window (hold, or the gate off) may have linked that instance to its own row already; external IDs stay unique.
+    if (await linkByExternalId(db, connector._id, externalId)) externalId = "none:" + (oneOff.eventId ?? oneOff._id);
+    await db.patch(oneOff._id, { externalId, externalSeriesId: args.externalSeriesId, updatedAt: now });
   }
   // The baseline hash: linking applies nothing, so the next delivery of these same fields is an echo.
   const writeLink = async (seriesId: Id<"eventSeries">) => {

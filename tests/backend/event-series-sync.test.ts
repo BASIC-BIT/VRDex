@@ -2,14 +2,29 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { convexTest, type TestConvex } from "convex-test";
 import { enqueueSeriesSync, seriesHash, seriesSyncFields } from "../../convex/_eventSeriesSync";
-import { internal } from "../../convex/_generated/api";
+import { api, internal } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
+import { syncKindHandlers } from "../../convex/eventSyncKinds/index";
 import { occurrence, occurrences } from "./_eventSeriesFixture";
 import { NOW, runSyncJob, schema, seedEvent, seedGoogleConnector } from "./_googleCalendarFixture";
 import { applySeries, clearJobs, SERIES_FIELDS, seedSeries, seriesSyncModules, setupSeriesEnv } from "./_seriesSyncFixture";
 
 describe("external series", () => {
   beforeEach(setupSeriesEnv);
-  const seriesLinks = (t: TestConvex<typeof schema>) => t.run((ctx) => ctx.db.query("eventSyncLinks").collect()).then((l) => l.filter((x) => x.eventId === undefined));
+  type T = TestConvex<typeof schema>;
+  const seriesLinks = (t: T) => t.run((ctx) => ctx.db.query("eventSyncLinks").collect()).then((l) => l.filter((x) => x.eventId === undefined));
+  const pendingJobs = (t: T) => t.run((ctx) => ctx.db.query("eventSyncJobs").collect()).then((j) => j.filter((x) => x.state === "pending"));
+  const runningSeriesJob = (t: T, connectorId: Id<"eventConnectors">, seriesId: Id<"eventSeries">) =>
+    t.run((ctx) => ctx.db.insert("eventSyncJobs", { connectorId, kind: "export_upsert", payload: { seriesId }, dueAt: NOW, attempts: 1, state: "running", createdAt: NOW, updatedAt: NOW }));
+  const later = (minutes: number) => Date.parse("2026-11-02T11:00:00.000Z") + minutes * 60_000;
+
+  it("hashes what a round trip keeps", () => {
+    const venue = "V".repeat(130);
+    assert.equal(seriesHash({ ...SERIES_FIELDS, venueLabel: venue }), seriesHash({ ...SERIES_FIELDS, venueLabel: venue.slice(0, 120) }));
+    const until = { ...SERIES_FIELDS, endsOn: "2027-01-30" };
+    assert.equal(seriesHash({ ...until, count: 12 }), seriesHash(until));
+    assert.notEqual(seriesHash({ ...SERIES_FIELDS, count: 12 }), seriesHash(SERIES_FIELDS));
+  });
 
   it("creates one series, materialises its nights, and writes the series link", async () => {
     const t = convexTest({ schema, modules: seriesSyncModules });
@@ -65,6 +80,34 @@ describe("external series", () => {
     assert.ok(links.some((l) => l.externalId === "m1:2026-11-07" && l.eventId));
   });
 
+  it("reads a deletion of an ended series as its own end coming back", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "import" });
+    const { seriesId } = await applySeries(t, connectorId);
+    await t.run((ctx) => ctx.db.patch(seriesId!, { state: "ended" }));
+    assert.equal((await applySeries(t, connectorId, { externalUpdatedAt: later(50), deleted: true })).outcome, "echo");
+    assert.ok((await t.run((ctx) => ctx.db.query("eventSyncLinks").collect())).every((l) => l.state === "linked"));
+  });
+
+  it("keeps a VRDex edit newer than the source on a bidirectional connector", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "bidirectional" });
+    await applySeries(t, connectorId);
+    const edit = { fields: { rule: { ...SERIES_FIELDS.rule, startTime: "21:00" } } };
+    // Newer than the link's last import, older than the series' own update at NOW.
+    assert.equal((await applySeries(t, connectorId, { externalUpdatedAt: NOW - 60_000, ...edit })).outcome, "unchanged");
+    assert.equal((await applySeries(t, connectorId, { externalUpdatedAt: NOW + 60_000, ...edit })).outcome, "updated");
+  });
+
+  it("reads the series' own values back as an echo before completeJob records the export", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId } = await seedGoogleConnector(t, { direction: "import" });
+    await applySeries(t, connectorId);
+    const [link] = await seriesLinks(t);
+    await t.run((ctx) => ctx.db.patch(link._id, { lastExportedHash: "an-older-export" }));
+    assert.equal((await applySeries(t, connectorId, { externalUpdatedAt: later(30) })).outcome, "echo");
+  });
+
   it("links an existing series by title", async () => {
     const t = convexTest({ schema, modules: seriesSyncModules });
     const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "bidirectional" });
@@ -72,6 +115,8 @@ describe("external series", () => {
     const result = await applySeries(t, connectorId);
     assert.deepEqual([result.outcome, result.seriesId], ["linked", existing]);
     assert.equal((await t.run((ctx) => ctx.db.query("eventSeries").collect())).length, 1);
+    // The baseline: linking applied nothing, so the next delivery of the same fields is an echo.
+    assert.equal((await seriesLinks(t))[0].lastExportedHash, seriesHash(SERIES_FIELDS));
   });
 
   it("gives a second external series of the same title its own series", async () => {
@@ -95,6 +140,21 @@ describe("external series", () => {
     assert.deepEqual(links.map((l) => [l.externalId, l.eventId, l.seriesId, l.externalSeriesId]).sort(), [["m1", undefined, seriesId, "m1"], ["m1_20261108T010000Z", eventId, seriesId, "m1"]]);
   });
 
+  it("keeps external IDs unique when phase one already linked the first instance", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "import" });
+    const eventId = await seedEvent(t, communityProfileId);
+    const instanceEventId = await seedEvent(t, communityProfileId, { slug: "bass-temple-nov-7-2" });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("eventSyncLinks", { connectorId, eventId, externalId: "m1", state: "linked", createdAt: NOW, updatedAt: NOW });
+      await ctx.db.insert("eventSyncLinks", { connectorId, eventId: instanceEventId, externalId: "m1_20261108T010000Z", externalSeriesId: "m1", state: "linked", createdAt: NOW, updatedAt: NOW });
+    });
+    await applySeries(t, connectorId);
+    const links = await t.run((ctx) => ctx.db.query("eventSyncLinks").collect());
+    assert.equal(new Set(links.map((l) => l.externalId)).size, links.length);
+    assert.equal(links.find((l) => l.eventId === eventId)!.externalId, "none:" + eventId);
+  });
+
   it("treats bounds that fail series validation as outside the fixed set", async () => {
     const t = convexTest({ schema, modules: seriesSyncModules });
     const { connectorId } = await seedGoogleConnector(t, { direction: "import" });
@@ -102,10 +162,30 @@ describe("external series", () => {
     assert.equal((await t.run((ctx) => ctx.db.query("eventSeries").collect())).length, 0);
   });
 
-  it("skips export-only connectors", async () => {
+  it("skips export-only connectors, and every connector with the series gate off", async () => {
     const t = convexTest({ schema, modules: seriesSyncModules });
     const { connectorId } = await seedGoogleConnector(t, { direction: "export" });
     assert.equal((await applySeries(t, connectorId)).outcome, "skipped");
+    const importer = await seedGoogleConnector(t, { direction: "import" });
+    process.env.VRDEX_CONNECTOR_SERIES_ENABLED = "false";
+    assert.equal((await applySeries(t, importer.connectorId)).outcome, "skipped");
+    assert.equal((await t.run((ctx) => ctx.db.query("eventSeries").collect())).length, 0);
+  });
+
+  it("queues the series export from every series write path", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { communityProfileId } = await seedGoogleConnector(t, { direction: "export" });
+    await seedEvent(t, communityProfileId);
+    const staff = t.withIdentity({ subject: "staff", issuer: "test", tokenIdentifier: "test|staff", emailVerified: true });
+    const seriesJobs = async () => (await pendingJobs(t)).filter((j) => j.eventId === undefined).length;
+    const { seriesId } = await staff.mutation(api.eventSeries.create, { eventSlug: "bass-temple-nov-7", repeat: { frequency: "weekly" } });
+    assert.equal(await seriesJobs(), 1, "create");
+    await clearJobs(t);
+    await staff.mutation(api.eventSeries.update, { seriesId, summary: "New night." });
+    assert.equal(await seriesJobs(), 1, "update");
+    await clearJobs(t);
+    await staff.mutation(api.eventSeries.end, { seriesId });
+    assert.equal(await seriesJobs(), 1, "end");
   });
 
   it("enqueues one series job per series-capable export connector, once, and none with either flag off", async () => {
@@ -124,23 +204,51 @@ describe("external series", () => {
     }
   });
 
-  it("runs a series job, records the series link, and queues the nights the series export does not carry", async () => {
+  it("runs a series job through the kind's exportSeries only with the series gate on, then queues the nights the series export does not carry", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    const n14 = await occurrence(t, seriesId, "2026-11-14");
+    const n21 = await occurrence(t, seriesId, "2026-11-21");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(n14._id, { overrides: ["summary"] });
+      // Retired: an overridden night the follow-up must still leave alone.
+      await ctx.db.patch(n21._id, { overrides: ["summary"], publicationState: "draft_private", seriesRetiredAt: NOW });
+    });
+    await clearJobs(t);
+    const google = syncKindHandlers.google_calendar;
+    const exported: string[] = [];
+    google.exportSeries = async (_ctx, _connector, series) => { exported.push(series._id); return { externalId: "s1" }; };
+    try {
+      process.env.VRDEX_CONNECTOR_SERIES_ENABLED = "false";
+      assert.equal((await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } })).state, "done");
+      assert.deepEqual([exported, await seriesLinks(t)], [[], []]);
+      process.env.VRDEX_CONNECTOR_SERIES_ENABLED = "true";
+      assert.equal((await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } })).state, "done");
+    } finally {
+      delete google.exportSeries;
+    }
+    assert.deepEqual(exported, [seriesId]);
+    const series = (await t.run((ctx) => ctx.db.get(seriesId)))!;
+    const [link] = await seriesLinks(t);
+    assert.deepEqual([link.externalId, link.externalSeriesId, link.seriesId, link.state, link.lastExportedHash], ["s1", "s1", seriesId, "linked", seriesHash(seriesSyncFields(series))]);
+    assert.deepEqual((await pendingJobs(t)).map((j) => [j.eventId, j.kind]), [[n14._id, "export_upsert"]]);
+  });
+
+  it("rewrites both IDs on every series export and sends an edit made while the job ran", async () => {
     const t = convexTest({ schema, modules: seriesSyncModules });
     const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
     const seriesId = await seedSeries(t, communityProfileId, staffUserId);
     const n14 = await occurrence(t, seriesId, "2026-11-14");
     await t.run((ctx) => ctx.db.patch(n14._id, { overrides: ["summary"] }));
     await clearJobs(t);
-    // Google has no exportSeries yet: the job completes and writes nothing.
-    assert.equal((await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } })).state, "done");
-    assert.equal((await seriesLinks(t)).length, 0);
-
-    const series = (await t.run((ctx) => ctx.db.get(seriesId)))!;
-    const jobId = await t.run((ctx) => ctx.db.insert("eventSyncJobs", { connectorId, kind: "export_upsert", payload: { seriesId }, dueAt: NOW, attempts: 1, state: "running", createdAt: NOW, updatedAt: NOW }));
-    await t.mutation(internal.eventSync.completeJob, { jobId, externalId: "s1", exportedHash: seriesHash(seriesSyncFields(series)), durationMs: 0 });
-    const [link] = await seriesLinks(t);
-    assert.deepEqual([link.externalId, link.externalSeriesId, link.seriesId, link.state], ["s1", "s1", seriesId, "linked"]);
-    const queued = await t.run((ctx) => ctx.db.query("eventSyncJobs").withIndex("by_connectorId_eventId_state", (q) => q.eq("connectorId", connectorId)).collect());
-    assert.deepEqual(queued.filter((j) => j.state === "pending").map((j) => [j.eventId, j.kind]), [[n14._id, "export_upsert"]]);
+    const hash = seriesHash(seriesSyncFields((await t.run((ctx) => ctx.db.get(seriesId)))!));
+    await t.mutation(internal.eventSync.completeJob, { jobId: await runningSeriesJob(t, connectorId, seriesId), externalId: "none:" + seriesId, exportedHash: hash, durationMs: 0 });
+    // No copy on the source: nothing for the nights to write to.
+    assert.deepEqual(await pendingJobs(t), []);
+    await t.mutation(internal.eventSync.completeJob, { jobId: await runningSeriesJob(t, connectorId, seriesId), externalId: "s1", exportedHash: "before-an-edit", durationMs: 0 });
+    const links = await seriesLinks(t);
+    assert.deepEqual(links.map((l) => [l.externalId, l.externalSeriesId]), [["s1", "s1"]]);
+    assert.deepEqual((await pendingJobs(t)).map((j) => [j.eventId, j.payload]), [[undefined, { seriesId }], [n14._id, null]]);
   });
 });
