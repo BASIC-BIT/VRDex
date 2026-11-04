@@ -397,7 +397,7 @@ jobs:
           # as canonical only adds records; wrongly treating it as a fork
           # destroys them. The Plan step reads this output.
           canonical_repository=false
-          if [ "$GITHUB_REPOSITORY_ID" = "1176245711" ] || [ "$GITHUB_REPOSITORY" = "BASIC-BIT/VRDex" ] || [ "$GITHUB_REPOSITORY" = "BITRATE-Labs/VRDex" ]; then
+          if [ "${GITHUB_REPOSITORY_ID:-}" = "1176245711" ] || [ "$GITHUB_REPOSITORY" = "BASIC-BIT/VRDex" ] || [ "$GITHUB_REPOSITORY" = "BITRATE-Labs/VRDex" ]; then
             canonical_repository=true
           fi
           echo "canonical_repository=$canonical_repository" >> "$GITHUB_OUTPUT"

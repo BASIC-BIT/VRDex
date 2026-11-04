@@ -60,6 +60,30 @@ run "terraform_ci_trust_default" {
   }
 }
 
+run "self_hosted_repository" {
+  command = plan
+
+  variables {
+    github_repository                          = "test-owner/self-hosted"
+    enable_discord_gateway_release_permissions = true
+    enable_restream_proof_image_permissions    = true
+  }
+
+  assert {
+    condition = (
+      length(data.aws_iam_policy_document.github_actions_terraform_assume_role.statement) == 1 &&
+      length(jsondecode(aws_iam_role.discord_gateway_release[0].assume_role_policy).Statement) == 1 &&
+      length(jsondecode(aws_iam_role.restream_proof_image[0].assume_role_policy).Statement) == 1
+    )
+    error_message = "A self-hosted repository without github_transfer_trust must not trust this repository on any role."
+  }
+
+  assert {
+    condition     = [for c in data.aws_iam_policy_document.github_actions_terraform_assume_role.statement[0].condition : join(",", c.values) if c.variable == "token.actions.githubusercontent.com:sub"] == ["repo:test-owner/self-hosted:*"]
+    error_message = "The only Terraform CI subject must be the self-hosted repository."
+  }
+}
+
 run "transfer_trust_rejects_empty_subjects" {
   command = plan
 

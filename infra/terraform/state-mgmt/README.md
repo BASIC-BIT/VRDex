@@ -68,6 +68,9 @@ Add it to the local `terraform.tfvars` and apply this stack by hand before the
 transfer. Remove it and the `BASIC-BIT` subject after a clean week under the new
 owner.
 
+Roles whose trust is not in git need the same change by hand before the move, at
+least `vrdex-group-telemetry-release`.
+
 ## State Boundary
 
 Do not commit local state, plans, or `terraform.tfvars`. The root `.gitignore` excludes them.
