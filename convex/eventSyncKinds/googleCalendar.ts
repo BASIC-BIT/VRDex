@@ -259,12 +259,13 @@ async function exportSeriesNight(ctx: ActionCtx, connector: Doc<"eventConnectors
   }
   const none = { externalId: "none:" + event._id };
   const seriesLink = await ctx.runQuery(internal.eventSeriesSync.readSeriesLink, { connectorId, seriesId: event.seriesId });
+  const own = link && !link.externalId.startsWith("none:") ? link : null;
   // No master yet (a night job can run before its series job): the series export queues this night again.
+  // The night's own copy keeps its ID, so that follow-up still sees it and retracts or leaves it.
   if (!seriesLink || seriesLink.externalId.startsWith("none:")) {
     await ctx.runMutation(internal.eventSeriesSync.requestSeriesExport, { seriesId: event.seriesId });
-    return none;
+    return own ? { externalId: own.externalId } : none;
   }
-  const own = link && !link.externalId.startsWith("none:") ? link : null;
   // The organiser deleted the master: its nights have nothing to write to.
   if (seriesLink.state === "external_deleted") return own ? { externalId: own.externalId } : none;
   const master = seriesLink.externalId;

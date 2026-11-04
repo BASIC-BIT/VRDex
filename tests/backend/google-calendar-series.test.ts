@@ -433,6 +433,46 @@ describe("google series export", () => {
     assert.deepEqual([after.externalId, after.state], ["none:" + n14._id, "linked"]);
   });
 
+  it("keeps a night's own copy through a night job that runs before the series job, then retracts or leaves it (rule 2, R2)", async () => {
+    for (const { lastImportedAt, externalId, deletes, final } of [
+      { lastImportedAt: undefined, externalId: "standalone-14", deletes: 1, final: "none:" },
+      { lastImportedAt: NOW, externalId: "organiser-14", deletes: 0, final: "organiser-14" },
+    ]) {
+      const t = convexTest({ schema, modules: seriesSyncModules });
+      const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+      const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+      const n14 = await occurrence(t, seriesId, "2026-11-14");
+      const own = await insertLink(t, { connectorId, eventId: n14._id, externalId, lastExportedHash: "old", lastImportedAt });
+      await clearJobs(t);
+      const fake = fakeFetch(({ method, body }) => method === "DELETE" ? new Response(null, { status: 204 }) : exported(body));
+      // A staff edit to one night: only its job is queued, and it runs before any series job.
+      await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+      assert.deepEqual([fake.calls.length, (await t.run((ctx) => ctx.db.get(own)))!.externalId], [0, externalId]);
+      await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+      const followUp = (await t.run((ctx) => ctx.db.query("eventSyncJobs").collect())).filter((j) => j.eventId === n14._id && j.state === "pending");
+      assert.equal(followUp.length, 1);
+      await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+      fake.restore();
+      assert.deepEqual(fake.calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname), deletes ? ["/calendar/v3/calendars/cal-1/events/standalone-14"] : []);
+      assert.equal((await t.run((ctx) => ctx.db.get(own)))!.externalId, final === "none:" ? "none:" + n14._id : final);
+    }
+  });
+
+  it("cancels a VRDex-cancelled night with no overrides on its own instance (B6, rule 5)", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId);
+    await seriesLink(t, connectorId, seriesId);
+    const n14 = await occurrence(t, seriesId, "2026-11-14");
+    await t.run((ctx) => ctx.db.patch(n14._id, { eventStatus: "cancelled" }));
+    await insertLink(t, { connectorId, eventId: n14._id, seriesId, externalSeriesId: "m1", externalId: "m1_20261115T010000Z" });
+    const fake = fakeFetch(({ method, body }) => method === "GET" ? Response.json(googleInstance("2026-11-14")) : exported(body));
+    await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n14._id });
+    fake.restore();
+    const patch = fake.calls.find((c) => c.method === "PATCH")!;
+    assert.deepEqual([patch.url.pathname, (patch.body as { status: string }).status], ["/calendar/v3/calendars/cal-1/events/m1_20261115T010000Z", "cancelled"]);
+  });
+
   it("leaves an organiser's entry and an untagged instance of the master in place (R2, B8)", async () => {
     const t = convexTest({ schema, modules: seriesSyncModules });
     const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
@@ -471,7 +511,7 @@ describe("google series export", () => {
     assert.equal((await t.run((ctx) => ctx.db.get(stale)))!.externalId, "m1_20261122T010000Z");
   });
 
-  it("leaves an instance another event's link holds, so external IDs stay unique", async () => {
+  it("leaves an instance another event's link holds, so external IDs stay unique", async (context) => {
     const t = convexTest({ schema, modules: seriesSyncModules });
     const { connectorId, communityProfileId, staffUserId } = await seedGoogleConnector(t, { direction: "export" });
     const seriesId = await seedSeries(t, communityProfileId, staffUserId);
@@ -481,8 +521,10 @@ describe("google series export", () => {
     const stray = await seedEvent(t, communityProfileId, { slug: "bass-temple-stray", eventDate: "2026-11-21", startAt: Date.parse("2026-11-22T01:00:00.000Z") });
     await insertLink(t, { connectorId, eventId: stray, externalId: "m1_20261122T010000Z" });
     const fake = fakeFetch(({ url, body }) => url.pathname.endsWith("/instances") ? Response.json({ items: [googleInstance("2026-11-21")] }) : exported(body));
+    const warn = context.mock.method(console, "warn", () => undefined);
     await runSyncJob(t, { connectorId, kind: "export_upsert", eventId: n21._id });
     fake.restore();
+    assert.deepEqual(warn.mock.calls.map((c) => c.arguments[0]), ["GOOGLE_INSTANCE_MISSING"]);
     assert.deepEqual(fake.calls.map((c) => c.method), ["GET"]);
     assert.deepEqual((await allLinks(t)).filter((l) => l.externalId === "m1_20261122T010000Z").map((l) => l.eventId), [stray]);
   });
