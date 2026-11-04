@@ -172,27 +172,30 @@ export const readSeriesLink = internalQuery({
   },
 });
 
+/** What a kind's series export reads. Discord's import reads it too, so its echo compares with what the export wrote. */
+export async function seriesExportContextFor(db: DatabaseReader, connectorId: Id<"eventConnectors">, seriesId: Id<"eventSeries">) {
+  const siteUrl = process.env.SITE_URL;
+  if (!siteUrl) throw new Error("SITE_URL_MISSING");
+  const series = await db.get(seriesId);
+  const community = series && await db.get(series.communityProfileId);
+  if (!series || !community?.slug) throw new Error("CONNECTOR_EXPORT_CONTEXT");
+  const now = Date.now();
+  const nights = await upcomingSeriesNights(db, series, now);
+  // A phase-one expansion already on the source: the kind adopts it as the master rather than posting a second one.
+  let phaseOneExternalSeriesId: string | null = null;
+  for (const night of nights) {
+    phaseOneExternalSeriesId = (await nightLinkFor(db, connectorId, night._id))?.externalSeriesId ?? null;
+    if (phaseOneExternalSeriesId !== null) break;
+  }
+  return {
+    series, seriesUrl: siteUrl.replace(/\/$/, "") + "/" + community.slug + "/series/" + seriesId,
+    firstNight: nights[0] ?? null, today: eventDateForInstant(now, series.timezone), phaseOneExternalSeriesId,
+  };
+}
+
 export const seriesExportContext = internalQuery({
   args: { connectorId: v.id("eventConnectors"), seriesId: v.id("eventSeries") },
-  handler: async (ctx, { connectorId, seriesId }) => {
-    const siteUrl = process.env.SITE_URL;
-    if (!siteUrl) throw new Error("SITE_URL_MISSING");
-    const series = await ctx.db.get(seriesId);
-    const community = series && await ctx.db.get(series.communityProfileId);
-    if (!series || !community?.slug) throw new Error("CONNECTOR_EXPORT_CONTEXT");
-    const now = Date.now();
-    const nights = await upcomingSeriesNights(ctx.db, series, now);
-    // A phase-one expansion already on the source: the kind adopts it as the master rather than posting a second one.
-    let phaseOneExternalSeriesId: string | null = null;
-    for (const night of nights) {
-      phaseOneExternalSeriesId = (await nightLinkFor(ctx.db, connectorId, night._id))?.externalSeriesId ?? null;
-      if (phaseOneExternalSeriesId !== null) break;
-    }
-    return {
-      series, seriesUrl: siteUrl.replace(/\/$/, "") + "/" + community.slug + "/series/" + seriesId,
-      firstNight: nights[0] ?? null, today: eventDateForInstant(now, series.timezone), phaseOneExternalSeriesId,
-    };
-  },
+  handler: (ctx, { connectorId, seriesId }) => seriesExportContextFor(ctx.db, connectorId, seriesId),
 });
 
 /** Kinds tag a night's link with its series; the runner writes the export fields. */

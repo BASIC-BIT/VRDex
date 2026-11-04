@@ -4,7 +4,9 @@ import { internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { ConnectorDirection, ConnectorMode } from "../../convex/_eventConnectors";
 import type { SeriesSyncFields } from "../../convex/_eventSeriesSync";
+import type { DiscordScheduledEvent } from "../../convex/_discordScheduledEventMap";
 import type { GoogleCalendarEvent } from "../../convex/_googleCalendar";
+import type { ScheduledEventJobPayload } from "../../convex/eventSyncKinds/discordScheduledEvents";
 import { seriesModules } from "./_eventSeriesFixture";
 import { googleItem, modules, NOW, runSyncJob, schema, seedGoogleConnector, setupEnv, type FetchCall } from "./_googleCalendarFixture";
 
@@ -80,3 +82,20 @@ export const importGoogle = (t: T, connectorId: Id<"eventConnectors">, item: Goo
 /** Answers GET .../events/m1 with `master` and everything else with 404. */
 export const masterFetch = (master: GoogleCalendarEvent) => (request: FetchCall) =>
   request.method === "GET" && request.url.pathname.endsWith("/events/m1") ? Response.json(master) : new Response(null, { status: 404 });
+
+export function discordSeriesEvent(overrides: Partial<DiscordScheduledEvent> = {}): DiscordScheduledEvent {
+  return {
+    id: "900000000000000001", guild_id: GUILD_ID, name: "Bass Temple", description: "Weekly bass night.",
+    scheduled_start_time: "2026-11-08T01:00:00+00:00", scheduled_end_time: "2026-11-08T04:00:00+00:00", entity_type: 3,
+    entity_metadata: { location: "The Temple" }, status: 1, privacy_level: 2,
+    recurrence_rule: {
+      start: "2026-11-08T01:00:00+00:00", end: null, frequency: 2, interval: 1, by_weekday: [5], by_n_weekday: null,
+      by_month: null, by_month_day: null, by_year_day: null, count: null,
+    },
+    ...overrides,
+  };
+}
+
+/** One relayed gateway packet for the connector, as an import_item job. */
+export const importDiscord = (t: T, connectorId: Id<"eventConnectors">, action: ScheduledEventJobPayload["action"], event: DiscordScheduledEvent, extra: Partial<ScheduledEventJobPayload> = {}) =>
+  runSyncJob(t, { connectorId, kind: "import_item", payload: { action, event, receivedAt: NOW, ...extra } satisfies ScheduledEventJobPayload });
