@@ -882,6 +882,7 @@ test("real prewarmed 30fps mono source stays synchronized in a 60fps stereo prog
     performance.now() < holdDeadline
   )
     await sleep(20);
+  assert.equal(renderer.getState().error, undefined);
   assert.equal(renderer.getState().renderedSourceId, undefined);
   await renderer.stop();
   assert.equal(overflow, false);
