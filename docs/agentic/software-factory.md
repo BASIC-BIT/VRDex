@@ -102,9 +102,9 @@ The VRDex onboarding skill should cover:
 
 - GitHub Copilot: automatic or low-friction PR review and follow-up comments.
 - Greptile: paid/manual review for coherent change sets where cost is justified.
-- Claude: the checked-in, read-only pull request reviewer described in
-  [Claude pull request review](claude-pr-review.md), with a separate trusted
-  sticky-comment publisher and human or agent recycler.
+- Claude: BASIC's shared read-only pull request reviewer, described in
+  [Claude pull request review](claude-pr-review.md), with a human or agent
+  recycler.
 - Codex or other fresh-context agents: parallel source-linked review lanes
   outside GitHub when a cold read helps.
 - Custom GitHub Action reviewers: deterministic or model-backed checks that produce PR comments or artifacts.
