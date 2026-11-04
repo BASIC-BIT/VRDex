@@ -858,12 +858,20 @@ test("real prewarmed 30fps mono source stays synchronized in a 60fps stereo prog
   // flash is lit (white luma inside the 57px box) so the slate closes it.
   const [input] = renderer.getInputs(),
     lit = () => input.buffer.frame?.[20 * 854 + 85] > 180,
-    litDeadline = performance.now() + 2000;
+    litDeadline = performance.now() + 1500;
   while (!lit() && performance.now() < litDeadline) await sleep(5);
-  const litTick = renderer.getState().ticks;
-  while (renderer.getState().ticks < litTick + 2) await sleep(5);
+  assert.equal(lit(), true, "hold must start inside a lit flash");
+  const litTick = renderer.getState().ticks,
+    tickDeadline = performance.now() + 1000;
+  while (
+    renderer.getState().ticks < litTick + 2 &&
+    performance.now() < tickDeadline
+  )
+    await sleep(5);
+  assert.equal(renderer.getState().error, undefined);
+  assert(renderer.getState().ticks >= litTick + 2, "lit frames rendered");
   renderer.hold();
-  const holdDeadline = performance.now() + 5000;
+  const holdDeadline = performance.now() + 2000;
   while (
     renderer.getState().renderedSourceId !== undefined &&
     performance.now() < holdDeadline
