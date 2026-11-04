@@ -854,6 +854,22 @@ test("real prewarmed 30fps mono source stays synchronized in a 60fps stereo prog
   const start = renderer.getState().outputMs / 1000 + 1;
   await sleep(8000);
   assert.equal(renderer.getState().error, undefined);
+  // The marker decode rejects a flash still lit at EOF. Hold while the source
+  // flash is lit (white luma inside the 57px box) so the slate closes it.
+  const [input] = renderer.getInputs(),
+    lit = () => input.buffer.frame?.[20 * 854 + 85] > 180,
+    litDeadline = performance.now() + 2000;
+  while (!lit() && performance.now() < litDeadline) await sleep(5);
+  const litTick = renderer.getState().ticks;
+  while (renderer.getState().ticks < litTick + 2) await sleep(5);
+  renderer.hold();
+  const holdDeadline = performance.now() + 5000;
+  while (
+    renderer.getState().renderedSourceId !== undefined &&
+    performance.now() < holdDeadline
+  )
+    await sleep(20);
+  assert.equal(renderer.getState().renderedSourceId, undefined);
   await renderer.stop();
   assert.equal(overflow, false);
   await writeFile(output, Buffer.concat(chunks));
