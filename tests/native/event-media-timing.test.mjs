@@ -856,10 +856,14 @@ test("real prewarmed 30fps mono source stays synchronized in a 60fps stereo prog
   assert.equal(renderer.getState().error, undefined);
   // The marker decode rejects a flash still lit at EOF, so end on the hold
   // slate. Best effort: start the hold inside a lit flash (white luma in the
-  // 57px box) so the hard case is normally exercised; the slate closes any
-  // open flash either way.
+  // fixture's 854x480 box, probed at (85, 20) scaled to the program profile)
+  // so the hard case is normally exercised; the slate closes any open flash
+  // either way.
   const [input] = renderer.getInputs(),
-    lit = () => input.buffer.frame?.[20 * 854 + 85] > 180,
+    { width, height } = renderer.profile,
+    probeIndex =
+      Math.round((20 * height) / 480) * width + Math.round((85 * width) / 854),
+    lit = () => input.buffer.frame?.[probeIndex] > 180,
     litDeadline = performance.now() + 1500;
   while (!lit() && performance.now() < litDeadline) await sleep(5);
   // Two ticks render the lit frame; the renderer tolerates 2s of backpressure.
