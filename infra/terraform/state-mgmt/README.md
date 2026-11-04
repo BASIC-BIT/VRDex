@@ -55,16 +55,18 @@ references `oidc.vercel.com/basic-bit`.
 VRDex is moving from `BASIC-BIT` to the `BITRATE-Labs` organization. After the
 move, GitHub OIDC subjects start with `repo:BITRATE-Labs/VRDex` or
 `repo:BITRATE-Labs@350167065/VRDex@1176245711` instead of `repo:BASIC-BIT/VRDex`.
-`github_transfer_trust` adds a second trust statement to the Terraform CI role
+`github_transfer_trust`, set in the hosted `terraform.tfvars` (see
+`terraform.tfvars.example`), adds a second trust statement to the Terraform CI role
 and both release roles that accepts those subjects only when the token's
 `repository_id` is `1176245711` and `repository_owner_id` is `350167065`. The
 existing `github_repository` statement is unchanged, so the old owner keeps
 working until the move. Each new statement mirrors its role's existing context:
 any ref for the Terraform CI role, `main` only for the release roles.
 
-Apply this stack by hand before the transfer. Remove `github_transfer_trust` and
-the `BASIC-BIT` subject after a clean week under the new owner. Self-hosted
-deployments set `github_transfer_trust = null`.
+It defaults to null, so self-hosted deployments never trust this repository.
+Add it to the local `terraform.tfvars` and apply this stack by hand before the
+transfer. Remove it and the `BASIC-BIT` subject after a clean week under the new
+owner.
 
 ## State Boundary
 

@@ -9,7 +9,7 @@ ses_domain_name   = "vrdex.net"
 
 # Transitional trust for the move to BITRATE-Labs, pinned to the repository and
 # owner IDs. Remove it and the BASIC-BIT subject after a clean week under the new
-# owner. Self-hosted deployments set this to null.
+# owner. Self-hosted deployments leave it out.
 github_transfer_trust = {
   repository_id       = "1176245711"
   repository_owner_id = "350167065"

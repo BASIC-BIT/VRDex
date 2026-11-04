@@ -16,6 +16,11 @@ mock_provider "aws" {
 
 variables {
   route53_zone_id = "ZTESTONLY"
+  github_transfer_trust = {
+    repository_id       = "1176245711"
+    repository_owner_id = "350167065"
+    repositories        = ["BITRATE-Labs/VRDex", "BITRATE-Labs@350167065/VRDex@1176245711"]
+  }
 }
 
 run "default_disabled" {

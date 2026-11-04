@@ -390,9 +390,18 @@ jobs:
           # silently drops the hosted values would plan 5 to destroy against the
           # live Clerk CNAMEs and apply it unattended, taking production
           # authentication DNS with it. Skipping the stack is the safe failure.
-          # The canonical repository is matched by its numeric ID, not its name,
-          # so an owner transfer or rename cannot silently turn this check off.
-          if [ "${{ matrix.stack.requires_clerk_dns }}" = "true" ] && [ "$GITHUB_REPOSITORY_ID" = "1176245711" ]; then
+          #
+          # The canonical repository is matched by its numeric ID so an owner
+          # transfer or rename cannot turn this off, and also by its old and new
+          # names so a wrong or stale ID cannot either. Wrongly treating a repo
+          # as canonical only adds records; wrongly treating it as a fork
+          # destroys them. The Plan step reads this output.
+          canonical_repository=false
+          if [ "$GITHUB_REPOSITORY_ID" = "1176245711" ] || [ "$GITHUB_REPOSITORY" = "BASIC-BIT/VRDex" ] || [ "$GITHUB_REPOSITORY" = "BITRATE-Labs/VRDex" ]; then
+            canonical_repository=true
+          fi
+          echo "canonical_repository=$canonical_repository" >> "$GITHUB_OUTPUT"
+          if [ "${{ matrix.stack.requires_clerk_dns }}" = "true" ] && [ "$canonical_repository" = "true" ]; then
             if [ ! -f "${{ matrix.stack.path }}/hosted.tfvars" ]; then missing+=("${{ matrix.stack.path }}/hosted.tfvars"); fi
           fi
 
@@ -476,6 +485,7 @@ jobs:
           TF_VAR_temporal_input_hash_key: ${{ env.TERRAFORM_TEMPORAL_INPUT_HASH_KEY }}
           TF_VAR_upstash_email: ${{ env.TERRAFORM_UPSTASH_EMAIL }}
           TF_VAR_upstash_api_key: ${{ env.TERRAFORM_UPSTASH_API_KEY }}
+          CANONICAL_REPOSITORY: ${{ steps.gate.outputs.canonical_repository }}
         run: |
           set -euo pipefail
 
@@ -486,12 +496,12 @@ jobs:
               ;;
             web-domains)
               if [ -n "$TERRAFORM_ROUTE53_ZONE_ID" ]; then args+=("-var=route53_zone_id=$TERRAFORM_ROUTE53_ZONE_ID"); fi
-              # Canonical repository only, matched by repository ID so it
-              # survives an owner transfer. `hosted.tfvars` is checked in so the
-              # hosted DNS is reconstructible from git, and is not auto-loaded, so
-              # a fork plans no Clerk records and never delegates its own
-              # authentication-email DNS to this Clerk tenant.
-              if [ "$GITHUB_REPOSITORY_ID" = "1176245711" ]; then args+=("-var-file=hosted.tfvars"); fi
+              # Canonical repository only, as decided by the plan gate.
+              # `hosted.tfvars` is checked in so the hosted DNS is reconstructible
+              # from git, and is not auto-loaded, so a fork plans no Clerk records
+              # and never delegates its own authentication-email DNS to this
+              # Clerk tenant.
+              if [ "$CANONICAL_REPOSITORY" = "true" ]; then args+=("-var-file=hosted.tfvars"); fi
               ;;
             ses)
               args+=("-var=domain_name=$TERRAFORM_SES_DOMAIN_NAME")

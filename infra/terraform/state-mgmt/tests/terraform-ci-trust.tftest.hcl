@@ -20,6 +20,14 @@ variables {
 run "terraform_ci_trust" {
   command = plan
 
+  variables {
+    github_transfer_trust = {
+      repository_id       = "1176245711"
+      repository_owner_id = "350167065"
+      repositories        = ["BITRATE-Labs/VRDex", "BITRATE-Labs@350167065/VRDex@1176245711"]
+    }
+  }
+
   assert {
     condition = length(data.aws_iam_policy_document.github_actions_terraform_assume_role.statement) == 2 && {
       for c in data.aws_iam_policy_document.github_actions_terraform_assume_role.statement[0].condition : c.variable => "${c.test} ${join(",", c.values)}"
@@ -43,15 +51,25 @@ run "terraform_ci_trust" {
   }
 }
 
-run "terraform_ci_trust_transfer_disabled" {
+run "terraform_ci_trust_default" {
   command = plan
-
-  variables {
-    github_transfer_trust = null
-  }
 
   assert {
     condition     = length(data.aws_iam_policy_document.github_actions_terraform_assume_role.statement) == 1
-    error_message = "A null transfer trust must leave only the configured repository statement."
+    error_message = "By default only the configured repository statement exists, so self-hosted deployments never trust this repository."
   }
+}
+
+run "transfer_trust_rejects_empty_subjects" {
+  command = plan
+
+  variables {
+    github_transfer_trust = {
+      repository_id       = "1176245711"
+      repository_owner_id = "350167065"
+      repositories        = []
+    }
+  }
+
+  expect_failures = [var.github_transfer_trust]
 }
