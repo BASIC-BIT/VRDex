@@ -336,8 +336,9 @@ export const groupOccurrenceLinks = internalAction({
   handler: async (ctx, { connectorId }): Promise<{ grouped: string[]; unparseable: string[] }> => {
     const result = { grouped: [] as string[], unparseable: [] as string[] };
     const connector = await ctx.runQuery(internal.eventSeriesSync.readConnector, { connectorId });
-    // As series import: an inactive or export-only connector reads nothing. Provider errors carry only a status code.
-    if (!connectorSeriesEnabled() || connector?.state !== "active" || connector.direction === "export" || connector.direction === "off") return result;
+    // As series import: an inactive, held (R3), or export-only connector reads nothing. Provider errors carry only a status
+    // code; one that throws stops the run, and a rerun picks up where it stopped.
+    if (!connectorSeriesEnabled() || connector?.state !== "active" || connector.mode === "hold" || connector.direction === "export" || connector.direction === "off") return result;
     const fetchSeries = connector.kind === "google_calendar" ? fetchGoogleSeries
       : connector.kind === "discord_scheduled_events" ? fetchDiscordSeries : null;
     if (!fetchSeries) return result;

@@ -103,7 +103,40 @@ describe("groupOccurrenceLinks", () => {
     assert.deepEqual(await t.action(internal.migrations.groupOccurrenceLinks, { connectorId }), { grouped: [discord.id], unparseable: [] });
     fake.restore();
     const [series] = await t.run((ctx) => ctx.db.query("eventSeries").collect());
-    assert.deepEqual([series.timezone, (await t.run((ctx) => ctx.db.get(night)))!.seriesId], ["UTC", series._id]);
+    const grouped = (await t.run((ctx) => ctx.db.get(night)))!;
+    // The night is stored in New York on the 7th; in the UTC series it is the 8th's night, so no second night appears there.
+    assert.deepEqual([series.timezone, grouped.seriesId, grouped.occurrenceDate], ["UTC", series._id, "2026-11-08"]);
+    const nights = await occurrences(t, series._id);
+    assert.deepEqual([nights.length, nights.filter((n) => n.startAt === grouped.startAt).length], [8, 1]);
+  });
+
+  it("keeps a moved Google instance on its original date and records the move", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "import" });
+    // The 14 November instance, moved on Google to the Sunday.
+    const startAt = Date.parse("2026-11-15T20:00:00-05:00");
+    const moved = await seedEvent(t, communityProfileId, { slug: "bass-temple-moved", eventDate: "2026-11-15", startAt, endAt: startAt + 10_800_000 });
+    await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId, eventId: moved, externalId: googleInstance("2026-11-14").id, externalSeriesId: "m1", state: "linked", createdAt: NOW, updatedAt: NOW }));
+    const fake = fakeFetch(masterFetch(MASTER));
+    assert.deepEqual(await t.action(internal.migrations.groupOccurrenceLinks, { connectorId }), { grouped: ["m1"], unparseable: [] });
+    fake.restore();
+    const [series] = await t.run((ctx) => ctx.db.query("eventSeries").collect());
+    const night = (await t.run((ctx) => ctx.db.get(moved)))!;
+    assert.deepEqual([night.occurrenceDate, night.overrides], ["2026-11-14", ["endAt", "startAt"]]);
+    const nights = await occurrences(t, series._id);
+    assert.deepEqual([nights.length, nights.filter((n) => n.occurrenceDate === "2026-11-14").length], [8, 1]);
+  });
+
+  it("gives a held connector no series", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "import", mode: "hold" });
+    await seedNight(t, connectorId, communityProfileId, "2026-11-07");
+    const fake = fakeFetch(masterFetch(MASTER));
+    assert.deepEqual(await t.action(internal.migrations.groupOccurrenceLinks, { connectorId }), { grouped: [], unparseable: [] });
+    fake.restore();
+    assert.equal(fake.calls.length, 0);
+    assert.equal((await t.run((ctx) => ctx.db.query("eventSeries").collect())).length, 0);
+    assert.equal((await t.run((ctx) => ctx.db.query("eventSyncLinks").collect())).filter((l) => l.seriesId).length, 0);
   });
 
   it("does nothing with the series gate off or for a kind without series", async () => {

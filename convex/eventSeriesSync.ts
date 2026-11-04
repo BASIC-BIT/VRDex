@@ -245,9 +245,28 @@ export const occurrenceLinkGroups = internalQuery({
 });
 
 /**
+ * The rule date a phase-one night was first scheduled on, in the series' zone, so a night moved or edited since keeps its
+ * slot and records the move as an override. Google names an instance by its original UTC start; plan 07 names a Discord
+ * night by its UTC date, which is the rule date of a UTC series, and is otherwise read from the night's start.
+ */
+function originalOccurrenceDate(link: Doc<"eventSyncLinks">, event: Doc<"events">, series: Doc<"eventSeries">): string | undefined {
+  const master = link.externalSeriesId!;
+  const google = link.externalId.startsWith(master + "_") ? /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(link.externalId.slice(master.length + 1)) : null;
+  if (google) {
+    const [y, mo, d, h, mi, se] = google.slice(1).map(Number) as [number, number, number, number, number, number];
+    return eventDateForInstant(Date.UTC(y, mo - 1, d, h, mi, se), series.timezone);
+  }
+  const discord = link.externalId.startsWith(master + ":") ? link.externalId.slice(master.length + 1) : null;
+  if (!discord || !/^\d{4}-\d{2}-\d{2}$/.test(discord)) return undefined;
+  if (series.timezone === "UTC" || event.startAt === undefined) return discord;
+  return eventDateForInstant(event.startAt, series.timezone);
+}
+
+/**
  * Groups one external series' phase-one nights into a series: the one linked to it here, else an unlinked one of the same
- * title (rule 7's match), else a new one. Only upcoming nights in no series are attached; a night of another series, or a
- * second night on a date the series holds, keeps its link untagged and comes back in `skipped`. Null when the group cannot be a series.
+ * title (rule 7's match), else a new one. Only upcoming published, scheduled nights in no series are attached, on their
+ * original date; a night of another series, a second night on a date the series holds, or a link whose ID names no date
+ * keeps its link untagged and comes back in `skipped`. Null when the group cannot be a series.
  */
 export const groupLinks = internalMutation({
   args: { connectorId: v.id("eventConnectors"), externalSeriesId: v.string(), externalUpdatedAt: v.number(), fields: seriesSyncFieldsValidator, eventIds: v.array(v.id("events")) },
@@ -255,7 +274,8 @@ export const groupLinks = internalMutation({
     const { db } = ctx;
     const now = Date.now();
     const connector = await db.get(args.connectorId);
-    if (!connectorSeriesEnabled() || connector?.state !== "active" || connector.direction === "export" || connector.direction === "off") return null;
+    // A held connector never gets a series link from here (R3).
+    if (!connectorSeriesEnabled() || connector?.state !== "active" || connector.mode === "hold" || connector.direction === "export" || connector.direction === "off") return null;
     const row = await linkByExternalId(db, connector._id, args.externalSeriesId);
     // A one-off still holds the series' ID; the next import of the series converts it.
     if (row && (row.seriesId === undefined || row.eventId !== undefined)) return null;
@@ -298,9 +318,10 @@ export const groupLinks = internalMutation({
       const event = await db.get(eventId);
       if (!link || link.seriesId !== undefined || link.externalSeriesId !== args.externalSeriesId || !event) continue;
       if (event.seriesId === undefined) {
-        // As adoption: a started or moderation-removed night stays a plain event, quietly.
-        if ((event.startAt !== undefined && event.startAt <= now) || event.moderationRemovedAt !== undefined) continue;
-        const date = event.eventDate;
+        const date = originalOccurrenceDate(link, event, series);
+        // As adoption: only a published, scheduled night that has not started, quietly; a date-only night starts with its date.
+        if (event.publicationState !== "published" || event.eventStatus !== "scheduled" || event.moderationRemovedAt !== undefined
+          || (event.startAt !== undefined && event.startAt <= now) || (date !== undefined && date < eventDateForInstant(now, series.timezone))) continue;
         const taken = date && await db.query("events").withIndex("by_seriesId_occurrenceDate", q => q.eq("seriesId", seriesId).eq("occurrenceDate", date)).first();
         if (!date || taken) {
           skipped.push(eventId);
