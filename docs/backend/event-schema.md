@@ -495,6 +495,7 @@ Current recommendation: settle each of these against the real provider first. No
 4. Google: what happens to exceptions and instance IDs when a master's time or `RRULE` changes.
 5. Google: which `updated` a non-exception instance reports after a master edit.
 6. Google: whether an `UNTIL` patch reports the removed instances as cancelled items in incremental sync.
+7. Google: whether `events.get` returns a deleted instance with `status: cancelled`, not 404 or 410. Restoring an un-cancelled or re-published night depends on it.
 
 #### Grouping migration
 

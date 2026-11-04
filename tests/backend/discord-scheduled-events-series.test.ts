@@ -275,8 +275,8 @@ describe("discord scheduled event series", () => {
   });
 
   it("links an echo that lands before completeJob to the series being exported, never a second series (I2)", async () => {
-    // A `none:` link, an old ID with the export running, and a `none:` link with no job queued.
-    for (const [held, running] of [["none:", true], ["910000000000000009", true], ["none:", false]] as const) {
+    // A `none:` link and an old ID, each with the export running.
+    for (const [held, running] of [["none:", true], ["910000000000000009", true]] as const) {
       const t = convexTest({ schema, modules: seriesSyncModules });
       const { connectorId, communityProfileId, staffUserId } = await seedDiscordConnector(t, { direction: "bidirectional" });
       const seriesId = await seedSeries(t, communityProfileId, staffUserId);
@@ -291,6 +291,25 @@ describe("discord scheduled event series", () => {
       assert.equal((await allSeries(t)).length, 1, label);
       assert.deepEqual((await allLinks(t)).filter((link) => link.externalId === SERIES_ID).map((link) => link.seriesId), [seriesId], label);
     }
+  });
+
+  it("gives an organiser's same-title recurring event its own series beside a last-weekday series, and never cancels it", async () => {
+    const t = convexTest({ schema, modules: seriesSyncModules });
+    const { connectorId, communityProfileId, staffUserId } = await seedDiscordConnector(t, { direction: "bidirectional" });
+    // Discord cannot carry a last-weekday rule, so the series' link here names nothing.
+    const seriesId = await seedSeries(t, communityProfileId, staffUserId, { rule: { frequency: "monthly_weekday", weekday: 6, ordinal: -1, startTime: "20:00", endTime: "23:00" } });
+    await t.run((ctx) => ctx.db.insert("eventSyncLinks", { connectorId, seriesId, externalId: "none:" + seriesId, externalSeriesId: "none:" + seriesId, state: "linked", createdAt: NOW, updatedAt: NOW }));
+    await clearJobs(t);
+    await importDiscord(t, connectorId, "create", discordSeriesEvent(), { receivedAt: LATER });
+    const series = await allSeries(t);
+    assert.equal(series.length, 2);
+    const links = await allLinks(t);
+    assert.deepEqual(links.filter((link) => link.externalId === SERIES_ID).map((link) => link.seriesId === seriesId), [false]);
+    assert.equal(links.find((link) => link.seriesId === seriesId && !link.eventId)!.externalId, "none:" + seriesId);
+    const fake = fakeDiscord();
+    await runSyncJob(t, { connectorId, kind: "export_upsert", payload: { seriesId } });
+    fake.restore();
+    assert.ok(!fake.calls.some((call) => call.url.pathname.endsWith(SERIES_ID)), "the organiser's event was touched");
   });
 
   it("imports a weekly recurring scheduled event as one series", async () => {

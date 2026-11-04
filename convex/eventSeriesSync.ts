@@ -38,15 +38,16 @@ const withSeriesDoors = (rule: SeriesRule, doorsTime: string | undefined): Serie
 };
 
 // An active community series of this title with no link here. A series already linked here belongs to another external series (a split, or two of one name).
-// `claimable` also takes one whose link names nothing yet (`none:`), or whose export is queued or running here: an import is then that export's echo,
-// which can land before completeJob records the new ID. The returned link is that series' own, for the caller to patch.
+// `claimable` also takes one whose export is queued or running here: an import is then that export's echo, which can land before
+// completeJob records the new ID. A `none:` link alone is not enough, since an organiser's same-title event would then be exported over.
+// The returned link is that series' own, for the caller to patch.
 async function unlinkedSeriesByTitle(db: DatabaseReader, connector: Doc<"eventConnectors">, title: string, claimable = false): Promise<{ series: Doc<"eventSeries">; link: Doc<"eventSyncLinks"> | null } | null> {
   const wanted = title.trim().toLowerCase();
   const candidates = await db.query("eventSeries").withIndex("by_communityProfileId_state", q => q.eq("communityProfileId", connector.communityProfileId).eq("state", "active")).collect();
   for (const candidate of candidates) {
     if (candidate.title.trim().toLowerCase() !== wanted) continue;
     const link = await seriesLinkFor(db, connector._id, candidate._id);
-    if (!link || (claimable && (link.externalId.startsWith("none:") || await seriesJobQueued(db, connector._id, candidate._id)))) return { series: candidate, link };
+    if (!link || (claimable && await seriesJobQueued(db, connector._id, candidate._id))) return { series: candidate, link };
   }
   return null;
 }
