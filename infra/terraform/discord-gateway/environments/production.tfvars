@@ -12,4 +12,4 @@
 #
 #   terraform apply -var-file=environments/production.tfvars
 
-enable_service = false
+enable_service = true
