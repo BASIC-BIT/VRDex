@@ -12,10 +12,12 @@ export type GoogleCalendarEvent = {
   id: string; status: "confirmed" | "tentative" | "cancelled"; updated: string;
   summary?: string; description?: string; location?: string;
   start?: GoogleEventDateTime; end?: GoogleEventDateTime; recurringEventId?: string; visibility?: "default" | "public" | "private" | "confidential";
+  /** A master's RRULE lines; an instance's start before any exception moved it. */
+  recurrence?: string[]; originalStartTime?: GoogleEventDateTime;
 };
 // Only what the mapper reads travels into mutations and job payloads: no attendee emails stored, and no user-defined
 // extendedProperties keys that Convex's field-name rules would reject and stall the poll before its sync token is stored.
-const ITEM_FIELDS = ["id", "status", "updated", "summary", "description", "location", "start", "end", "recurringEventId", "visibility"] as const;
+const ITEM_FIELDS = ["id", "status", "updated", "summary", "description", "location", "start", "end", "recurringEventId", "visibility", "recurrence", "originalStartTime"] as const;
 const pickItem = (item: GoogleCalendarEvent) =>
   Object.fromEntries(ITEM_FIELDS.filter(key => item[key] !== undefined).map(key => [key, item[key]])) as GoogleCalendarEvent;
 export type GoogleEventBody = Required<Pick<GoogleCalendarEvent, "summary" | "description" | "location" | "start" | "end" | "status">>;
@@ -134,7 +136,7 @@ export async function listEvents(token: string, calendarId: string, params: { sy
   return { ...page, items: (page.items ?? []).map(pickItem) };
 }
 
-export function insertEvent(token: string, calendarId: string, body: GoogleEventBody): Promise<GoogleCalendarEvent> {
+export function insertEvent(token: string, calendarId: string, body: GoogleEventBody & { recurrence?: string[] }): Promise<GoogleCalendarEvent> {
   return google(token, "POST", eventsPath(calendarId), { body });
 }
 
@@ -143,8 +145,14 @@ export async function getEvent(token: string, calendarId: string, eventId: strin
 }
 
 // A patch may null the start/end member it switches away from or omit a member to keep Google's, so the body is looser than an insert.
-export function patchEvent(token: string, calendarId: string, eventId: string, body: Partial<Record<keyof GoogleEventBody, unknown>>): Promise<GoogleCalendarEvent> {
+export function patchEvent(token: string, calendarId: string, eventId: string, body: Partial<Record<keyof GoogleEventBody | "recurrence", unknown>>): Promise<GoogleCalendarEvent> {
   return google(token, "PATCH", `${eventsPath(calendarId)}/${encodeURIComponent(eventId)}`, { body });
+}
+
+// One recurring master's instances in a window; a window of days holds one page.
+export async function listInstances(token: string, calendarId: string, eventId: string, params: { timeMin: string; timeMax: string }): Promise<GoogleCalendarEvent[]> {
+  const page = await google<{ items?: GoogleCalendarEvent[] }>(token, "GET", `${eventsPath(calendarId)}/${encodeURIComponent(eventId)}/instances`, { query: { ...params, maxResults: "250" } });
+  return (page.items ?? []).map(pickItem);
 }
 
 export async function deleteEvent(token: string, calendarId: string, eventId: string): Promise<void> {

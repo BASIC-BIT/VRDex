@@ -7,6 +7,7 @@ import { eventOutputIsAuthorized } from "./_eventOutputSetup";
 import { eventDateForInstant, normalizeEventSchedule } from "./_eventSchedule";
 import {
   SERIES_HORIZON_DAYS,
+  SERIES_MAX_COUNT,
   SERIES_OWNED_EVENT_FIELDS,
   requireRecurringEventsEnabled,
   type SeriesOwnedEventField,
@@ -14,6 +15,7 @@ import {
   monthlyOrdinalOf,
   type SeriesRule,
 } from "./_eventSeriesModel";
+import { enqueueSeriesSync } from "./_eventSeriesSync";
 import { enqueueEventSync } from "./_eventSync";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter, MutationCtx } from "./_generated/server";
@@ -32,7 +34,6 @@ import {
 } from "./events";
 
 const DAY_MS = 86_400_000;
-const MAX_COUNT = 520;
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -101,6 +102,16 @@ export function occurrenceDates(
   return dates;
 }
 
+/**
+ * Ended, past its end date, or with no rule date left on or after `today`: a connector has nothing ahead to carry.
+ * endsOn is inclusive, so the final day keeps its night. Two months past the later of today and the start always holds a
+ * rule date, monthly ones included, unless an end or count stops it.
+ */
+export function seriesEnded(series: Pick<Doc<"eventSeries">, "state" | "rule" | "startsOn" | "endsOn" | "count">, today: string): boolean {
+  const from = today > series.startsOn ? today : series.startsOn;
+  return series.state !== "active" || occurrenceDates(series, today, new Date(Date.parse(from) + 62 * DAY_MS).toISOString().slice(0, 10)).length === 0;
+}
+
 /** Throws on a rule, or series bounds, outside the fixed recurrence set. */
 export function validateSeriesRule(
   rule: SeriesRule,
@@ -128,8 +139,8 @@ export function validateSeriesRule(
   if (bounds.endsOn !== undefined && !(toDay(bounds.endsOn) >= start)) {
     throw new Error("Series end date must be a YYYY-MM-DD date on or after the start date.");
   }
-  if (bounds.count !== undefined && (!Number.isInteger(bounds.count) || bounds.count < 1 || bounds.count > MAX_COUNT)) {
-    throw new Error(`Repeat count must be 1 to ${MAX_COUNT}.`);
+  if (bounds.count !== undefined && (!Number.isInteger(bounds.count) || bounds.count < 1 || bounds.count > SERIES_MAX_COUNT)) {
+    throw new Error(`Repeat count must be 1 to ${SERIES_MAX_COUNT}.`);
   }
 }
 
@@ -472,6 +483,7 @@ export async function createSeriesFromEvent(
   // this event and this replaces that pending job. Materialised nights enqueue inside insertCommunityEventRecord.
   await enqueueEventSync(ctx.db, ctx.scheduler, event._id, "upsert");
   const { created } = await materializeSeries(ctx, seriesId, now);
+  await enqueueSeriesSync(ctx.db, ctx.scheduler, seriesId);
   return { seriesId, created: created.length };
 }
 

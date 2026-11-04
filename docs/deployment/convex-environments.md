@@ -361,6 +361,23 @@ rotate; change it with `npx convex env set VRDEX_RECURRING_EVENTS_ENABLED true`.
 It gates creating and editing series and the daily `materialize event series`
 cron. Turning it off stops new series and stops the cron. Nights already
 created stay in place as events and keep their `seriesId` and series link.
+It also switches connector series import and export, together with the next
+flag.
+
+`VRDEX_CONNECTOR_SERIES_ENABLED` turns on connector series when set to `true`:
+Google Calendar and Discord scheduled event connectors import a recurring item
+as one series and export a VRDex series as one recurring item, and the grouping
+migration can run. It is read only while `VRDEX_RECURRING_EVENTS_ENABLED` is on,
+through `connectorSeriesEnabled()`. Scope: the Convex deployment environment,
+all deployments. Default: unset, which means off, and it is unset on every
+deployment today. Owner: BASIC. It is not a secret, so there is nothing to
+rotate; change it with `npx convex env set VRDEX_CONNECTOR_SERIES_ENABLED true`,
+and only after the live checks in
+[Connector series](../backend/event-schema.md#before-turning-the-gate-on).
+Turning it off returns both kinds to phase-one import and export at once. Series
+and series links stay, and a night whose link is `none:` goes to the phase-one
+export: on Google an overridden night then gets a standalone copy beside the
+master, and on Discord a night the scheduled event already shows writes nothing.
 
 ## Locked Decision
 

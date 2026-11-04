@@ -164,7 +164,8 @@ function recursOn(rule: DiscordRecurrenceRule, at: number, first: number): boole
   }
 }
 
-// ponytail: UTC stepping drifts an hour across DST for zones Discord shows locally; plan 11 replaces expansion with series import.
+// ponytail: UTC stepping drifts an hour across DST for zones Discord shows locally. With the connector series gate on, a rule in the fixed set
+// imports as a series instead; expansion stays for the rest (a by_month rule, an end, a count), on a held connector until the series is linked, and with the gate off.
 export function scheduledEventOccurrences(item: DiscordScheduledEvent, now: number, horizonMs = IMPORT_HORIZON_MS): Array<{ externalId: string; externalSeriesId?: string; startAt: number; endAt: number | null }> {
   const itemStart = Date.parse(item.scheduled_start_time);
   const duration = item.scheduled_end_time ? Date.parse(item.scheduled_end_time) - itemStart : null;

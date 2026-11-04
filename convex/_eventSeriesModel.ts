@@ -43,6 +43,7 @@ export function monthlyOrdinalOf(date: string): 1 | 2 | 3 | 4 | -1 {
 }
 
 export const SERIES_HORIZON_DAYS = 60;
+export const SERIES_MAX_COUNT = 520;
 
 export const SERIES_OWNED_EVENT_FIELDS = [
   "title",
@@ -65,6 +66,11 @@ export type SeriesOwnedEventField = (typeof SERIES_OWNED_EVENT_FIELDS)[number];
 
 export function recurringEventsEnabled(): boolean {
   return process.env.VRDEX_RECURRING_EVENTS_ENABLED === "true";
+}
+
+/** Connector series import and export: off unless both flags are on, so turning series on for connectors is its own step. */
+export function connectorSeriesEnabled(): boolean {
+  return recurringEventsEnabled() && process.env.VRDEX_CONNECTOR_SERIES_ENABLED === "true";
 }
 
 export function requireRecurringEventsEnabled(): void {
