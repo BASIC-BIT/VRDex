@@ -106,7 +106,7 @@ Future media enqueue integration should add a scoped service credential. Do not 
 | `DISCORD_INTAKE_SECRET` | Convex production | Same value as Secrets Manager | Yes |
 | `DISCORD_APPLICATION_ID` | Convex production | Same value as Secrets Manager. The Integrations page builds the bot invite from it | Yes |
 | `DISCORD_BOT_TOKEN` | Convex production | The gateway application's bot token | Yes |
-| `VRDEX_DISCORD_POSTER_TOKEN` | Web app first, then Convex production | `openssl rand -base64 32`. Web side is Vercel Terraform variable `discord_poster_token`, but see the note below this table before using it | For posters. Unset on either side, runs continue with the post text |
+| `VRDEX_DISCORD_POSTER_TOKEN` | Web app first, then Convex production | `openssl rand -base64 32`. Web side is GitHub secret `TERRAFORM_DISCORD_POSTER_TOKEN`, which the Terraform workflow passes to the Vercel stack | For posters. Unset on either side, runs continue with the post text |
 | `OPENAI_API_KEY` | Convex production | OpenAI project API keys | Yes |
 | `VRDEX_EVENT_INTAKE_AI_ENABLED` | Convex production | `true` | Yes |
 | `VRDEX_EVENT_INTAKE_MODEL` | Convex production | A model name | No, defaults to `gpt-6-luna` |
@@ -125,7 +125,7 @@ BASIC owns every value here. Rotation for the release settings:
 
 With extraction off or `OPENAI_API_KEY` unset, every run fails with `extraction_unavailable`. After three failed runs in a row the `discord-intake:<connectorId>` ops alert fires. Set the extraction values before binding a channel.
 
-The Terraform workflow passes no value for `discord_poster_token`, so a CI apply of the `vercel` stack removes a token set by a local apply. Until the workflow passes one, set `VRDEX_DISCORD_POSTER_TOKEN` directly on the Vercel project and redeploy. Vercel changes reach new deployments only.
+A new `TERRAFORM_DISCORD_POSTER_TOKEN` reaches Vercel on the next `vercel` stack apply, and serving deployments only after the next web deploy.
 
 ## Alarms
 
@@ -274,9 +274,11 @@ export MSYS_NO_PATHCONV=1 AWS_REGION=us-east-1
 
    Do not move on until the run succeeds and the image ends in `@sha256:` plus 64 hex characters. `:bootstrap-placeholder` means the release did not apply. Once the enable PR in step 8 has merged, a re-dispatched release fails the plan guard, so revert that PR, or read the digest from `aws ecr describe-images --repository-name vrdex-discord-gateway` and join it to `terraform output -raw repository_url` with `@` for step 10.
 
-7. **Set extraction and poster values.** Set these before any channel is bound; see [Values BASIC Provides](#values-basic-provides). Set `OPENAI_KEY` to the OpenAI key and `POSTER_TOKEN` to the output of `openssl rand -base64 32`, and write `POSTER_TOKEN` to the web app first. The first command must print `https://vrdex.net`, the poster bridge origin.
+7. **Set extraction and poster values.** Set these before any channel is bound; see [Values BASIC Provides](#values-basic-provides). Set `OPENAI_KEY` to the OpenAI key and `POSTER_TOKEN` to the output of `openssl rand -base64 32`, and write `POSTER_TOKEN` to the web app first: store it as GitHub secret `TERRAFORM_DISCORD_POSTER_TOKEN`, then dispatch the Terraform workflow for the `vercel` stack with apply, and redeploy the web app so serving deployments read it. The first Convex command must print `https://vrdex.net`, the poster bridge origin.
 
    ```bash
+   gh secret set TERRAFORM_DISCORD_POSTER_TOKEN --body "$POSTER_TOKEN"
+   gh workflow run terraform.yml --ref main -f stack=vercel -f apply=true
    pnpm --silent cx -- prod env get SITE_URL
    pnpm cx -- prod env set OPENAI_API_KEY "$OPENAI_KEY"
    pnpm cx -- prod env set VRDEX_EVENT_INTAKE_AI_ENABLED true
