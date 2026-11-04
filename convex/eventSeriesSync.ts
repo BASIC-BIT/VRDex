@@ -7,7 +7,7 @@ import { eventDateForInstant } from "./_eventSchedule";
 import { fanOutSeriesEdit, materializeSeries, retireOccurrences, seriesUpdatePatch, validateSeriesRule } from "./_eventSeries";
 import { connectorSeriesEnabled, SERIES_HORIZON_DAYS, type SeriesRule } from "./_eventSeriesModel";
 import {
-  enqueueSeriesSync, flagSeriesNights, nightLinkFor, seriesHash, seriesLinkFor, seriesSyncFields, seriesSyncFieldsValidator, upcomingSeriesNights,
+  enqueueSeriesSync, flagSeriesNights, nightLinkFor, restoreSeriesNights, seriesHash, seriesLinkFor, seriesSyncFields, seriesSyncFieldsValidator, upcomingSeriesNights,
   type SeriesSyncFields,
 } from "./_eventSeriesSync";
 import { enqueueEventSync } from "./_eventSync";
@@ -64,8 +64,14 @@ export async function applyExternalSeriesFor(ctx: MutationCtx, args: ExternalSer
   };
   if (args.deleted) return await flag();
 
+  const newer = (link?.externalUpdatedAt ?? 0) < args.externalUpdatedAt;
+  // The source brought a deleted series back. An edit it carries that fails below flags it again in this same mutation.
+  if (link?.state === "external_deleted" && series && newer && args.fields) {
+    await db.patch(link._id, { state: "linked", flagReviewedAt: undefined, updatedAt: now });
+    await restoreSeriesNights(db, connector._id, series, now);
+  }
   // A bidirectional connector keeps VRDex's edit unless the source's is newer.
-  if (link && ((link.externalUpdatedAt ?? 0) >= args.externalUpdatedAt || (connector.direction === "bidirectional" && series && series.updatedAt >= args.externalUpdatedAt))) {
+  if (link && (!newer || (connector.direction === "bidirectional" && series && series.updatedAt >= args.externalUpdatedAt))) {
     await db.patch(link._id, seen);
     return { outcome: "unchanged", seriesId: series?._id };
   }

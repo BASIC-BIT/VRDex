@@ -12,10 +12,12 @@ export type GoogleCalendarEvent = {
   id: string; status: "confirmed" | "tentative" | "cancelled"; updated: string;
   summary?: string; description?: string; location?: string;
   start?: GoogleEventDateTime; end?: GoogleEventDateTime; recurringEventId?: string; visibility?: "default" | "public" | "private" | "confidential";
+  /** A master's RRULE lines; an instance's start before any exception moved it. */
+  recurrence?: string[]; originalStartTime?: GoogleEventDateTime;
 };
 // Only what the mapper reads travels into mutations and job payloads: no attendee emails stored, and no user-defined
 // extendedProperties keys that Convex's field-name rules would reject and stall the poll before its sync token is stored.
-const ITEM_FIELDS = ["id", "status", "updated", "summary", "description", "location", "start", "end", "recurringEventId", "visibility"] as const;
+const ITEM_FIELDS = ["id", "status", "updated", "summary", "description", "location", "start", "end", "recurringEventId", "visibility", "recurrence", "originalStartTime"] as const;
 const pickItem = (item: GoogleCalendarEvent) =>
   Object.fromEntries(ITEM_FIELDS.filter(key => item[key] !== undefined).map(key => [key, item[key]])) as GoogleCalendarEvent;
 export type GoogleEventBody = Required<Pick<GoogleCalendarEvent, "summary" | "description" | "location" | "start" | "end" | "status">>;

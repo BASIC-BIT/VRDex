@@ -28,7 +28,7 @@ export function setupEnv(context: TestContext): void {
   });
 }
 
-type FetchCall = { method: string; url: URL; body: unknown; authorization: string | null };
+export type FetchCall = { method: string; url: URL; body: unknown; authorization: string | null };
 
 export function fakeFetch(handler: (request: FetchCall) => Response | Promise<Response>): { calls: FetchCall[]; restore(): void } {
   const original = globalThis.fetch;

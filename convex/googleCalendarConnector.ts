@@ -8,10 +8,14 @@ import type { EventIntakeDecision, EventIntakeFields } from "../packages/api-con
 import { applyEventCandidate, candidateFromConnectorFields, type ApplyEventCandidateOutcome } from "./_eventCandidateApply";
 import { eventPathForRecord } from "./_eventPaths";
 import { connectorsEnabled, requireConnectorAuthority } from "./_eventConnectors";
+import { eventDateForInstant } from "./_eventSchedule";
+import { occurrenceTimes } from "./_eventSeries";
+import { connectorSeriesEnabled } from "./_eventSeriesModel";
+import { nightLinkFor, seriesLinkFor } from "./_eventSeriesSync";
 import { enqueueSyncJob, eventIsPublic } from "./_eventSync";
 import { credentialConnectors, ensureWatch, googleCalendarEnabled, googleReauthKey, googleTarget, listCalendars as fetchCalendars, reportStaleWatches, revokeCredentialIfUnused, withGoogleToken, type GoogleCalendarEvent } from "./_googleCalendar";
 import { notifyOps, resolveOps } from "./_opsAlerts";
-import { fieldsFromGoogleEvent, isPrivateItem, outsideImportWindow } from "./eventSyncKinds/googleCalendar";
+import { clip, fieldsFromGoogleEvent, isPrivateItem, outsideImportWindow } from "./eventSyncKinds/googleCalendar";
 
 export const readCredential = internalQuery({
   args: { credentialId: v.id("connectorCredentials") },
@@ -152,6 +156,91 @@ export const applyImport = internalMutation({
   },
 });
 
+// The instance says what its master says: link it and apply nothing, so a VRDex override stays and a late copy records none.
+function matchesSeries(item: GoogleCalendarEvent, fields: EventIntakeFields, series: Doc<"eventSeries">, date: string): boolean {
+  const times = occurrenceTimes(series, date);
+  const startAt = Date.parse(item.start?.dateTime ?? "");
+  const endAt = Date.parse(item.end?.dateTime ?? "");
+  return times !== null && startAt === times.startAt && (Number.isNaN(endAt) || endAt === startAt ? undefined : endAt) === times.endAt
+    && fields.timezone === series.timezone && fields.title === clip(series.title, 120)
+    && fields.summary === clip(series.summary, 240) && fields.venueLabel === clip(series.venueLabel, 120);
+}
+
+/** One instance of a series linked on this connector, applied to its night as that night's own edit. */
+export const applyGoogleOccurrence = internalMutation({
+  args: { connectorId: v.id("eventConnectors"), seriesId: v.id("eventSeries"), item: v.any(), calendarTimeZone: v.string() },
+  handler: async (ctx, args): Promise<"skipped" | "unchanged" | "flagged" | "cancel_echo" | ApplyEventCandidateOutcome> => {
+    const { db } = ctx;
+    const item = args.item as GoogleCalendarEvent;
+    const now = Date.now();
+    const connector = await db.get(args.connectorId);
+    const series = await db.get(args.seriesId);
+    // Hold leaves a linked series' items alone.
+    if (connector?.state !== "active" || connector.mode === "hold" || connector.direction === "export" || connector.direction === "off" || !series || !item.recurringEventId) return "skipped";
+    const original = item.originalStartTime;
+    const date = original?.date ?? (original?.dateTime ? eventDateForInstant(Date.parse(original.dateTime), original.timeZone ?? args.calendarTimeZone) : null);
+    const night = date ? await db.query("events").withIndex("by_seriesId_occurrenceDate", q => q.eq("seriesId", series._id).eq("occurrenceDate", date)).unique() : null;
+    if (!night) return "skipped";
+    const cancelled = item.status === "cancelled";
+    // A retired or removed night takes no edit, and a series flagged as deleted only stores its instances' cancellations.
+    if (!cancelled && (!eventIsPublic(night) || (await seriesLinkFor(db, connector._id, series._id))?.state === "external_deleted")) return "skipped";
+
+    // One link per night on this connector: the instance's own row, else the night's (a `none:` export or a flag placeholder) takes the ID.
+    const byId = await linkByExternalId(db, connector._id, item.id);
+    const own = await nightLinkFor(db, connector._id, night._id);
+    const tags = { eventId: night._id, seriesId: series._id, externalSeriesId: item.recurringEventId, updatedAt: now };
+    let link: Doc<"eventSyncLinks">;
+    if (byId) {
+      await db.patch(byId._id, tags);
+      // The night's other row named nothing on Google that this instance does not.
+      if (own && own._id !== byId._id) await db.delete(own._id);
+      link = (await db.get(byId._id))!;
+    } else if (own) {
+      // Nothing was sent to this item, so a `none:` row's export fields go, as linkTitleDateMatch does.
+      const exported = own.externalId.startsWith("none:") ? { lastExportedAt: undefined, lastExportedHash: undefined } : {};
+      await db.patch(own._id, { ...tags, externalId: item.id, state: "linked", flagReviewedAt: undefined, ...exported });
+      link = (await db.get(own._id))!;
+    } else {
+      link = (await db.get(await db.insert("eventSyncLinks", { connectorId: connector._id, externalId: item.id, state: "linked", createdAt: now, ...tags })))!;
+    }
+
+    // Incremental sync may send a cancelled item with only its id and status.
+    const updatedMs = Date.parse(item.updated) || now;
+    if (link.externalUpdatedAt !== undefined && link.externalUpdatedAt >= updatedMs) return "unchanged";
+    const seen = { lastImportedAt: now, externalUpdatedAt: updatedMs, updatedAt: now };
+    // Google's cancelled never cancels a VRDex night; staff see the flag instead.
+    if (cancelled) {
+      if (night.eventStatus === "cancelled" || link.state === "vrdex_retracted" || !eventIsPublic(night)) {
+        await db.patch(link._id, seen);
+        return "cancel_echo";
+      }
+      await db.patch(link._id, { ...seen, state: "external_deleted" });
+      return "flagged";
+    }
+    // The organiser restored it, so exports may touch it again.
+    if (link.state === "external_deleted") {
+      await db.patch(link._id, { state: "linked", flagReviewedAt: undefined });
+      link = { ...link, state: "linked", flagReviewedAt: undefined };
+    }
+    const fields = fieldsFromGoogleEvent(item, args.calendarTimeZone, siteUrl());
+    if (matchesSeries(item, fields, series, date!)) {
+      await db.patch(link._id, seen);
+      return "unchanged";
+    }
+    const community = await db.get(connector.communityProfileId);
+    if (!community?.slug) throw new Error("CONNECTOR_COMMUNITY");
+    // A night with no overrides has no VRDex edit to protect, and its updatedAt may be this poll's own fan-out, so its stale guard is off.
+    const { outcome } = await applyEventCandidate(ctx, {
+      connector, candidate: candidateFromConnectorFields("google_calendar", { ...fields, communitySlug: community.slug }, { kind: "update", slug: night.slug! }),
+      actorUserId: connector.authorityUserId, link, externalId: item.id, ...((night.overrides ?? []).length ? { externalUpdatedAt: updatedMs } : {}),
+      idempotencyKey: `google_calendar:${connector._id}:${item.id}:${updatedMs}`,
+    });
+    // The staff patch records the night's overrides itself.
+    await db.patch(link._id, seen);
+    return outcome;
+  },
+});
+
 // Links matches without applying them and queues the rest for import. The runner already queued exports for unlinked events.
 export const reconcileItems = internalMutation({
   args: { connectorId: v.id("eventConnectors"), items: v.any(), calendarTimeZone: v.string() },
@@ -163,6 +252,7 @@ export const reconcileItems = internalMutation({
     const importing = connector.direction === "import" || connector.direction === "bidirectional";
     // Outside the loop's catch: a missing SITE_URL fails the job, it does not make every item unreadable.
     const site = siteUrl();
+    const seriesSync = connectorSeriesEnabled();
     for (const item of args.items as GoogleCalendarEvent[]) {
       // A private item stays out of matching too: a link would let a bidirectional export patch it.
       if (item.status === "cancelled" || isPrivateItem(item) || await linkByExternalId(db, connector._id, item.id)) continue;
@@ -174,8 +264,13 @@ export const reconcileItems = internalMutation({
         // there it retries on its own job, and its final failure shows in lastError until the next successful job.
         continue;
       }
-      const match = await matchEvent(db, connector, fields);
-      if (match) await db.insert("eventSyncLinks", { connectorId: connector._id, eventId: match._id, externalId: item.id, state: "linked", createdAt: now, updatedAt: now });
+      const masterLink = seriesSync && item.recurringEventId ? await linkByExternalId(db, connector._id, item.recurringEventId) : null;
+      // An instance of a series linked here belongs to its night, never a hand-made copy: the import below links it as the window rolls forward.
+      const seriesLinked = masterLink?.seriesId !== undefined && masterLink.eventId === undefined;
+      const match = seriesLinked ? null : await matchEvent(db, connector, fields);
+      // Tagged with its master, so an export never reads a matched instance as a standalone copy.
+      const tag = seriesSync && item.recurringEventId ? { externalSeriesId: item.recurringEventId } : {};
+      if (match) await db.insert("eventSyncLinks", { connectorId: connector._id, eventId: match._id, externalId: item.id, state: "linked", ...tag, createdAt: now, updatedAt: now });
       else if (importing && !outsideImportWindow(item, fields, args.calendarTimeZone)) {
         await enqueueSyncJob(db, ctx.scheduler, { connectorId: connector._id, kind: "import_item", payload: { item, calendarTimeZone: args.calendarTimeZone } });
       }

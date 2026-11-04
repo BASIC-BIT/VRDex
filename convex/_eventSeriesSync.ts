@@ -18,6 +18,8 @@ export const seriesSyncFieldsValidator = v.object({
   endsOn: v.optional(nullableString), count: v.optional(v.union(v.number(), v.null())),
 });
 export type SeriesSyncFields = Infer<typeof seriesSyncFieldsValidator>;
+/** A kind's read of one external series. `fields: null` is outside the fixed set, or all-day. */
+export type ExternalSeries = { externalSeriesId: string; externalUpdatedAt: number; deleted: boolean; fields: SeriesSyncFields | null };
 
 export const SERIES_EXPORT_KINDS = ["google_calendar", "discord_scheduled_events"] as const;
 
@@ -91,5 +93,14 @@ export async function flagSeriesNights(db: DatabaseWriter, connectorId: Id<"even
       connectorId, eventId: night._id, seriesId: series._id, externalSeriesId, externalId: externalSeriesId + ":" + night.occurrenceDate,
       state: "external_deleted", createdAt: now, updatedAt: now,
     });
+  }
+}
+
+/** The source brought the series back: flagSeriesNights' flags lift, and staff no longer see them as reviewed. */
+export async function restoreSeriesNights(db: DatabaseWriter, connectorId: Id<"eventConnectors">, series: Doc<"eventSeries">, now: number): Promise<void> {
+  // ponytail: a night whose own instance was cancelled before the series went is restored too; its flag returns only if Google sends that instance again.
+  for (const night of await upcomingSeriesNights(db, series, now)) {
+    const link = await nightLinkFor(db, connectorId, night._id);
+    if (link?.state === "external_deleted") await db.patch(link._id, { state: "linked", flagReviewedAt: undefined, updatedAt: now });
   }
 }

@@ -4,8 +4,9 @@ import { internal } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { ConnectorDirection, ConnectorMode } from "../../convex/_eventConnectors";
 import type { SeriesSyncFields } from "../../convex/_eventSeriesSync";
+import type { GoogleCalendarEvent } from "../../convex/_googleCalendar";
 import { seriesModules } from "./_eventSeriesFixture";
-import { modules, NOW, schema, seedGoogleConnector, setupEnv } from "./_googleCalendarFixture";
+import { googleItem, modules, NOW, runSyncJob, schema, seedGoogleConnector, setupEnv, type FetchCall } from "./_googleCalendarFixture";
 
 type T = TestConvex<typeof schema>;
 
@@ -61,3 +62,21 @@ export const applySeries = (t: T, connectorId: Id<"eventConnectors">, over: Part
     connectorId, externalSeriesId: "m1", externalUpdatedAt: over.externalUpdatedAt ?? Date.parse("2026-11-02T11:00:00.000Z"),
     deleted: over.deleted ?? false, fields: { ...SERIES_FIELDS, ...over.fields },
   });
+
+export const MASTER = googleItem({ id: "m1", recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=SA"] });
+
+/** One Saturday of MASTER as Google lists it with singleEvents: the ID is the master's plus the original UTC start. */
+export function googleInstance(date: string, overrides: Partial<GoogleCalendarEvent> = {}): GoogleCalendarEvent {
+  const start = { dateTime: date + "T20:00:00-05:00", timeZone: "America/New_York" };
+  return googleItem({
+    id: "m1_" + new Date(Date.parse(start.dateTime)).toISOString().replace(/[-:]|\.\d{3}/g, ""), recurringEventId: "m1", originalStartTime: start, start,
+    end: { dateTime: date + "T23:00:00-05:00", timeZone: "America/New_York" }, updated: "2026-11-02T11:00:00.000Z", ...overrides,
+  });
+}
+
+export const importGoogle = (t: T, connectorId: Id<"eventConnectors">, item: GoogleCalendarEvent) =>
+  runSyncJob(t, { connectorId, kind: "import_item", payload: { item, calendarTimeZone: "America/New_York" } });
+
+/** Answers GET .../events/m1 with `master` and everything else with 404. */
+export const masterFetch = (master: GoogleCalendarEvent) => (request: FetchCall) =>
+  request.method === "GET" && request.url.pathname.endsWith("/events/m1") ? Response.json(master) : new Response(null, { status: 404 });

@@ -1,6 +1,10 @@
 import { internal } from "../_generated/api";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
+import type { ActionCtx } from "../_generated/server";
 import { eventDateForInstant, eventLocalTimeLenient } from "../_eventSchedule";
+import { connectorSeriesEnabled } from "../_eventSeriesModel";
+import type { ExternalSeries, SeriesSyncFields } from "../_eventSeriesSync";
+import { parseGoogleRecurrence } from "../_recurrenceRules";
 import {
   deleteEvent, ensureWatch, getEvent, GoogleApiError, googleTarget, insertEvent, listEvents, patchEvent, requireGoogleCalendarEnabled, withGoogleToken,
   type GoogleCalendarEvent, type GoogleEventBody, type GoogleEventDateTime,
@@ -34,7 +38,7 @@ export function googleBodyFromEvent(event: Doc<"events">, eventUrl: string): Goo
 const patchTime = (time: GoogleEventDateTime) => time.date ? { ...time, dateTime: null, timeZone: null } : { ...time, date: null };
 
 const ENTITIES: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&#39;": "'", "&nbsp;": " " };
-const clip = (value: string | undefined, max: number) => value?.trim().slice(0, max).trim() || null;
+export const clip = (value: string | undefined, max: number) => value?.trim().slice(0, max).trim() || null;
 
 const lastLine = (lines: string[]) => lines[lines.length - 1];
 
@@ -136,11 +140,93 @@ async function listAll(token: string, calendarId: string, params: { syncToken?: 
   return { items, nextSyncToken: page.nextSyncToken, timeZone: page.timeZone };
 }
 
+// A master's series fields, or null when it cannot be one: no title, all-day, a rule outside the fixed set, or a zone Intl refuses.
+function seriesFieldsFromMaster(master: GoogleCalendarEvent, siteUrl: string): SeriesSyncFields | null {
+  try {
+    // A recurring master always carries start.timeZone, so the fallback zone never applies.
+    const fields = fieldsFromGoogleEvent(master, "UTC", siteUrl);
+    if (!fields.title || !fields.eventDate || !fields.timezone || !fields.start || !master.recurrence) return null;
+    const parsed = parseGoogleRecurrence(master.recurrence, {
+      date: fields.eventDate, timezone: fields.timezone, startTime: fields.start.time, ...(fields.end ? { endTime: fields.end.time } : {}),
+    });
+    // A BYDAY that is not the master's own weekday would lose the master's night; phase one keeps it.
+    if (!parsed || parsed.rule.weekday !== new Date(`${fields.eventDate}T00:00:00Z`).getUTCDay()) return null;
+    return {
+      title: fields.title, summary: fields.summary ?? null, venueLabel: fields.venueLabel ?? null, timezone: fields.timezone,
+      rule: parsed.rule, startsOn: parsed.startsOn, endsOn: parsed.endsOn ?? null, count: parsed.count ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** The master an instance names, read once per poll through `masters`. A missing or cancelled master is a deletion. */
+export async function fetchExternalSeries(ctx: ActionCtx, connector: Doc<"eventConnectors">, externalSeriesId: string, masters = new Map<string, GoogleCalendarEvent | null>()): Promise<ExternalSeries> {
+  const siteUrl = process.env.SITE_URL;
+  if (!siteUrl) throw new Error("SITE_URL_MISSING");
+  let master = masters.get(externalSeriesId);
+  if (master === undefined) {
+    const { credentialId, calendarId } = googleTarget(connector);
+    master = await withGoogleToken(ctx, credentialId, async token => {
+      try {
+        return await getEvent(token, calendarId, externalSeriesId);
+      } catch (error) {
+        if (!(error instanceof GoogleApiError && (error.status === 404 || error.status === 410))) throw error;
+        return null;
+      }
+    });
+    masters.set(externalSeriesId, master);
+  }
+  // A missing master has no clock; 0 leaves the link's own, so a later restore still reads as newer.
+  if (!master) return { externalSeriesId, externalUpdatedAt: 0, deleted: true, fields: null };
+  const externalUpdatedAt = Date.parse(master.updated) || Date.now();
+  if (master.status === "cancelled") return { externalSeriesId, externalUpdatedAt, deleted: true, fields: null };
+  return { externalSeriesId, externalUpdatedAt, deleted: false, fields: seriesFieldsFromMaster(master, siteUrl) };
+}
+
+type ImportArgs = { connectorId: Id<"eventConnectors">; item: GoogleCalendarEvent; calendarTimeZone: string };
+
+// An instance of a series linked here applies to its night; everything else is plan 08's import.
+async function importGoogleItem(ctx: ActionCtx, connector: Doc<"eventConnectors">, args: ImportArgs, masters: Map<string, GoogleCalendarEvent | null>): Promise<void> {
+  const { item } = args;
+  const masterId = item.recurringEventId;
+  // The window check applyImport would make comes first, as the poll's does; a cancelled item is exempt so its flag lands.
+  if (masterId && connectorSeriesEnabled() && (item.status === "cancelled" || !outsideImportWindow(item, fieldsFromGoogleEvent(item, args.calendarTimeZone, ""), args.calendarTimeZone))) {
+    const readLink = () => ctx.runQuery(internal.eventSeriesSync.readSeriesLink, { connectorId: connector._id, externalSeriesId: masterId });
+    let link = await readLink();
+    // A held connector keeps phase one until a series is linked, then leaves that series' items alone, cancellations included.
+    if (connector.mode === "hold") {
+      if (link) return;
+    } else {
+      if (!link || (Date.parse(item.updated) || Date.now()) > (link.externalUpdatedAt ?? 0)) {
+        const external = await fetchExternalSeries(ctx, connector, masterId, masters);
+        const series = { connectorId: connector._id, externalSeriesId: masterId, externalUpdatedAt: external.externalUpdatedAt };
+        // A master that left the fixed set reads as a deletion of the linked series: staff decide.
+        if (external.deleted || !external.fields) {
+          if (link) {
+            await ctx.runMutation(internal.eventSeriesSync.applyExternalSeries, { ...series, deleted: true });
+            return;
+          }
+        } else {
+          await ctx.runMutation(internal.eventSeriesSync.applyExternalSeries, { ...series, deleted: false, fields: external.fields });
+          link = await readLink();
+        }
+      }
+      // A flagged series link still takes its instances: applyGoogleOccurrence stores a cancellation and ignores the rest.
+      if (link?.seriesId) {
+        await ctx.runMutation(internal.googleCalendarConnector.applyGoogleOccurrence, { connectorId: connector._id, seriesId: link.seriesId, item, calendarTimeZone: args.calendarTimeZone });
+        return;
+      }
+    }
+  }
+  await ctx.runMutation(internal.googleCalendarConnector.applyImport, args);
+}
+
 export const googleCalendarHandler: SyncKindHandler = {
   async importItem(ctx, connector, payload) {
     requireGoogleCalendarEnabled();
     const { item, calendarTimeZone } = payload as { item: GoogleCalendarEvent; calendarTimeZone: string };
-    await ctx.runMutation(internal.googleCalendarConnector.applyImport, { connectorId: connector._id, item, calendarTimeZone });
+    await importGoogleItem(ctx, connector, { connectorId: connector._id, item, calendarTimeZone }, new Map());
   },
 
   async importPoll(ctx, connector) {
@@ -158,12 +244,14 @@ export const googleCalendarHandler: SyncKindHandler = {
       // showDeleted so a deletion in the gap still flags its link; a full list hides tombstones by default.
       return await listAll(token, calendarId, { showDeleted: true });
     });
+    // One read per master for the whole poll: a series edit arrives as every one of its instances.
+    const masters = new Map<string, GoogleCalendarEvent | null>();
     for (const item of list.items) {
       const args = { connectorId: connector._id, item, calendarTimeZone: list.timeZone };
       try {
         // A full list holds the calendar's whole past; skip it here instead of one mutation per old item.
         if (item.status !== "cancelled" && outsideImportWindow(item, fieldsFromGoogleEvent(item, list.timeZone, ""), list.timeZone)) continue;
-        await ctx.runMutation(internal.googleCalendarConnector.applyImport, args);
+        await importGoogleItem(ctx, connector, args, masters);
       } catch {
         // One bad item retries on its own job, and its final failure shows in lastError until the next successful job; the calendar's sync token still moves.
         await ctx.runMutation(internal.googleCalendarConnector.enqueueImportItem, args);
