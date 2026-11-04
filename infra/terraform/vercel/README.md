@@ -18,7 +18,7 @@ It manages shared application variables for the existing Vercel project:
 - `TWITCH_CLIENT_SECRET` when both optional Twitch variables are set
 - `GOOGLE_CONNECTOR_CLIENT_ID` and `GOOGLE_CONNECTOR_CLIENT_SECRET` when both optional Google connector variables are set
 - `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` when both optional Langfuse keys are set, plus `LANGFUSE_BASE_URL` when it is also set
-- `VRDEX_DISCORD_POSTER_TOKEN` when the optional `discord_poster_token` is set
+- `VRDEX_DISCORD_POSTER_TOKEN` when the optional `discord_poster_token` is set; the Terraform workflow supplies it from the `TERRAFORM_DISCORD_POSTER_TOKEN` secret
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` when the matching Clerk pair is set, per environment
 
 The PostHog project key is client-exposed once deployed, but keep the value out of git so forks and self-hosted installs do not accidentally send analytics into the BASIC BIT project.

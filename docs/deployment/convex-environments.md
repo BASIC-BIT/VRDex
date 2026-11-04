@@ -303,9 +303,8 @@ until the new task runs, and the gateway does not retry those posts.
 app's internal poster bridge, `POST /api/internal/discord-intake/poster`, which
 copies Discord attachments into private poster storage (secret). Only the web
 server holds the bucket role. Scope: the Convex deployment environment and the
-web app (Vercel Terraform variable `discord_poster_token` in
-`infra/terraform/vercel`; read [the note on it](./discord-gateway.md#values-basic-provides)
-before using it). Owner: BASIC. Value: at least 32 random bytes,
+web app (GitHub secret `TERRAFORM_DISCORD_POSTER_TOKEN`, which the Terraform
+workflow passes to the Vercel stack as `discord_poster_token`). Owner: BASIC. Value: at least 32 random bytes,
 generated with `openssl rand -base64 32`. Unset on either side, runs store no
 posters and continue with the post text. A run that has posters and stores none
 emails the `discord-intake-posters` ops alert, naming the failure code; the next
