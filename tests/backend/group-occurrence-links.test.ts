@@ -127,6 +127,24 @@ describe("groupOccurrenceLinks", () => {
     assert.deepEqual([nights.length, nights.filter((n) => n.occurrenceDate === "2026-11-14").length], [8, 1]);
   });
 
+  // A linked night joins as it is: left out, its date would be empty and materialising would make a public twin.
+  for (const [label, state] of [["cancelled", { eventStatus: "cancelled" }], ["draft_private", { publicationState: "draft_private" }]] as const) {
+    it(`attaches a ${label} night as it is, with no twin on its date`, async () => {
+      const t = convexTest({ schema, modules: seriesSyncModules });
+      const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "import" });
+      const night = await seedNight(t, connectorId, communityProfileId, "2026-11-14");
+      await t.run((ctx) => ctx.db.patch(night, state));
+      const fake = fakeFetch(masterFetch(MASTER));
+      assert.deepEqual(await t.action(internal.migrations.groupOccurrenceLinks, { connectorId }), { grouped: ["m1"], unparseable: [] });
+      fake.restore();
+      const [series] = await t.run((ctx) => ctx.db.query("eventSeries").collect());
+      const after = (await t.run((ctx) => ctx.db.get(night)))!;
+      assert.deepEqual([after.seriesId, after.occurrenceDate, after.eventStatus, after.publicationState], [series._id, "2026-11-14", ...(label === "cancelled" ? ["cancelled", "published"] : ["scheduled", "draft_private"])]);
+      const nights = await occurrences(t, series._id);
+      assert.deepEqual([nights.length, nights.filter((n) => n.occurrenceDate === "2026-11-14").map((n) => n._id)], [8, [night]]);
+    });
+  }
+
   it("gives a held connector no series", async () => {
     const t = convexTest({ schema, modules: seriesSyncModules });
     const { connectorId, communityProfileId } = await seedGoogleConnector(t, { direction: "import", mode: "hold" });

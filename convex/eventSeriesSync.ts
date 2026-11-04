@@ -264,8 +264,8 @@ function originalOccurrenceDate(link: Doc<"eventSyncLinks">, event: Doc<"events"
 
 /**
  * Groups one external series' phase-one nights into a series: the one linked to it here, else an unlinked one of the same
- * title (rule 7's match), else a new one. Only upcoming published, scheduled nights in no series are attached, on their
- * original date; a night of another series, a second night on a date the series holds, or a link whose ID names no date
+ * title (rule 7's match), else a new one. Every night in no series whose original date is not past is attached as it is, on that
+ * date; a night of another series, a second night on a date the series holds, or a link whose ID names no date
  * keeps its link untagged and comes back in `skipped`. Null when the group cannot be a series.
  */
 export const groupLinks = internalMutation({
@@ -319,9 +319,9 @@ export const groupLinks = internalMutation({
       if (!link || link.seriesId !== undefined || link.externalSeriesId !== args.externalSeriesId || !event) continue;
       if (event.seriesId === undefined) {
         const date = originalOccurrenceDate(link, event, series);
-        // As adoption: only a published, scheduled night that has not started, quietly; a date-only night starts with its date.
-        if (event.publicationState !== "published" || event.eventStatus !== "scheduled" || event.moderationRemovedAt !== undefined
-          || (event.startAt !== undefined && event.startAt <= now) || (date !== undefined && date < eventDateForInstant(now, series.timezone))) continue;
+        // The link names the night as the series member, so it joins as it is (cancelled, unpublished, removed, or started) and
+        // holds its date; leaving one out would let materialising create a public twin. Only a past date stays out, quietly.
+        if (date !== undefined && date < eventDateForInstant(now, series.timezone)) continue;
         const taken = date && await db.query("events").withIndex("by_seriesId_occurrenceDate", q => q.eq("seriesId", seriesId).eq("occurrenceDate", date)).first();
         if (!date || taken) {
           skipped.push(eventId);
