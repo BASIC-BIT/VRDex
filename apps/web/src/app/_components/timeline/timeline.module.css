@@ -35,6 +35,9 @@
   font-size: 0.7rem;
   color: var(--muted);
 }
+.metadata[aria-hidden="true"] {
+  visibility: hidden;
+}
 .metadata span {
   display: flex;
   align-items: center;
