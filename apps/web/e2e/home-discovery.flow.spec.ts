@@ -898,8 +898,6 @@ test.describe("dense Home discovery @flow @fixture", () => {
     const afterFavorite = queries.result();
     expect(await page.evaluate(() => scrollY)).toBe(beforeScrollY);
     expect(await panel.boundingBox()).toEqual(beforePanel);
-    // Cached first values complete logical reads before wire revalidation.
-    // Preserve the cold bound; report the warm protocol burst separately.
     for (const method of ["listEvents", "listClubs", "eventSignals"]) expect(afterFavorite.counts[`homeDiscovery:${method}`]).toBe(beforeFavorite.counts[`homeDiscovery:${method}`]);
     expect(afterFavorite.maximumActive).toBeLessThanOrEqual(42);
     await info.attach("discovery-favorite-rebuild-metrics.json", {

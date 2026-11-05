@@ -619,6 +619,9 @@ it, regenerate functions and verify it is unavailable before continuing.
 The fixture attaches nonsecret create stage and HTTP status on failure. A second
 cleanup error preserves the primary exception as its cause.
 
+Compact My night cases check accessible descriptions for overlap, partial lineup
+and favorite markers, plus a heading on mixed fallback removal lists.
+
 ## Home polish measurement
 
 The October 29 polish uses the five native behavior cases in

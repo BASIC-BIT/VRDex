@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { useId } from "react";
 import { BookmarkCheck, Star, TriangleAlert, X } from "lucide-react";
 import { InterestButton } from "@/components/ui/interest-button";
 import { planSaveState } from "@/lib/timeline/plan-actions";
@@ -46,6 +47,7 @@ export function TimelineNight({
   slotCoverage?: Record<string, "partial" | "complete">;
   now: number;
 }) {
+  const descriptionId = useId();
   const visible = saved.filter((item) => {
     if (item.kind !== "available" || item.status === "cancelled") return false;
     const schedule = item.slot?.schedule ?? item.event.schedule;
@@ -97,7 +99,7 @@ export function TimelineNight({
   if (origin === undefined && fallback.length === 0) return null;
   return (
     <section className={styles.night} aria-label="My night">
-      {origin === undefined && lanes.length === 0 && (
+      {origin === undefined && (
         <div className={styles.nightHeading}>
           <h3>
             <BookmarkCheck size={15} />
@@ -146,6 +148,16 @@ export function TimelineNight({
               !item.slot &&
               (!loaded || slotCoverage[item.event.id] !== "complete");
             const header = headers.get(lane.key);
+            const favoriteClub =
+              item.event.host && actions.favoriteProfileIds.includes(item.event.host.id)
+                ? `Favorite club: ${item.event.host.displayName}`
+                : undefined;
+            const description = [
+              lane.overlapping && "Overlap",
+              partial && "Partial lineup",
+              favoriteClub,
+            ].filter(Boolean).join(", ");
+            const statusId = `${descriptionId}-${lane.key}`;
             const select = () =>
               actions.onSelect({
                 eventId: item.event.id,
@@ -176,16 +188,13 @@ export function TimelineNight({
                   <button
                     className={styles.nightOpen}
                     aria-label={`Open ${item.event.title}`}
+                    aria-describedby={description ? statusId : undefined}
                     onClick={select}
                   >
+                    <span id={statusId} hidden>{description}</span>
                     <span
                       className={styles.nightClub}
-                      title={
-                        item.event.host &&
-                        actions.favoriteProfileIds.includes(item.event.host.id)
-                          ? `Favorite club: ${item.event.host.displayName}`
-                          : undefined
-                      }
+                      title={favoriteClub}
                     >
                       {item.event.host?.imageUrl ? (
                         <Image
@@ -202,23 +211,18 @@ export function TimelineNight({
                           ).slice(0, 1)}
                         </span>
                       )}
-                      {item.event.host &&
-                        actions.favoriteProfileIds.includes(
-                          item.event.host.id,
-                        ) && (
-                          <Star
-                            size={9}
-                            data-favorite-mark="club"
-                            className={styles.gold}
-                            aria-label={`Favorite club: ${item.event.host.displayName}`}
-                          >
-                            <title>{`Favorite club: ${item.event.host.displayName}`}</title>
-                          </Star>
-                        )}
+                      {favoriteClub && (
+                        <Star
+                          size={9}
+                          data-favorite-mark="club"
+                          className={styles.gold}
+                          aria-hidden="true"
+                        />
+                      )}
                     </span>
                     <strong>{item.event.title}</strong>
                     {lane.overlapping && (
-                      <TriangleAlert size={12} aria-label="Overlap" />
+                      <TriangleAlert size={12} aria-hidden="true" />
                     )}
                     {partial && (
                       <span className={styles.partial}>Partial lineup</span>
@@ -254,6 +258,11 @@ export function TimelineNight({
                       pixelsPerHour: 100,
                     });
                     if (interval?.kind !== "bar") return null;
+                    const favorite =
+                      slot.performer && actions.favoriteProfileIds.includes(slot.performer.id)
+                        ? `Favorite: ${slot.performer.displayName}`
+                        : undefined;
+                    const favoriteId = `${statusId}-${slot.id}`;
                     return (
                       <button
                         key={slot.id}
@@ -262,6 +271,7 @@ export function TimelineNight({
                         style={{ left: interval.x, width: interval.width }}
                         title={slot.displayLabel}
                         aria-label={`Open ${slot.displayLabel} at ${item.event.title}`}
+                        aria-describedby={favorite ? favoriteId : undefined}
                         onClick={() =>
                           actions.onSelect({
                             eventId: item.event.id,
@@ -270,17 +280,15 @@ export function TimelineNight({
                           })
                         }
                       >
-                        {slot.performer &&
-                          actions.favoriteProfileIds.includes(
-                            slot.performer.id,
-                          ) && (
-                            <Star
-                              size={10}
-                              data-favorite-mark="dj"
-                              className={styles.gold}
-                              aria-label={`Favorite: ${slot.performer.displayName}`}
-                            />
-                          )}
+                        {favorite && <span id={favoriteId} hidden>{favorite}</span>}
+                        {favorite && (
+                          <Star
+                            size={10}
+                            data-favorite-mark="dj"
+                            className={styles.gold}
+                            aria-hidden="true"
+                          />
+                        )}
                         <span>{slot.displayLabel}</span>
                       </button>
                     );

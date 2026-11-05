@@ -276,6 +276,7 @@ test.describe("compact personal planning @flow @fixture", () => {
     await expect(
       night.getByTitle("Favorite club: Prism Collective"),
     ).toHaveCount(1);
+    await expect(night.getByRole("button", { name: "Open ORBIT: Interstellar Bassline Orchestra", exact: true })).toHaveAccessibleDescription(/Favorite club: Prism Collective/);
     const openSet = event.getByRole("button", {
       name: "Open Aurora at ORBIT: Interstellar Bassline Orchestra",
       exact: true,
@@ -299,6 +300,9 @@ test.describe("compact personal planning @flow @fixture", () => {
         .click();
     }
     await expect(night.locator('[data-favorite-mark="dj"]')).toHaveCount(2);
+    for (const button of await night.getByRole("button", { name: "Open Aurora at ORBIT: Interstellar Bassline Orchestra", exact: true }).all()) {
+      await expect(button).toHaveAccessibleDescription("Favorite: Aurora");
+    }
     const animations = await page.evaluate(
       () =>
         (window as Window & { preferenceAnimations?: string[] })
@@ -513,7 +517,7 @@ test.describe("compact personal planning @flow @fixture", () => {
       const bar = night.locator("[data-night-reference]");
       await expect(
         page.getByRole("heading", { name: "My night", exact: true }),
-      ).toHaveCount(1);
+      ).toHaveCount(2);
       await expect(
         page.getByRole("button", {
           name: "Remove Later-page guest from My night",
@@ -617,6 +621,7 @@ test.describe("compact personal planning @flow @fixture", () => {
       await expect(
         night.getByText("Partial lineup", { exact: true }),
       ).toBeVisible();
+      await expect(night.getByRole("button", { name: "Open ORBIT: Interstellar Bassline Orchestra", exact: true })).toHaveAccessibleDescription(/Partial lineup/);
       const widths = await night
         .locator("[data-slot-id]")
         .evaluateAll((els) =>
@@ -677,7 +682,7 @@ test.describe("authored short-set interactions @flow @fixture", () => {
         expect((await bar.boundingBox())?.height).toBe(44);
         await expect(
           page.getByRole("heading", { name: "My night", exact: true }),
-        ).toHaveCount(1);
+        ).toHaveCount(clipped ? 2 : 1);
         const contextualRemove = page.getByRole("button", {
           name: "Remove Aurora from My night",
           exact: true,

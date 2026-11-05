@@ -266,7 +266,11 @@ test.describe("continuous schedule @flow @fixture", () => {
     await saveInInspector(page, "ORBIT: Interstellar Bassline Orchestra", "Aurora");
     await saveInInspector(page, "Glasshouse Sessions", "Neon Harbor");
     const night = page.getByRole("region", { name: "My night", exact: true });
-    await expect(page.getByTestId("night-lanes").getByLabel("Overlap", { exact: true })).toHaveCount(2);
+    const overlappingBars = page.getByTestId("night-lanes").locator("[data-night-reference]");
+    await expect(overlappingBars).toHaveCount(2);
+    for (const bar of await overlappingBars.all()) {
+      await expect(bar.getByRole("button", { name: /^Open/ }).first()).toHaveAccessibleDescription(/Overlap/);
+    }
     await changeTimelineFixture(request, timelineFixture, 3, "recreate-slot");
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(night.getByText("Unavailable", { exact: true })).toBeVisible();
@@ -819,7 +823,11 @@ test.describe("continuous schedule @flow @fixture", () => {
         .getByRole("button", { name: `Interested: ${title}`, exact: true })
         .click();
     const night = page.getByRole("region", { name: "My night", exact: true });
-    await expect(page.getByTestId("night-lanes").getByLabel("Overlap", { exact: true })).toHaveCount(2);
+    const overlappingBars = page.getByTestId("night-lanes").locator("[data-night-reference]");
+    await expect(overlappingBars).toHaveCount(2);
+    for (const bar of await overlappingBars.all()) {
+      await expect(bar.getByRole("button", { name: /^Open/ }).first()).toHaveAccessibleDescription(/Overlap/);
+    }
     await expect(
       page.getByTestId(`date-marker-${timelineFixture.eventIds[7]}`).getByText("Time TBA", { exact: true }),
     ).toBeVisible();
