@@ -20,6 +20,10 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        source: "/brand/now-playing/neutral-wordmark-v1-512.png",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
         source: "/api/v0/:path*",
         headers: [...apiV0CorsHeaders],
       },
@@ -31,7 +35,10 @@ const nextConfig: NextConfig = {
     ];
   },
   outputFileTracingRoot: workspaceRoot,
-  transpilePackages: ["@vrdex/api-contracts", "@vrdex/event-intake-agent"],
+  outputFileTracingIncludes: {
+    "/api/v0/profiles/*/assets/*/file": ["../../docs/brand/wordmark/vrdex-wordmark.png"],
+  },
+  transpilePackages: ["@vrdex/api-contracts", "@vrdex/event-intake-agent", "@vrdex/media-relay"],
   skipTrailingSlashRedirect: true,
   turbopack: {
     root: workspaceRoot,

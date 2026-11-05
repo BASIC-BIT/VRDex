@@ -61,6 +61,31 @@ async function seedCommunity(t: ReturnType<typeof convexTest>, slug = "faceless"
   });
 }
 
+it('rollups preserve observed boundary time, reject outages and update the same bucket', async () => {
+  const t = convexTest({ schema, modules });
+  const communityProfileId = await seedCommunity(t);
+  const integrationId = await t.run(async ctx => {
+    const id = await ctx.db.insert('communityVrchatIntegrations', {
+      communityProfileId, vrchatGroupId:'grp_example', groupVisibility:'public', joinPolicy:'free', state:'active',
+      killSwitchEnabled:false, requestsPerMinute:30, leaseGeneration:0, publicMetrics:{currentPopulation:false,populationHistory:false,groupMemberCount:false,groupMemberGrowth:false,eventRecaps:false},
+      consecutiveFailures:0, telemetryEpochStartedAt:NOW-3600000, createdAt:NOW-3600000,updatedAt:NOW,
+    });
+    for(let n=-1;n<=61;n+=2) await ctx.db.insert('communityPopulationObservations', {
+      integrationId:id,idempotencyKey:`boundary-${n}`,totalPopulation:10,activeInstanceCount:1,worldDistribution:[],
+      observedAt:NOW+n*60000,source:'first_party',collectorVersion:'test',coverageState:'observed',fencingToken:1,
+    });
+    return id;
+  });
+  const args = {integrationId,grain:'hour' as const,bucketStartAt:NOW,bucketEndAt:NOW+3600000};
+  const id = await t.mutation(internal.communityTelemetry.recomputeRollup,args);
+  assert.equal((await t.run(ctx=>ctx.db.get(id)))?.playerMinutes,600);
+  await t.run(ctx=>ctx.db.insert('collectionCoverageWindows',{integrationId,state:'degraded',startedAt:NOW+600000,endedAt:NOW+620000,updatedAt:NOW+620000,source:'first_party',collectorVersion:'test'}));
+  assert.equal(await t.mutation(internal.communityTelemetry.recomputeRollup,args),id);
+  const corrected = await t.run(ctx=>ctx.db.get(id));
+  assert.equal(corrected?.playerMinutes,580);
+  assert.equal(corrected?.rollupVersion,'community-telemetry-v2');
+});
+
 async function grantVisibilityOwner(t: ReturnType<typeof convexTest>) {
   await t.run(async ctx => {
     const profile = await ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug", "faceless")).unique();
@@ -92,6 +117,61 @@ async function finishImmediateSchedules(t: ReturnType<typeof convexTest>, iterat
 }
 
 describe("community telemetry control plane", () => {
+  it("closes a provider-confirmed instance immediately without dropping its remaining occupants or duplicating history", async test => {
+    const t = convexTest({ schema, modules });
+    await seedCommunity(t);
+    const collectorAccountId = await registerAccount(t);
+    const integrationId = await t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+      communitySlug: "faceless", vrchatGroupId: "grp_00000000-0000-4000-8000-000000000001", groupVisibility: "public", joinPolicy: "free",
+    });
+    const now = Date.now() + 1000;
+    const [claim] = (await t.mutation(internal.communityTelemetry.claimDueAssignments, { collectorAccountId, workerId: "closure-worker", now })).assignments;
+    assert.ok(claim);
+    const instance = { providerInstanceId: "one", providerLocation: "wrld_example:one", vrchatWorldId: "wrld_example", population: 4 };
+    const poll = { integrationId, collectorAccountId, workerId: "closure-worker", fencingToken: claim.fencingToken, collectorVersion: "test", source: "first_party" as const, groupMemberCount: 50, nextPollAt: now + 60_000, now };
+    await t.mutation(internal.communityTelemetry.ingestAggregatePoll, { ...poll, pollId: "before-connection", observedAt: now - 2000, instances: [instance] });
+    assert.deepEqual(await t.run(ctx => ctx.db.query("instanceSessions").collect()), []);
+    await t.mutation(internal.communityTelemetry.ingestAggregatePoll, { ...poll, pollId: "open", observedAt: now, instances: [instance] });
+    for (const offset of [1000, 2000]) {
+      await t.mutation(internal.communityTelemetry.ingestAggregatePoll, { ...poll, now: now + offset, pollId: `closed-${offset}`, observedAt: now + offset, instances: [{ ...instance, population: offset === 2000 ? 8 : 4, closedAt: now + offset - 500 }] });
+    }
+    const sessions = await t.run(ctx => ctx.db.query("instanceSessions").collect());
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0]!.state, "closed");
+    assert.equal(sessions[0]!.closedAt, now + 500);
+    await grantVisibilityOwner(t);
+    test.mock.method(Date, "now", () => now + 2000);
+    const live = await t.withIdentity(identity).query(api.clubAnalytics.listInstances, {
+      communitySlug: "faceless", kind: "live", paginationOpts: { numItems: 10, cursor: null },
+    });
+    assert.deepEqual(live.page, []);
+    const detail = await t.withIdentity(identity).query(api.clubAnalytics.getInstance, {
+      communitySlug: "faceless", sessionId: sessions[0]!._id,
+    });
+    assert.equal(detail?.liveObservedAt, null);
+    assert.equal(detail?.closedAt, now + 500);
+    const observations = await t.run(ctx => ctx.db.query("communityPopulationObservations").collect());
+    assert.deepEqual(observations.map(row => [row.totalPopulation, row.activeInstanceCount]), [[4, 1], [4, 0], [8, 0]]);
+    const summaryPage = await t.withIdentity(identity).query(api.clubAnalytics.getInstanceSummaryPage, {
+      communitySlug: "faceless", sessionId: sessions[0]!._id, startAt: now, endAt: now + 3000, paginationOpts: { numItems: 100, cursor: null },
+    });
+    assert.equal(Math.max(...summaryPage.page.map(segment => segment.peak ?? 0)), 8);
+    await t.mutation(internal.communityTelemetry.ingestAggregatePoll, { ...poll, pollId: "closed-2000", observedAt: now + 2000, now: now + 30_000, nextPollAt: now + 90_000, instances: [{ ...instance, closedAt: now + 500 }] });
+    const afterDuplicate = await t.run(ctx => ctx.db.get(integrationId));
+    assert.equal(afterDuplicate!.nextPollAt, now + 90_000);
+    assert.equal(afterDuplicate!.lastSuccessfulObservationAt, now + 2000);
+    await t.mutation(internal.communityTelemetry.ingestAggregatePoll, { ...poll, pollId: "older-open", observedAt: now + 1000, instances: [instance] });
+    assert.equal((await t.run(ctx => ctx.db.query("instanceSessions").collect())).length, 1);
+    const alreadyClosed = { ...instance, providerInstanceId: "two", providerLocation: "wrld_example:two", population: 6, closedAt: now - 1000 };
+    await t.mutation(internal.communityTelemetry.ingestAggregatePoll, { ...poll, pollId: "found-closed", observedAt: now + 3000, instances: [alreadyClosed] });
+    const discovered = await t.run(ctx => ctx.db.query("instanceSessions").filter(q => q.eq(q.field("providerInstanceId"), "two")).unique());
+    assert.ok(discovered);
+    const discoveredSummary = await t.withIdentity(identity).query(api.clubAnalytics.getInstanceSummaryPage, {
+      communitySlug: "faceless", sessionId: discovered._id, startAt: now, endAt: now + 4000, paginationOpts: { numItems: 100, cursor: null },
+    });
+    assert.equal(discoveredSummary.page[0]!.peak, 6);
+  });
+
   it("schedules telemetry rollups without scheduling raw-history deletion", () => {
     const crons = (cronsModule as unknown as { default?: typeof cronsModule }).default ?? cronsModule;
     const jobs = JSON.parse(crons.export());
@@ -965,6 +1045,21 @@ describe("community telemetry control plane", () => {
     assert.equal(eventRollup?.peakConcurrency, 21);
     assert.equal(eventRollup?.activeInstanceCount, 2);
     assert.equal(eventRollup?.worldDistribution[0]?.samples, 4);
+    await t.run(ctx => ctx.db.patch(eventRollupId, { rollupVersion: "community-telemetry-v1" }));
+    const upgraded = await t.mutation(internal.communityTelemetry.recomputeRollup, {
+      communityProfileId, eventId: seeded.eventId, grain: "event", bucketStartAt: dayStart + 60_000,
+      bucketEndAt: dayStart + 4 * 60_000,
+    });
+    assert.equal(upgraded, eventRollupId, "calculation upgrades must retain the recap identity");
+    await t.run(ctx => ctx.db.insert("collectionCoverageWindows", { integrationId,
+      state:"degraded", startedAt:dayStart+70_000, endedAt:dayStart+80_000, updatedAt:dayStart+80_000,
+      source:"first_party", collectorVersion:"test" }));
+    await t.mutation(internal.communityTelemetry.recomputeRollup, {
+      communityProfileId, eventId: seeded.eventId, grain:"event", bucketStartAt:dayStart+60_000,
+      bucketEndAt:dayStart+4*60_000,
+    });
+    assert.equal((await t.run(ctx=>ctx.db.get(eventRollupId)))?.playerMinutes, 0);
+
     await t.mutation(internal.communityTelemetry.recomputeRollup, {
       communityProfileId, eventId: seeded.draftEventId, grain: "event",
       bucketStartAt: dayStart + 60_000, bucketEndAt: dayStart + 4 * 60_000, now: dayStart + 5 * 60_000,
@@ -1192,7 +1287,7 @@ describe("community telemetry control plane", () => {
     await t.run(ctx => ctx.db.patch(eventId, { endAt: startAt + 4 * 60_000 }));
     await finishImmediateSchedules(t);
     assert.equal(await t.run(ctx => ctx.db.query("communityTelemetryRollups")
-      .withIndex("by_eventId_rollupVersion", q => q.eq("eventId", eventId).eq("rollupVersion", "community-telemetry-v1"))
+      .withIndex("by_eventId_rollupVersion", q => q.eq("eventId", eventId).eq("rollupVersion", "community-telemetry-v2"))
       .first()), null, "a job queued before a boundary edit must not publish its partial state");
     const replacement = await t.mutation(internal.communityTelemetry.recomputeRollup, {
       communityProfileId, eventId, grain: "event", bucketStartAt: startAt, bucketEndAt: startAt + 3 * 60_000,
@@ -1200,7 +1295,7 @@ describe("community telemetry control plane", () => {
     assert.equal(replacement, null);
     await finishImmediateSchedules(t);
     const rollup = await t.run(ctx => ctx.db.query("communityTelemetryRollups")
-      .withIndex("by_eventId_rollupVersion", q => q.eq("eventId", eventId).eq("rollupVersion", "community-telemetry-v1"))
+      .withIndex("by_eventId_rollupVersion", q => q.eq("eventId", eventId).eq("rollupVersion", "community-telemetry-v2"))
       .first());
     assert.equal(rollup?.peakConcurrency, 205);
     assert.equal(rollup?.currentPopulation, 5);
@@ -1236,7 +1331,7 @@ describe("community telemetry control plane", () => {
     });
     await finishImmediateSchedules(t);
     const afterAssociation = await t.run(ctx => ctx.db.query("communityTelemetryRollups")
-      .withIndex("by_eventId_rollupVersion", q => q.eq("eventId", eventId).eq("rollupVersion", "community-telemetry-v1"))
+      .withIndex("by_eventId_rollupVersion", q => q.eq("eventId", eventId).eq("rollupVersion", "community-telemetry-v2"))
       .first());
     assert.equal(afterAssociation?.currentPopulation, 12);
     assert.equal(afterAssociation?.playerMinutes, 108.5);
@@ -1371,7 +1466,7 @@ describe("community telemetry control plane", () => {
     const result = await t.run(async (ctx) => ({
       confirmedRollup: await ctx.db.query("communityTelemetryRollups")
         .withIndex("by_eventId_rollupVersion", (query) =>
-          query.eq("eventId", seeded.confirmedEventId).eq("rollupVersion", "community-telemetry-v1"),
+          query.eq("eventId", seeded.confirmedEventId).eq("rollupVersion", "community-telemetry-v2"),
         )
         .first(),
       suggestion: await ctx.db.query("eventInstanceAssociations")

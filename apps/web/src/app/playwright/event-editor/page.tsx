@@ -8,15 +8,16 @@ export const dynamic = "force-dynamic";
 export default async function EventEditorFixturePage({
   searchParams,
 }: {
-  searchParams: Promise<{ identity?: string }>;
+  searchParams: Promise<{ connected?: string; fail?: string; identity?: string }>;
 }) {
   if (process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true") {
     notFound();
   }
 
-  return (await searchParams).identity === "picker" ? (
+  const { connected, fail, identity } = await searchParams;
+  return identity === "picker" ? (
     <EventIdentityPreview />
   ) : (
-    <EventEditorPreview />
+    <EventEditorPreview connected={connected === "1"} fail={fail === "1"} />
   );
 }

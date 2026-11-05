@@ -170,6 +170,7 @@ function Workspace({
     visibility: null,
     integration: null,
     connectionState: "active",
+    eventConnectorsEnabled: false,
     readableCategories: [],
   };
   return (

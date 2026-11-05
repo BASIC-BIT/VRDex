@@ -1,0 +1,13 @@
+{
+  "trace": "apps/web/.next/server/app/api/v0/profiles/[slug]/assets/[assetId]/file/route.js.nft.json",
+  "canonicalLogoSha256": "a3dcfa5fecacabc0f135e54b90079e51fb473cdbf3b1df292a6c11a6467f0077",
+  "derivedPngSha256": "3aec8c5d5d5086713f47333ff60103197054a8eb3351b8150efdb7df283298c5",
+  "derivedBytes": 12703,
+  "authorizationReads": 2,
+  "objectReads": 1,
+  "neutralStatus": 200,
+  "derivedStatus": 200,
+  "deniedAfterCache": 404,
+  "isolatedTracedTree": true,
+  "realProvider": false
+}

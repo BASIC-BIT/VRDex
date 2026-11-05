@@ -27,21 +27,23 @@ import { Card, Eyebrow, SectionTitle } from "@/components/ui/card";
 import { Field, FieldText, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
-import { VrcdnMediaLinkAssistant } from "../_components/vrcdn-media-link-assistant";
 import { ViewerLocalEventDateTime } from "../_components/viewer-local-event-times";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
+import { parseMediaLinks, serializeMediaLinks } from "@/lib/event-media-links";
+import { EventMediaLinksField, EventWatchFields } from "./event-media-fields";
 import { formatZonedDateTimeInput } from "@/lib/calendar/zoned-date-time";
 import { applyStaffLineupTimings, changeStaffSlotOffset, readStaffLineupTimings, timeUntimedLineupRow, type UntimedFormRow, type SlotFormRow } from "@/lib/calendar/event-lineup-adapters";
 import { changeLineupDuration, generateLineupTimings, getLineupEndAt, getLineupEndConflict, insertLineupSlot, removeLineupSlot, shiftLineupStart, type LineupEditResult, type LineupTimingRow } from "@/lib/calendar/event-lineup-timing";
 import { EventSlotRemove, EventLineupSetup, EventLineupInsert, EventSlotDuration, EventLineupReset, EventLineupConflict } from "./event-lineup-controls";
 import { resolveAuthoredEventEndAt } from "@/lib/calendar/event-end-time";
-import { EventEditorSteps, type EventEditorStep } from "./event-editor-steps";
+import { EditorSection, EventEditorSteps, type EventEditorStep } from "./event-editor-steps";
+import { EventSeriesNote, RepeatControl } from "./event-series-controls";
+import { seriesCreateArgs, seriesNoteActions, seriesRepeatAvailable, type EditableSeries, type RepeatValue } from "@/lib/event-series-editor";
 import { EventLocationField } from "./event-location-field";
 import type { EventIdentityOption } from "@/lib/event-editor-identity";
 import { EventEditorPreview, EventCommunitySummary, useEventCommunity } from "./event-editor-preview";
 import { EventPerformerField, useEventPerformerEditor } from "./event-performer-field";
 
-type EventMediaLinkType = PublicEvent["mediaLinks"][number]["type"];
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -78,6 +80,8 @@ export type EditableEvent = Omit<PublicEvent, "slots" | "lineup"> & {
   preservedWorldAssociationIds: Id<"eventWorlds">[];
   editableWorldAssociation?: { associationId: Id<"eventWorlds">; worldSlug: string };
   publicationState?: "draft_private" | "published";
+  series?: EditableSeries | null;
+  overrides?: string[];
 };
 
 type EventAssociationSnapshot = Pick<
@@ -244,53 +248,6 @@ function parseInteger(value: string, fieldName: string): number {
   return parsed;
 }
 
-function parseMediaLinks(value: string) {
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [type = "other", label = "Event link", url = "", presentation] = line
-        .split("|")
-        .map((part) => part.trim());
-      const vrcdnLinks = parseVrcdnStreamLinks(type);
-
-      if (vrcdnLinks !== null && url === "") {
-        return {
-          type: "vrcdn" as const,
-          label: "VRCDN stream",
-          url: vrcdnLinks.reference,
-          presentation: "copy" as const,
-        };
-      }
-
-      return {
-        type: normalizeMediaType(type),
-        label,
-        url,
-        presentation: presentation === "copy" ? ("copy" as const) : ("open" as const),
-      };
-    });
-}
-
-function normalizeMediaType(value: string): EventMediaLinkType {
-  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-
-  if (
-    normalized === "event_page" ||
-    normalized === "watch" ||
-    normalized === "stream" ||
-    normalized === "vrcdn" ||
-    normalized === "discord" ||
-    normalized === "ticket" ||
-    normalized === "other"
-  ) {
-    return normalized;
-  }
-
-  return "other" as const;
-}
-
 function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
   return rows.map((row) => {
       const offsetMinutes = row.startAtOverride === undefined && row.offsetMsOverride === undefined ? parseInteger(row.offsetMinutes, "Slot offset minutes") : 0;
@@ -311,12 +268,6 @@ function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
         ...(row.endAtOverride !== undefined ? { endAt: row.endAtOverride } : row.durationMsOverride !== undefined ? { endAt: startAt + row.durationMsOverride } : durationMinutes === undefined ? {} : { endAt: startAt + durationMinutes * 60_000 }),
       };
     });
-}
-
-function serializeMediaLinks(event: PublicEvent | undefined): string {
-  return (event?.authoredMediaLinks ?? event?.mediaLinks ?? [])
-    .map((link) => `${link.type} | ${link.label} | ${link.url} | ${link.presentation}`)
-    .join("\n");
 }
 
 function initialSlotRows(event: EditableEvent | undefined): SlotFormRow[] {
@@ -381,15 +332,6 @@ function shortTaskId(value: string | undefined): string {
 
 function chooseVisibleWorkerSession<Session extends { status: string; updatedAt: number }>(sessions: Session[]): Session | undefined {
   return sessions.find((session) => ["starting", "live", "hold", "fallback", "stopping"].includes(session.status)) ?? sessions[0];
-}
-
-function EditorSection({ children, title }: { children: ReactNode; title: string }) {
-  return (
-    <section className="grid gap-5 border-b border-border pb-8">
-      <h2 className="text-2xl font-semibold tracking-[-0.03em]">{title}</h2>
-      {children}
-    </section>
-  );
 }
 
 function EditorDisclosure({ children, title }: { children: ReactNode; title: string }) {
@@ -473,6 +415,15 @@ function ConnectedEventEditorForm({
   const authoredInput = (key: keyof typeof authored) => ({ value: authored[key], onChange: (change: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { const value = change.currentTarget.value; setAuthored(current => ({ ...current, [key]: value })); } });
   const [eventDate, setEventDate] = useState(event?.eventDate ?? formatZonedDateTimeInput(event?.startAt, event?.timezone).slice(0, 10));
   const [timeTba, setTimeTba] = useState(event?.scheduleKind === "date_only");
+  const [repeat, setRepeat] = useState<RepeatValue>({ frequency: "none", endsOn: "" });
+  const recurringEnabled = useQuery(api.eventSeries.isEnabled, demoMode ? "skip" : {});
+  const repeatGate = { hasSeries: Boolean(event?.series), timeTba };
+  const seriesEnabled = demoMode || recurringEnabled === true;
+  const repeatAvailable = seriesRepeatAvailable({ ...repeatGate, enabled: seriesEnabled });
+  const [loadedAt] = useState(() => Date.now());
+  const seriesActions = event?.series ? seriesNoteActions({ series: event.series, overrides: event.overrides ?? [], startAt: event.startAt }, seriesEnabled, loadedAt) : undefined;
+  const createSeries = useMutation(api.eventSeries.create);
+  const resetOverride = useMutation(api.eventSeries.resetOverride);
   const performers = useEventPerformerEditor([...(event?.slots.flatMap(row => row.performer ? [row.performer] : []) ?? []), ...(event?.participants ?? []), ...(event?.lineup?.flatMap(row => row.performer ? [row.performer] : []) ?? [])].map(person => ({ kind: "person", slug: person.slug, title: person.displayName, href: `/${person.slug}`, imageUrl: person.imageUrl, imageKind: "profile", trustLabel: person.trustLabel })));
   const [untimedRows, setUntimedRows] = useState<UntimedFormRow[]>(() => (event?.lineup ?? []).filter(row => row.startAt === undefined).map(row => ({
     clientKey: row.key, position: row.position, performerLabel: row.displayLabel, personSlug: row.performer?.slug ?? "", roleLabel: row.roleLabel ?? "", broadcastInput: row.broadcastInput, broadcastInputChoices: row.broadcastInputChoices,
@@ -519,7 +470,7 @@ function ConnectedEventEditorForm({
     : String(Math.max(0, Math.round((event.startAt - event.doorsOpenAt) / 60_000))));
   const [watchSurfaceEnabled, setWatchSurfaceEnabled] = useState(event?.watchSurfaceEnabled ?? false);
   const [watchMode, setWatchMode] = useState<"event_stream" | "performer_sequence">(event?.watchMode ?? "event_stream");
-  const [mediaLinksText, setMediaLinksText] = useState(() => serializeMediaLinks(event));
+  const [mediaLinksText, setMediaLinksText] = useState(() => serializeMediaLinks(event?.authoredMediaLinks ?? event?.mediaLinks ?? []));
   const [vrcdnOutput, setVrcdnOutput] = useState<VrcdnOutputFormState>(() => createInitialVrcdnOutputForm(event));
   const [persistedVrcdnOutput, setPersistedVrcdnOutput] = useState(vrcdnOutput);
   const authoredVrcdnOutputFields = useRef(new Set<keyof VrcdnOutputFormState>());
@@ -543,7 +494,7 @@ function ConnectedEventEditorForm({
   });
   const [, startTransition] = useTransition();
   const pendingInputs = useEventEditorPending();
-  const snapshot = authoredSnapshot({ ...authored, location, timeTba, eventDate, startLocal, occurrence, endLocal, endOccurrence, startInstantOverride, endAtOverride, doorsAtOverride, doorsOpenMinutes, timezone, watchSurfaceEnabled, watchMode, mediaLinksText,
+  const snapshot = authoredSnapshot({ ...authored, repeat, location, timeTba, eventDate, startLocal, occurrence, endLocal, endOccurrence, startInstantOverride, endAtOverride, doorsAtOverride, doorsOpenMinutes, timezone, watchSurfaceEnabled, watchMode, mediaLinksText,
     slots: slotRows.map(row => ({ position: row.position, offsetMinutes: row.offsetMinutes, durationMinutes: row.durationMinutes, startAtOverride: row.startAtOverride, offsetMsOverride: row.offsetMsOverride, endAtOverride: row.endAtOverride, durationMsOverride: row.durationMsOverride, personSlug: row.personSlug, displayLabel: row.displayLabel, roleLabel: row.roleLabel, selectedStreamId: row.selectedStreamId, broadcastInput: row.broadcastInput })), untimed: untimedRows.map(row => ({ position: row.position, performerLabel: row.performerLabel, personSlug: row.personSlug, roleLabel: row.roleLabel, broadcastInput: row.broadcastInput })) });
   const [persisted, setPersisted] = useState(snapshot);
   const dirty = hasUnsavedEventChanges({ current: snapshot, persisted, pendingInput: pendingInputs.pending })
@@ -799,6 +750,9 @@ function ConnectedEventEditorForm({
         savedLineupRevision.current = submittedLineupRevision;
         savedLineupStartAt.current = startAt;
       }
+      // The flag query is skipped in demoMode, so a demo save never creates a series.
+      const seriesArgs = seriesCreateArgs({ ...repeatGate, intent, eventSlug: result.slug, repeat, enabled: recurringEnabled === true });
+      if (seriesArgs) await createSeries(seriesArgs);
       setPersisted(submittedSnapshot);
       if (intent === "publish") setReturnPath(result.eventPath ?? `/${communitySlug}/events/${result.slug}`);
       startTransition(() =>
@@ -832,6 +786,12 @@ function ConnectedEventEditorForm({
           : undefined,
       }));
     }
+  }
+
+  // A reset remounts this form with the night's new values (EventEditorPage keys it on overrides), so it counts as leaving.
+  async function onResetOverride(fields: string[]) {
+    if (!requestLeave(() => {}) || demoMode) return;
+    for (const field of fields) await resetOverride({ eventId: event!.id as Id<"events">, field });
   }
 
   async function onSetCancelled(cancelled: boolean) {
@@ -1044,6 +1004,7 @@ function ConnectedEventEditorForm({
     <form ref={formRef} data-event-dirty={dirty} className="grid gap-8" noValidate onSubmit={onSubmit}>
       <EventEditorSteps heading={heading} steps={["Details", "Lineup", "Review"]} activeStep={activeStep} onSelect={setActiveStep} preview={<EventEditorPreview editingTimezone={editingTimezone} fields={previewFields} artwork={preview.artwork || undefined} community={community} world={world} />}>
       <div hidden={activeStep !== "Details"} data-editor-step="Details" className="space-y-8">
+      {seriesActions ? <EventSeriesNote communitySlug={communitySlug} editSeries={seriesActions.editSeries} eventSlug={currentSlug!} overrides={seriesActions.overrides} onReset={onResetOverride} /> : null}
       <EditorSection title="Details">
         <Field>
           Event title
@@ -1086,6 +1047,7 @@ function ConnectedEventEditorForm({
             </details>
           </div> : null}
         </div>
+        {repeatAvailable ? <RepeatControl min={eventDate} value={repeat} onChange={setRepeat} /> : null}
       </EditorSection>
 
       <EditorDisclosure title="Source">
@@ -1117,12 +1079,7 @@ function ConnectedEventEditorForm({
         </Field>
         </div>
 
-      <Field>
-        Media links
-        <Textarea className="min-h-28" name="mediaLinks" onChange={(changeEvent) => setMediaLinksText(changeEvent.currentTarget.value)} placeholder="watch | Twitch watch link | https://... | open&#10;vrcdn | VRCDN Quest link | https://stream.vrcdn.live/live/name.live.ts | copy&#10;vrcdn | VRCDN PC link | rtspt://stream.vrcdn.live/live/name | copy" value={mediaLinksText} />
-        <FieldText>One per line: type | label | URL | open or copy. VRCDN variants derive Quest and PC player links automatically.</FieldText>
-      </Field>
-      <VrcdnMediaLinkAssistant mediaLinksText={mediaLinksText} />
+      <EventMediaLinksField value={mediaLinksText} onChange={setMediaLinksText} />
       </EditorDisclosure>
       </div>
       <div hidden={activeStep !== "Lineup"} data-editor-step="Lineup">
@@ -1209,28 +1166,7 @@ function ConnectedEventEditorForm({
           </div>
         </EditorSection>
         <EditorDisclosure title="Advanced">
-      <label className="flex gap-3 rounded-control border border-border bg-surface-strong p-4 text-sm leading-6">
-        <input
-          className="mt-1 h-4 w-4 flex-none accent-accent"
-          checked={watchSurfaceEnabled}
-          onChange={event => setWatchSurfaceEnabled(event.currentTarget.checked)}
-          name="watchSurfaceEnabled"
-          type="checkbox"
-        />
-        <span>
-          <span className="block font-medium text-foreground">Promote a watch surface during the event window</span>
-          <span className="mt-1 block text-xs leading-5 text-muted">
-            Keep this off unless stream capacity is ready for public viewers.
-          </span>
-        </span>
-      </label>
-      {watchSurfaceEnabled ? <Field>
-        Watch mode
-        <Select aria-label="Watch mode" onChange={event => setWatchMode(event.currentTarget.value as "event_stream" | "performer_sequence")} value={watchMode}>
-          <option value="event_stream">Event stream</option>
-          <option value="performer_sequence">Performer sequence</option>
-        </Select>
-      </Field> : null}
+      <EventWatchFields enabled={watchSurfaceEnabled} mode={watchMode} onEnabledChange={setWatchSurfaceEnabled} onModeChange={setWatchMode} />
 
       {event === undefined || watchMode !== "event_stream" ? null : (
         <Card className="grid gap-4" padding="sm" surface="strong">

@@ -361,9 +361,7 @@ Agents select `ci:browsers` for UI, authentication, and navigation changes. Sele
 
 Browser selection includes public-route smoke on desktop and mobile, local mutation-backed journeys, hosted journeys when configured, signed-in account assertions, and public/Storybook previews. The Storybook build runs only for selected browser consumers. Main pushes skip these PR-only jobs; production deployment controls remain unchanged.
 
-The local data-flow job has a 30-minute budget for signed-in claim setup and the
-complete single-worker desktop flow suite. Individual test timeouts and fixture
-ownership checks still apply.
+The local data-flow job has a 45-minute limit for its serial flow suite, composed-media acceptance and artifact upload. Its previous 30-minute limit canceled a run after 257 flow tests and 12 media tests had passed. Individual test timeouts and all selected coverage remain unchanged.
 
 In browsers-only mode, `Playwright Public Preview` and `Storybook Component Preview` run their existing assertions with `PLAYWRIGHT_CAPTURE_SCREENSHOTS=false`. They skip review PNG writes and attachments. Navigation, stabilization, editing, publication recovery, access checks, and cleanup still execute. Existing functional-flow diagnostic attachments, screenshots, traces, and videos keep their current behavior, including failure evidence. They do not establish that review screenshots were collected.
 
@@ -431,6 +429,14 @@ at October 26, 2026 21:30 UTC; configured browser timezone is UTC. Every case ow
 and exactly cleans its records through the gated helper. The default, prefetch
 and detail scenarios share that ownership boundary.
 
+Event pages and roster pages use separate client queries. `eventTimeline.listPublic`
+returns event identities with empty `slots` and `performers` arrays and a non-null
+initial roster cursor bound to the event and range. The controller drains
+`eventTimeline.listPublicRoster` independently before reporting complete coverage.
+Empty roster phases keep loading active; exhausting the bounded read budget keeps
+the partial state and More action. This separation respects Convex's single
+pagination budget across nested queries.
+
 Timeline fixtures hold a local cross-process lease for their backend from creation
 through exact owned cleanup. Unique IDs protect writes, but fixed-date public
 queries see every concurrent run, so the timeline fixture lifetime is exclusive
@@ -444,6 +450,12 @@ a disconnected POST can still commit after DELETE reads zero. Test failures
 followed by exact owned cleanup release normally. Only fixture setup/teardown has
 a 150-second budget to include the bounded 120-second lease wait; test bodies
 keep their existing timeout.
+
+Cleanup DELETE retries once after a connection reset, using the same run ID.
+Creation POST and state-change PATCH keep their existing retry behavior. A
+successful cleanup still requires valid JSON with exact owned counts. Exhausted
+resets, HTTP errors, malformed JSON and count mismatches keep the lease blocked,
+including a retry that returns zero after the first deletion's response was lost.
 
 `home-timeline-time-regressions.flow.spec.ts` covers fractional CSS zoom panning,
 date navigation and Back restoration, plus event and selected-set details with a

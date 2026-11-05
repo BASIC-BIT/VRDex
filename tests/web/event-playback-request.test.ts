@@ -18,3 +18,9 @@ test("sequence projection preserves repeated appearances and missing streams", (
   assert.equal(value?.kind, "performer_sequence");
   if (value?.kind === "performer_sequence") assert.deepEqual(value.event.slots.map(slot => slot.key), ["slot-a", "slot-b"]);
 });
+test('profile request retains canonical case and rejects removed links without calendar gates',async()=>{
+ const {profilePlaybackRequest}=await import('../../apps/web/src/lib/event-playback-request');
+ const profile={id:'profile',slug:'dj',displayName:'DJ Name',outboundLinks:[{type:'vrcdn',url:'vrcdn:Alpha'}]};
+ const value=profilePlaybackRequest(profile,'Alpha');assert.equal(value?.title,'DJ Name - VRDex');assert.equal(value?.sourceId,'Alpha');assert.equal(value?.startAt,undefined);
+ assert.equal(profilePlaybackRequest(profile,'alpha'),null);assert.equal(profilePlaybackRequest({...profile,outboundLinks:[]},'Alpha'),null);
+});

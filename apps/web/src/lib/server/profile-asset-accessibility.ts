@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import sharp from "sharp";
 
-const DEFAULT_MODEL = "gpt-5.6-luna";
+const DEFAULT_MODEL = "gpt-6-luna";
 const MAX_IMAGE_BYTES = 1_500_000;
 const MAX_DESCRIPTION_LENGTH = 140;
 const MAX_REQUEST_BYTES = 2_100_000;

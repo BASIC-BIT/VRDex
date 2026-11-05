@@ -5,7 +5,12 @@ import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc } from "./_generated/dataModel";
-import { internalMutation } from "./_generated/server";
+import { v } from "convex/values";
+import { connectorSeriesEnabled } from "./_eventSeriesModel";
+import type { ExternalSeries } from "./_eventSeriesSync";
+import { internalAction, internalMutation } from "./_generated/server";
+import { fetchExternalSeries as fetchDiscordSeries } from "./eventSyncKinds/discordScheduledEvents";
+import { fetchExternalSeries as fetchGoogleSeries } from "./eventSyncKinds/googleCalendar";
 import {
   createProfileSearchDocument,
   reindexProfileSearchDocument,
@@ -259,6 +264,18 @@ export const backfillClubDataVisibility = migrations.define({
 });
 export const runBackfillClubDataVisibility = migrations.runner(internal.migrations.backfillClubDataVisibility);
 
+// Intentionally excluded from runAll: only approved, sealed inventories execute.
+export const repairCommunityStatisticsV2 = migrations.define({
+  table: "communityTelemetryRepairTargets",
+  batchSize: 50,
+  migrateOne: async (ctx, target) => {
+    const run = await ctx.db.get(target.runId);
+    if (run?.state === "active" && target.state !== "corrected")
+      await ctx.scheduler.runAfter(0, internal.communityTelemetryRepair.repairTarget, { targetId: target._id });
+  },
+});
+export const runRepairCommunityStatisticsV2 = migrations.runner(internal.migrations.repairCommunityStatisticsV2);
+
 // Run explicitly after review. Registration never changes membership, visibility or allocation.
 export const backfillGroupObservationPolicies = migrations.define({
   table: "communityVrchatIntegrations",
@@ -320,3 +337,33 @@ export const runBackfillGroupObservationPolicies = migrations.runner([
   internal.migrations.backfillGroupObservationPolicies,
   internal.migrations.backfillGroupTelemetryRollupIntegrations,
 ]);
+
+/**
+ * Plan 11: groups one connector's phase-one occurrence links into series, one external series at a time. Not
+ * migrations.define, because it reads each series from its source. Idempotent: a grouped night link carries its seriesId
+ * and is never read again. Run by hand per connector, or through eventSeriesSync.groupOccurrenceLinksForConnector.
+ */
+export const groupOccurrenceLinks = internalAction({
+  args: { connectorId: v.id("eventConnectors") },
+  handler: async (ctx, { connectorId }): Promise<{ grouped: string[]; unparseable: string[] }> => {
+    const result = { grouped: [] as string[], unparseable: [] as string[] };
+    const connector = await ctx.runQuery(internal.eventSeriesSync.readConnector, { connectorId });
+    // As series import: an inactive, held (R3), or export-only connector reads nothing. Provider errors carry only a status
+    // code; one that throws stops the run, and a rerun picks up where it stopped.
+    if (!connectorSeriesEnabled() || connector?.state !== "active" || connector.mode === "hold" || connector.direction === "export" || connector.direction === "off") return result;
+    const fetchSeries = connector.kind === "google_calendar" ? fetchGoogleSeries
+      : connector.kind === "discord_scheduled_events" ? fetchDiscordSeries : null;
+    if (!fetchSeries) return result;
+    for (const { externalSeriesId, eventIds } of await ctx.runQuery(internal.eventSeriesSync.occurrenceLinkGroups, { connectorId })) {
+      const external: ExternalSeries = await fetchSeries(ctx, connector, externalSeriesId);
+      const outcome = external.deleted || !external.fields ? null : await ctx.runMutation(internal.eventSeriesSync.groupLinks, {
+        connectorId, externalSeriesId, externalUpdatedAt: external.externalUpdatedAt, fields: external.fields, eventIds,
+      });
+      if (!outcome) result.unparseable.push(externalSeriesId);
+      else if (outcome.wrote) result.grouped.push(externalSeriesId);
+      // IDs only: the nights stay one-offs for staff to place.
+      if (outcome?.skipped.length) console.warn("grouping left nights outside their series", { connectorId, externalSeriesId, eventIds: outcome.skipped });
+    }
+    return result;
+  },
+});

@@ -121,3 +121,14 @@ test("group metadata accepts a case-variant ID and preserves the requested ID", 
   })).getGroup(groupId);
   assert.equal(group.groupId, groupId);
 });
+
+test("multipart requests hand FormData to the fetcher without a JSON content type", async () => {
+  let input;
+  const provider = client(null, 200, { fetcher: async (_url, options) => { input = options; return Response.json({ id: "file_x" }); } });
+  const form = new FormData();
+  form.set("tag", "gallery");
+  assert.deepEqual(await provider.request("/file/image", { method: "POST", form, maxResponseBytes: 100 }), { id: "file_x" });
+  assert.equal(input.body, form);
+  assert.equal("content-type" in input.headers, false);
+  await assert.rejects(provider.request("/file/image", { method: "POST", form, body: {} }));
+});

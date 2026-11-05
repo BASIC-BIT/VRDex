@@ -854,6 +854,36 @@ test("real prewarmed 30fps mono source stays synchronized in a 60fps stereo prog
   const start = renderer.getState().outputMs / 1000 + 1;
   await sleep(8000);
   assert.equal(renderer.getState().error, undefined);
+  // The marker decode rejects a flash still lit at EOF, so end on the hold
+  // slate. Best effort: start the hold inside a lit flash (white luma in the
+  // fixture's 854x480 box, probed at (85, 20) scaled to the program profile)
+  // so the hard case is normally exercised; the slate closes any open flash
+  // either way.
+  const [input] = renderer.getInputs(),
+    { width, height } = renderer.profile,
+    probeIndex =
+      Math.round((20 * height) / 480) * width + Math.round((85 * width) / 854),
+    lit = () => input.buffer.frame?.[probeIndex] > 180,
+    litDeadline = performance.now() + 1500;
+  while (!lit() && performance.now() < litDeadline) await sleep(5);
+  // Two ticks render the lit frame; the renderer tolerates 2s of backpressure.
+  const litTick = renderer.getState().ticks,
+    tickDeadline = performance.now() + 2000;
+  while (
+    renderer.getState().ticks < litTick + 2 &&
+    performance.now() < tickDeadline
+  )
+    await sleep(5);
+  assert.equal(renderer.getState().error, undefined);
+  renderer.hold();
+  const holdDeadline = performance.now() + 5000;
+  while (
+    renderer.getState().renderedSourceId !== undefined &&
+    performance.now() < holdDeadline
+  )
+    await sleep(20);
+  assert.equal(renderer.getState().error, undefined);
+  assert.equal(renderer.getState().renderedSourceId, undefined);
   await renderer.stop();
   assert.equal(overflow, false);
   await writeFile(output, Buffer.concat(chunks));
@@ -863,7 +893,8 @@ test("real prewarmed 30fps mono source stays synchronized in a 60fps stereo prog
     width: 854,
     height: 480,
     windows: [{ identity: "a", start: first, end: first + 6 }],
-    maxSeconds: 15,
+    // Byte guard only; covers 2s + 5s ack + 8s + 8.5s of hold deadlines.
+    maxSeconds: 25,
   });
   assert(
     facts.avDriftMs <= 100,

@@ -154,6 +154,7 @@ function Workspace({ mode }: { mode: Mode }) {
     visibility: null,
     integration: null,
     connectionState: "active",
+    eventConnectorsEnabled: false,
     readableCategories: mode === "owner" ? ["instance_history"] : [],
   };
   return (

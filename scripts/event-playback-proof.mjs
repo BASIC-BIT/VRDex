@@ -16,7 +16,12 @@ const expressions = {
   break: "sine=frequency=440:sample_rate=48000,volume=enable='between(t,2,2.6)+between(t,5,7)':volume=0",
 };
 
-export async function startProofServer({ port = 0 } = {}) {
+// null keeps the fixture alive until explicit close (long device experiments).
+// Existing automated callers retain their ten-minute safety deadline.
+export async function startProofServer({ port = 0, lifetimeMs = 10 * 60_000 } = {}) {
+  if (lifetimeMs !== null && (!Number.isSafeInteger(lifetimeMs) || lifetimeMs <= 0 || lifetimeMs > 2_147_483_647)) {
+    throw new Error("lifetimeMs must be null or a positive timer duration");
+  }
   await mkdir(mediaDir, { recursive: true });
   const instanceMediaDir = await mkdtemp(path.join(mediaDir, "transport-"));
   const removeMedia = async () => {
@@ -135,8 +140,8 @@ export async function startProofServer({ port = 0 } = {}) {
     await Promise.all(exits);
     await removeMedia();
   };
-  const deadline = setTimeout(() => void close(), 10 * 60_000);
-  deadline.unref();
+  const deadline = lifetimeMs === null ? undefined : setTimeout(() => void close(), lifetimeMs);
+  deadline?.unref();
   return { url: `http://127.0.0.1:${server.address().port}`, mediaDirectory: instanceMediaDir, close };
 }
 

@@ -270,6 +270,7 @@ function Workspace({ emptyHistoryPages = 0 }: { emptyHistoryPages?: number }) {
     visibility: null,
     integration: null,
     connectionState: "active",
+    eventConnectorsEnabled: false,
     readableCategories: [],
   };
   return (

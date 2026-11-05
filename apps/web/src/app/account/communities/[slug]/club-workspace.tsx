@@ -75,6 +75,7 @@ export function ClubWorkspaceView({
     data.actor.kind === "owner",
     data.actor.permissions,
     data.readableCategories,
+    data.eventConnectorsEnabled ?? false,
   );
   return (
     <WorkspaceContext.Provider value={data}>

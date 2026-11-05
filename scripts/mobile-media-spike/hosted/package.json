@@ -1,0 +1,6 @@
+{
+  "name": "vrdex-mobile-playback-test",
+  "private": true,
+  "scripts": { "build": "node build.mjs --standalone" },
+  "dependencies": { "ffmpeg-static": "5.2.0" }
+}

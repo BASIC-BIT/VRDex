@@ -1,8 +1,9 @@
+import { integratePopulationPair, markPopulationBreaks } from "./_clubAnalyticsMath";
 import { admissionMatches, type StatisticsAdmission } from "./_groupAdmission";
 import { isManagedIntegrationSession, automaticAdmissionEnabled, readCollectionSubject, readIntegrationRollups, readLegacyRollupMapping, readManagedIntegration, saveManagedPublicationChoice } from "./_groupObservationPolicy";
 import { applyAdmissionRequired, hasAutomaticEnrollmentBacklog, statisticsAdmissionDiagnostics } from "./groupObservations";
 import { requireControlProof } from "./_externalControl";
-import { transitionCoverage } from "./_collectionCoverage";
+import { transitionCoverage, readPopulationGaps, populationPairHasGap } from "./_collectionCoverage";
 import { rejectConnectionOperations } from "./clubOperations";
 import { resolveClubActor, readClubVisibility, canReadCategory, requireClubPermission } from "./_clubAccess";
 import { recordGroupMemberObservation } from "./_groupMemberSnapshots";
@@ -64,6 +65,7 @@ const aggregateInstanceValidator = v.object({
   providerLocation: v.string(),
   vrchatWorldId: v.string(),
   population: v.number(),
+  closedAt: v.optional(v.number()),
 });
 
 const WORKER_HEARTBEAT_FRESHNESS_MS = 2 * 60_000;
@@ -169,9 +171,9 @@ async function rollupForIntegration(
 ) {
   const scoped = input.eventId
     ? await ctx.db.query("communityTelemetryRollups").withIndex("by_integrationId_eventId_rollupVersion", q =>
-      q.eq("integrationId", integration._id).eq("eventId", input.eventId).eq("rollupVersion", TELEMETRY_ROLLUP_VERSION)).first()
+      q.eq("integrationId", integration._id).eq("eventId", input.eventId)).unique()
     : await ctx.db.query("communityTelemetryRollups").withIndex("by_integrationId_grain_bucketStartAt", q =>
-      q.eq("integrationId", integration._id).eq("grain", input.grain).eq("bucketStartAt", input.bucketStartAt)).first();
+      q.eq("integrationId", integration._id).eq("grain", input.grain).eq("bucketStartAt", input.bucketStartAt)).unique();
   if (scoped) return scoped;
   const subject = readCollectionSubject(integration);
   if (subject.kind !== "managed" || input.bucketStartAt < (integration.telemetryEpochStartedAt ?? integration.createdAt)) return null;
@@ -179,9 +181,9 @@ async function rollupForIntegration(
   if (mapping.kind !== "resolved" || mapping.integration._id !== integration._id) return null;
   const legacy = input.eventId
     ? await ctx.db.query("communityTelemetryRollups").withIndex("by_eventId_rollupVersion", q =>
-      q.eq("eventId", input.eventId).eq("rollupVersion", TELEMETRY_ROLLUP_VERSION)).first()
+      q.eq("eventId", input.eventId)).unique()
     : await ctx.db.query("communityTelemetryRollups").withIndex("by_communityProfileId_grain_bucketStartAt", q =>
-      q.eq("communityProfileId", subject.communityProfileId).eq("grain", input.grain).eq("bucketStartAt", input.bucketStartAt)).first();
+      q.eq("communityProfileId", subject.communityProfileId).eq("grain", input.grain).eq("bucketStartAt", input.bucketStartAt)).unique();
   return legacy && !legacy.integrationId && legacy.communityProfileId === subject.communityProfileId ? legacy : null;
 }
 
@@ -1598,6 +1600,7 @@ export const ingestAggregatePoll = internalMutation({
     for (const item of args.instances) {
       if (
         !Number.isSafeInteger(item.population) || item.population < 0 ||
+        (item.closedAt !== undefined && (!Number.isSafeInteger(item.closedAt) || item.closedAt < 0 || item.closedAt > args.observedAt)) ||
         item.providerInstanceId.length < 1 || item.providerInstanceId.length > 500 || /[\u0000-\u001f\u007f]/.test(item.providerInstanceId) ||
         item.providerLocation.length < 1 || item.providerLocation.length > 500 ||
         !item.vrchatWorldId.startsWith("wrld_") || item.vrchatWorldId.length > 100 || /[\u0000-\u001f\u007f]/.test(item.vrchatWorldId) ||
@@ -1614,7 +1617,11 @@ export const ingestAggregatePoll = internalMutation({
       .query("communityPopulationObservations")
       .withIndex("by_idempotencyKey", (q) => q.eq("idempotencyKey", args.pollId))
       .first();
-    if (duplicatePoll) return { duplicate: true };
+    if (duplicatePoll || args.observedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt) ||
+        args.observedAt < (integration.lastSuccessfulObservationAt ?? 0)) {
+      await ctx.db.patch(integration._id, { nextPollAt: args.nextPollAt });
+      return { duplicate: true };
+    }
     const coverageWindowId = await transitionCoverage(
       ctx,
       integration._id,
@@ -1629,14 +1636,14 @@ export const ingestAggregatePoll = internalMutation({
     for (const item of detailedInstances) {
       const current = worlds.get(item.vrchatWorldId) ?? { population: 0, instanceCount: 0 };
       current.population += Math.max(0, Math.floor(item.population));
-      current.instanceCount += 1;
+      current.instanceCount += item.closedAt === undefined ? 1 : 0;
       worlds.set(item.vrchatWorldId, current);
     }
     await ctx.db.insert("communityPopulationObservations", {
       integrationId: integration._id,
       idempotencyKey: args.pollId,
       totalPopulation: args.instances.reduce((total, item) => total + Math.max(0, Math.floor(item.population)), 0),
-      activeInstanceCount: args.instances.length,
+      activeInstanceCount: args.instances.filter(item => item.closedAt === undefined).length,
       worldDistribution: [...worlds.entries()].map(([vrchatWorldId, value]) => ({ vrchatWorldId, ...value })),
       observedAt: args.observedAt,
       source: args.source,
@@ -1686,6 +1693,15 @@ export const ingestAggregatePoll = internalMutation({
             .gte("openedAt", epochStartedAt),
         )
         .first();
+      if (!session && item.closedAt !== undefined) {
+        session = await ctx.db.query("instanceSessions")
+          .withIndex("by_integrationId_providerLocation_state_openedAt", q => q
+            .eq("integrationId", integration._id)
+            .eq("providerLocation", item.providerLocation)
+            .eq("state", "closed")
+            .gte("openedAt", epochStartedAt))
+          .order("desc").first();
+      }
       const world = await ctx.db
         .query("worlds")
         .withIndex("by_vrchatWorldId", (q) => q.eq("vrchatWorldId", item.vrchatWorldId))
@@ -1699,8 +1715,9 @@ export const ingestAggregatePoll = internalMutation({
           vrchatWorldId: item.vrchatWorldId.slice(0, 100),
           ...(world ? { worldId: world._id } : {}),
           source: args.source,
-          state: "open",
+          state: item.closedAt === undefined ? "open" : "closed",
           openedAt: args.observedAt,
+          ...(item.closedAt === undefined ? {} : { closedAt: args.observedAt }),
           lastObservedAt: args.observedAt,
           consecutiveMisses: 0,
           updatedAt: args.observedAt,
@@ -1708,6 +1725,7 @@ export const ingestAggregatePoll = internalMutation({
         session = await ctx.db.get(sessionId);
       } else {
         await ctx.db.patch(session._id, {
+          ...(item.closedAt === undefined ? {} : { state: "closed" as const, closedAt: Math.min(session.closedAt ?? Infinity, Math.max(session.openedAt, item.closedAt)) }),
           providerLocation: item.providerLocation.slice(0, 500),
           ...(!session.worldId && world ? { worldId: world._id } : {}),
           lastObservedAt: args.observedAt,
@@ -1847,7 +1865,7 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
   ] = await Promise.all([
     integration.assignedCollectorAccountId ? ctx.db.get(integration.assignedCollectorAccountId) : null,
     ctx.db.query("instanceSessions").withIndex("by_integrationId_openedAt", (q) => q.eq("integrationId", integration._id).gte("openedAt", epochStartedAt)).order("desc").take(100),
-    ctx.db.query("communityPopulationObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id).gte("observedAt", epochStartedAt)).order("desc").take(2500),
+    ctx.db.query("communityPopulationObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id).gte("observedAt", epochStartedAt).lte("observedAt", now)).order("desc").take(2500),
     ctx.db.query("instancePopulationObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id).gte("observedAt", epochStartedAt)).order("desc").take(2500),
     ctx.db.query("communityMemberCountObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id).gte("observedAt", epochStartedAt)).order("desc").take(500),
     ctx.db.query("collectionCoverageWindows").withIndex("by_integrationId_startedAt", (q) => q.eq("integrationId", integration._id).gte("startedAt", epochStartedAt)).order("desc").take(200),
@@ -1867,11 +1885,16 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
     worldId: "aggregate",
   }));
   const rangeStart = Math.min(...points.map((point) => point.observedAt), now);
-  const metrics = computePopulationMetrics(points, rangeStart, now);
+  const coverageInput = await readPopulationGaps(ctx, { integrationId: integration._id, epochStartedAt, startAt: rangeStart, endAt: now });
+  if (!coverageInput.complete) throw new Error("STATISTICS_RANGE_LIMIT: population coverage exceeds the read limit.");
+  const marked = markPopulationBreaks(points.map(p => ({ at: p.observedAt, value: p.population, coverage: p.coverageState })), coverageInput.gaps);
+  const breaks = new Set(marked.filter(p => p.breakBefore).map(p => p.at));
+  const metrics = computePopulationMetrics(points.map(p => ({ ...p, breakBefore: breaks.has(p.observedAt) })), rangeStart, now);
   const ownedSessions = sessions.filter(session => isManagedIntegrationSession(integration, profile._id, session));
   const openSessions = ownedSessions.filter((session) => session.state === "open");
   const current = (!integration.enabledFeatures || integration.enabledFeatures.includes("analytics")) &&
-    integration.lastSuccessfulObservationAt !== undefined && now - integration.lastSuccessfulObservationAt <= CURRENT_FRESHNESS_MS;
+    integration.lastSuccessfulObservationAt !== undefined && now - integration.lastSuccessfulObservationAt <= CURRENT_FRESHNESS_MS &&
+    population[0] !== undefined && now - population[0].observedAt <= CURRENT_FRESHNESS_MS;
   return {
     community: { slug: profile.slug, displayName: profile.displayName },
     integration: {
@@ -1885,7 +1908,7 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
       collector: account ? { accountAlias: account.accountAlias, vrchatUserId: account.vrchatUserId, state: account.state } : null,
     },
     summary: {
-      currentPopulation: current ? metrics.currentPopulation : undefined,
+      currentPopulation: current ? population[0]?.totalPopulation : undefined,
       activeInstanceCount: current ? population[0]?.activeInstanceCount ?? openSessions.length : undefined,
       peakConcurrency: metrics.peakConcurrency,
       playerHours: metrics.playerHours,
@@ -2031,7 +2054,7 @@ async function invalidateEventRecapJob(ctx: MutationCtx, eventId: Id<"events">) 
 async function advanceEventRecapJob(
   ctx: MutationCtx,
   job: Doc<"communityTelemetryEventRecapJobs">,
-) {
+): Promise<Id<"communityTelemetryRollups"> | null> {
   const [event, integration, currentIntegration] = await Promise.all([
     ctx.db.get(job.eventId),
     ctx.db.get(job.integrationId),
@@ -2048,9 +2071,19 @@ async function advanceEventRecapJob(
     return null;
   }
 
+  if (job.calculationVersion !== TELEMETRY_ROLLUP_VERSION) {
+    await ctx.db.patch(job._id, {
+      calculationVersion: TELEMETRY_ROLLUP_VERSION, cursor: undefined, pendingAt: undefined,
+      pendingTotal: 0, pendingHasValid: false, pendingSessions: [], previousAt: undefined, previousTotal: undefined,
+      currentPopulation: undefined, peakConcurrency: 0, playerMinutes: 0, measuredMs: 0,
+      activeInstanceCount: 0, worldDistribution: [], computedAt: Date.now(),
+    });
+    const restarted = await ctx.db.get(job._id);
+    return restarted ? advanceEventRecapJob(ctx, restarted) : null;
+  }
   const page = await ctx.db.query("instancePopulationObservations")
     .withIndex("by_integrationId_observedAt", q => q.eq("integrationId", job.integrationId)
-      .gte("observedAt", job.bucketStartAt).lt("observedAt", job.bucketEndAt))
+      .gte("observedAt", Math.max(integration.telemetryEpochStartedAt ?? integration.createdAt, job.bucketStartAt - MAX_INTERPOLATION_GAP_MS)).lte("observedAt", job.bucketEndAt + MAX_INTERPOLATION_GAP_MS))
     .paginate({ cursor: job.cursor ?? null, numItems: EVENT_RECAP_PAGE_SIZE });
   const associationBySession = new Map<Id<"instanceSessions">, boolean>();
   const worldDistribution = new Map(job.worldDistribution.map(row => [row.vrchatWorldId, row.samples]));
@@ -2066,21 +2099,31 @@ async function advanceEventRecapJob(
   let measuredMs = job.measuredMs;
   let activeInstanceCount = job.activeInstanceCount;
 
-  const finishTimestamp = () => {
+  const finishTimestamp = async () => {
     if (pendingAt === undefined) return;
-    activeInstanceCount = Math.max(activeInstanceCount, pendingSessions.size);
+    if (pendingAt >= job.bucketStartAt && pendingAt < job.bucketEndAt)
+      activeInstanceCount = Math.max(activeInstanceCount, pendingSessions.size);
     if (pendingHasValid) {
-      peakConcurrency = Math.max(peakConcurrency, pendingTotal);
-      currentPopulation = pendingTotal;
+      if (pendingAt >= job.bucketStartAt && pendingAt < job.bucketEndAt) {
+        peakConcurrency = Math.max(peakConcurrency, pendingTotal);
+        currentPopulation = pendingTotal;
+      }
       if (previousAt !== undefined && previousTotal !== undefined) {
-        const gap = pendingAt - previousAt;
-        if (gap > 0 && gap <= MAX_INTERPOLATION_GAP_MS) {
-          playerMinutes += ((previousTotal + pendingTotal) / 2) * (gap / 60_000);
-          measuredMs += gap;
+        const interval = integratePopulationPair({
+          from: { at: previousAt, value: previousTotal, eligible: true },
+          to: { at: pendingAt, value: pendingTotal, eligible: true,
+            breakBefore: false },
+          startAt: job.bucketStartAt, endAt: job.bucketEndAt,
+        });
+        if (interval && !await populationPairHasGap(ctx, { integrationId: integration._id,
+          epochStartedAt: integration.telemetryEpochStartedAt ?? integration.createdAt, startAt: previousAt, endAt: pendingAt })) {
+          playerMinutes += interval.area / 60_000; measuredMs += interval.duration;
         }
       }
       previousAt = pendingAt;
       previousTotal = pendingTotal;
+    } else {
+      previousAt = undefined; previousTotal = undefined;
     }
     pendingAt = undefined;
     pendingTotal = 0;
@@ -2089,13 +2132,15 @@ async function advanceEventRecapJob(
   };
 
   for (const point of page.page) {
-    if (pendingAt !== undefined && point.observedAt !== pendingAt) finishTimestamp();
+    if (pendingAt !== undefined && point.observedAt !== pendingAt) await finishTimestamp();
     let associated = associationBySession.get(point.sessionId);
     if (associated === undefined) {
       const confirmed = await ctx.db.query("eventInstanceAssociations")
         .withIndex("by_sessionId_state", q => q.eq("sessionId", point.sessionId).eq("state", "confirmed"))
         .first();
-      associated = confirmed?.eventId === job.eventId && confirmed.communityProfileId === job.communityProfileId;
+      const session = await ctx.db.get(point.sessionId);
+      associated = confirmed?.eventId === job.eventId && confirmed.communityProfileId === job.communityProfileId &&
+        session?.integrationId === integration._id && session.openedAt >= (integration.telemetryEpochStartedAt ?? integration.createdAt);
       associationBySession.set(point.sessionId, associated);
     }
     if (!associated) continue;
@@ -2105,7 +2150,8 @@ async function advanceEventRecapJob(
       pendingTotal += point.population;
       pendingHasValid = true;
     }
-    worldDistribution.set(point.vrchatWorldId, (worldDistribution.get(point.vrchatWorldId) ?? 0) + 1);
+    if (point.observedAt >= job.bucketStartAt && point.observedAt < job.bucketEndAt)
+      worldDistribution.set(point.vrchatWorldId, (worldDistribution.get(point.vrchatWorldId) ?? 0) + 1);
   }
 
   if (!page.isDone) {
@@ -2121,7 +2167,7 @@ async function advanceEventRecapJob(
     return null;
   }
 
-  finishTimestamp();
+  await finishTimestamp();
   const confirmed = await ctx.db.query("eventInstanceAssociations")
     .withIndex("by_eventId_state", q => q.eq("eventId", job.eventId).eq("state", "confirmed"))
     .first();
@@ -2167,11 +2213,36 @@ async function advanceEventRecapJob(
   return rollupId;
 }
 
-export const continueEventRecapJob = internalMutation({
+export const advanceEventRecapPage = internalMutation({
   args: { jobId: v.id("communityTelemetryEventRecapJobs") },
+  returns: v.union(v.null(), v.id("communityTelemetryRollups")),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId);
+    let job = await ctx.db.get(args.jobId);
+    if (job?.failure) {
+      await ctx.db.patch(job._id, { failure: undefined, calculationVersion: undefined });
+      job = await ctx.db.get(job._id);
+    }
     return job ? advanceEventRecapJob(ctx, job) : null;
+  },
+});
+
+export const continueEventRecapJob = internalMutation({
+  args: { jobId: v.id("communityTelemetryEventRecapJobs"), retryAttempt: v.optional(v.number()) },
+  returns: v.union(v.null(), v.id("communityTelemetryRollups")),
+  handler: async (ctx, args): Promise<Id<"communityTelemetryRollups"> | null> => {
+    try {
+      return await ctx.runMutation(internal.communityTelemetry.advanceEventRecapPage, { jobId: args.jobId });
+    } catch (error) {
+      if (await ctx.db.get(args.jobId)) {
+        await ctx.db.patch(args.jobId, {
+          failure: error instanceof Error ? error.message.slice(0, 500) : "Recap continuation failed",
+        });
+        const attempt = args.retryAttempt ?? 0;
+        if (attempt < 3) await ctx.scheduler.runAfter(60_000 * 2 ** attempt,
+          internal.communityTelemetry.continueEventRecapJob, { jobId: args.jobId, retryAttempt: attempt + 1 });
+      }
+      return null;
+    }
   },
 });
 
@@ -2204,7 +2275,7 @@ export const recomputeRollup = internalMutation({
       : args.bucketEndAt;
     if (bucketEndAt <= bucketStartAt) throw new Error("Rollup window is invalid.");
     let existing = args.eventId
-      ? await ctx.db.query("communityTelemetryRollups").withIndex("by_eventId_rollupVersion", (q) => q.eq("eventId", args.eventId!).eq("rollupVersion", TELEMETRY_ROLLUP_VERSION)).first()
+      ? await ctx.db.query("communityTelemetryRollups").withIndex("by_eventId_rollupVersion", (q) => q.eq("eventId", args.eventId!)).first()
       : null;
     if (args.eventId && !currentEvent) {
       await invalidateEventRecapJob(ctx, args.eventId);
@@ -2232,56 +2303,12 @@ export const recomputeRollup = internalMutation({
         peakConcurrency: 0, playerMinutes: 0, measuredMs: 0, activeInstanceCount: 0,
         worldDistribution: [],
         computedAt: args.now ?? Date.now(),
+        calculationVersion: TELEMETRY_ROLLUP_VERSION,
       });
       return advanceEventRecapJob(ctx, (await ctx.db.get(jobId))!);
     }
-    const population = await ctx.db
-      .query("communityPopulationObservations")
-      .withIndex("by_integrationId_observedAt", (q) =>
-        q.eq("integrationId", integration._id).gte("observedAt", bucketStartAt).lt("observedAt", bucketEndAt),
-      )
-      .collect();
-    const memberCounts = await ctx.db
-      .query("communityMemberCountObservations")
-      .withIndex("by_integrationId_observedAt", (q) =>
-        q.eq("integrationId", integration._id).gte("observedAt", bucketStartAt).lt("observedAt", bucketEndAt),
-      )
-      .collect();
-    const points = population.map((point) => ({
-      observedAt: point.observedAt,
-      population: point.totalPopulation,
-      coverageState: point.coverageState,
-      instanceKey: "aggregate",
-      worldId: "aggregate",
-    }));
-    const metrics = computePopulationMetrics(points, bucketStartAt, bucketEndAt);
-    const worldDistribution = new Map<string, number>();
-    for (const point of population) {
-      for (const world of point.worldDistribution) {
-        worldDistribution.set(world.vrchatWorldId, (worldDistribution.get(world.vrchatWorldId) ?? 0) + world.instanceCount);
-      }
-    }
-    const activeInstanceCount = Math.max(0, ...population.map((point) => point.activeInstanceCount));
-    const sortedMembers = memberCounts.sort((left, right) => left.observedAt - right.observedAt);
-    const values = {
-      integrationId: integration._id,
-      communityProfileId,
-      grain: args.grain,
-      bucketStartAt,
-      bucketEndAt,
-      rollupVersion: TELEMETRY_ROLLUP_VERSION,
-      ...(metrics.currentPopulation === undefined ? {} : { currentPopulation: metrics.currentPopulation }),
-      activeInstanceCount,
-      peakConcurrency: metrics.peakConcurrency,
-      playerMinutes: metrics.playerMinutes,
-      coverageRatio: metrics.coverageRatio,
-      ...(sortedMembers.length > 0 ? { groupMemberCount: sortedMembers[sortedMembers.length - 1]!.memberCount } : {}),
-      ...(sortedMembers.length > 1 ? { groupMemberGrowth: sortedMembers[sortedMembers.length - 1]!.memberCount - sortedMembers[0]!.memberCount } : {}),
-      worldDistribution: [...worldDistribution.entries()]
-        .map(([vrchatWorldId, samples]) => ({ vrchatWorldId, samples }))
-        .sort((left, right) => right.samples - left.samples || left.vrchatWorldId.localeCompare(right.vrchatWorldId)),
-      computedAt: args.now ?? Date.now(),
-    };
+    if (args.grain === "event") throw new Error("Event rollups require an event.");
+    const values = await populationRollupValues(ctx, integration, { grain: args.grain, bucketStartAt, bucketEndAt, now: args.now });
     if (existing) {
       await ctx.db.patch(existing._id, values);
       return existing._id;
@@ -3170,3 +3197,68 @@ export const recordProofCheckOutcome = internalMutation({
     };
   },
 });
+
+export async function populationRollupValues(ctx: QueryCtx | MutationCtx, integration: Doc<"communityVrchatIntegrations">,
+  args: { grain: "hour" | "day"; bucketStartAt: number; bucketEndAt: number; now?: number }) {
+    const epoch = integration.telemetryEpochStartedAt ?? integration.createdAt;
+    const communityProfileId = readCollectionSubject(integration).kind === "managed" ? integration.communityProfileId : undefined;
+    const { bucketStartAt, bucketEndAt } = args;
+    const population = await ctx.db
+      .query("communityPopulationObservations")
+      .withIndex("by_integrationId_observedAt", (q) =>
+        q.eq("integrationId", integration._id).gte("observedAt", Math.max(epoch, bucketStartAt)).lt("observedAt", bucketEndAt),
+      )
+      .take(5001);
+    const memberCounts = await ctx.db
+      .query("communityMemberCountObservations")
+      .withIndex("by_integrationId_observedAt", (q) =>
+        q.eq("integrationId", integration._id).gte("observedAt", Math.max(epoch, bucketStartAt)).lt("observedAt", bucketEndAt),
+      )
+      .take(5001);
+    if (population.length > 5000 || memberCounts.length > 5000) throw new Error("STATISTICS_RANGE_LIMIT: rollup input exceeds the read limit.");
+    const before = await ctx.db.query("communityPopulationObservations").withIndex("by_integrationId_observedAt", q => q.eq("integrationId", integration._id).gte("observedAt", Math.max(epoch, bucketStartAt - MAX_INTERPOLATION_GAP_MS)).lt("observedAt", bucketStartAt)).order("desc").first();
+    const after = await ctx.db.query("communityPopulationObservations").withIndex("by_integrationId_observedAt", q => q.eq("integrationId", integration._id).gte("observedAt", bucketEndAt).lte("observedAt", bucketEndAt + MAX_INTERPOLATION_GAP_MS)).first();
+    const observed = [...(before ? [before] : []), ...population, ...(after ? [after] : [])];
+    const breaks = new Set<number>();
+    for (let n = 1; n < observed.length; n++) {
+      const a = observed[n - 1]!, b = observed[n]!;
+      if (b.observedAt > a.observedAt && b.observedAt - a.observedAt <= MAX_INTERPOLATION_GAP_MS &&
+          await populationPairHasGap(ctx, { integrationId: integration._id, epochStartedAt: epoch, startAt: a.observedAt, endAt: b.observedAt })) breaks.add(b.observedAt);
+    }
+    const points = observed.map((point) => ({
+      breakBefore: breaks.has(point.observedAt),
+      observedAt: point.observedAt,
+      population: point.totalPopulation,
+      coverageState: point.coverageState,
+      instanceKey: "aggregate",
+      worldId: "aggregate",
+    }));
+    const metrics = computePopulationMetrics(points, bucketStartAt, bucketEndAt);
+    const worldDistribution = new Map<string, number>();
+    for (const point of population) {
+      for (const world of point.worldDistribution) {
+        worldDistribution.set(world.vrchatWorldId, (worldDistribution.get(world.vrchatWorldId) ?? 0) + world.instanceCount);
+      }
+    }
+    const activeInstanceCount = Math.max(0, ...population.map((point) => point.activeInstanceCount));
+    const sortedMembers = memberCounts.sort((left, right) => left.observedAt - right.observedAt);
+    return {
+      integrationId: integration._id,
+      communityProfileId,
+      grain: args.grain,
+      bucketStartAt,
+      bucketEndAt,
+      rollupVersion: TELEMETRY_ROLLUP_VERSION,
+      currentPopulation: metrics.currentPopulation,
+      activeInstanceCount,
+      peakConcurrency: metrics.peakConcurrency,
+      playerMinutes: metrics.playerMinutes,
+      coverageRatio: metrics.coverageRatio,
+      ...(sortedMembers.length > 0 ? { groupMemberCount: sortedMembers[sortedMembers.length - 1]!.memberCount } : {}),
+      ...(sortedMembers.length > 1 ? { groupMemberGrowth: sortedMembers[sortedMembers.length - 1]!.memberCount - sortedMembers[0]!.memberCount } : {}),
+      worldDistribution: [...worldDistribution.entries()]
+        .map(([vrchatWorldId, samples]) => ({ vrchatWorldId, samples }))
+        .sort((left, right) => right.samples - left.samples || left.vrchatWorldId.localeCompare(right.vrchatWorldId)),
+      computedAt: args.now ?? Date.now(),
+    };
+}

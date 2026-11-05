@@ -103,6 +103,26 @@ the event data and approved that exact tool call.
 Creates and publishes an event attached to a community owned by the
 authenticated user. Its input is the shared `ApiEventCreateRequest` contract.
 
+The optional `repeat` object makes the new event the first night of a series:
+
+- `frequency`: `weekly`, `biweekly`, or `monthly_weekday`
+- `weekday`: `0` (Sunday) to `6`, which must be the weekday of `startAt` in
+  the event `timezone`
+- `ordinal`: for `monthly_weekday` only, `1` to `4` or `-1` for the last
+  weekday of the month. When omitted it is taken from the start date, and a
+  start on day 29 or later means the last weekday
+- `endsOn` (a `YYYY-MM-DD` date) or `count` (`1` to `520` nights), both
+  optional
+
+`repeat` requires `timezone`, and the night times follow the start, end, and
+doors-open times in that timezone. A weekday or ordinal that does not select
+the start date is rejected, as is any `repeat` while recurring events are not
+enabled for the deployment. The write result then includes `seriesId`, and an
+idempotent replay returns the same `seriesId`. Later nights are created
+automatically up to sixty days ahead. Editing one night with
+`vrdex_event_update` changes only that night, not the series.
+`ApiEventUpdateRequest` has no `repeat` field.
+
 ### `vrdex_event_update`
 
 Updates an owned community event. Its input contains:

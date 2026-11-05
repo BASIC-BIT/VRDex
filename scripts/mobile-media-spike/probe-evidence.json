@@ -1,0 +1,175 @@
+{
+  "environment": "Headless Chromium on Linux, synthetic media, loopback HTTP",
+  "limitations": "Does not verify audible output or physical-phone background/lock behavior.",
+  "events": [
+    {
+      "deadlineOverride": "passed"
+    },
+    {
+      "soakStarted": "2026-10-27T18:32:33.958Z",
+      "targetSeconds": 660
+    },
+    {
+      "elapsedSeconds": 30,
+      "time": 32.021917,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 60,
+      "time": 62.039124,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 90,
+      "time": 92.03265,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 120,
+      "time": 122.049704,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 150,
+      "time": 152.065634,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 180,
+      "time": 182.080137,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 210,
+      "time": 212.093383,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 240,
+      "time": 242.090569,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 270,
+      "time": 272.106055,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 300,
+      "time": 302.118442,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 330,
+      "time": 332.131173,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 360,
+      "time": 362.151041,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 390,
+      "time": 392.178049,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 420,
+      "time": 422.193306,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 450,
+      "time": 452.206615,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 480,
+      "time": 482.222603,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 510,
+      "time": 512.23396,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 540,
+      "time": 542.247902,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 570,
+      "time": 572.261207,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 600,
+      "time": 602.27393,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 630,
+      "time": 632.290963,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "elapsedSeconds": 660,
+      "time": 661.970309,
+      "paused": false,
+      "ready": 4
+    },
+    {
+      "pipAfterCutoff": "passed"
+    },
+    {
+      "mode": "hls",
+      "playback": "passed"
+    },
+    {
+      "mode": "audio",
+      "playback": "passed"
+    },
+    {
+      "downloadEntries": 146,
+      "evidenceAfterCutoff": true,
+      "pageErrors": []
+    },
+    {
+      "cleanup": "passed",
+      "trackedChildren": 3
+    },
+    {
+      "restartPlayback": "passed"
+    },
+    {
+      "cleanup": "passed",
+      "trackedChildren": 6
+    },
+    {
+      "result": "PASS"
+    }
+  ]
+}

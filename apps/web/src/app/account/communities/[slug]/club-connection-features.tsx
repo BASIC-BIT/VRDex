@@ -28,11 +28,13 @@ const labels = {
   membership_management: "Member management",
   posts: "Posts",
   instances: "Instances",
+  calendar: "Calendar",
 };
 const permissionLabels: Record<string, string> = {
   "group-members-manage": "Manage group member data",
   "group-announcement-manage": "Manage group announcements",
   "group-instance-open-create": "Create members-only instances",
+  "group-calendar-manage": "Manage group calendar",
 };
 
 function RoleAllowlist({

@@ -87,6 +87,7 @@ const data: WorkspaceData = {
   actionLog: [],
   integration: null,
   connectionState: "active",
+  eventConnectorsEnabled: false,
   readableCategories: [],
   visibility: {
     current_population: staffVisibility,

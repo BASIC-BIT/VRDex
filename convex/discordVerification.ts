@@ -8,7 +8,8 @@ import { requireSecureOutboundUrl } from "./_secureUrl";
 import { boundedFetch } from "./_boundedFetch";
 import { claimError, isSignInRequiredError } from "./_claimErrors";
 import { internal } from "./_generated/api";
-import { action, internalMutation, mutation, query } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { action, internalMutation, mutation, query, type DatabaseReader } from "./_generated/server";
 import {
   type ExternalControlLevel,
   externalControlLevelRank,
@@ -485,46 +486,53 @@ export const getManageableGuilds = query({
       return [];
     }
 
-    const now = Date.now();
-    const proofs = await ctx.db
-      .query("externalControlProofs")
-      .withIndex("by_userId_state", (q) => q.eq("userId", user._id).eq("state", "active"))
-      .collect();
-
-    const usable = proofs.filter(
-      (proof) =>
-        proof.assetType === "discord_guild" &&
-        // Match the authorization check exactly. Between a proof lapsing and
-        // the sweeper marking it stale it is still `active`, and offering it
-        // here would show a server that `requireControlProof` then rejects,
-        // while hiding the re-verify prompt that would fix it.
-        (proof.revalidateAfter === undefined || proof.revalidateAfter > now),
-    );
-    // One guild manageable through two Discord logins has one proof per login.
-    // The picker is about servers, not evidence, so collapse to the strongest.
-    const byGuild = new Map<string, (typeof usable)[number]>();
-
-    for (const proof of usable) {
-      const incumbent = byGuild.get(proof.assetExternalId);
-
-      if (
-        incumbent === undefined ||
-        externalControlLevelRank(proof.controlLevel) >
-          externalControlLevelRank(incumbent.controlLevel) ||
-        (proof.controlLevel === incumbent.controlLevel && proof.verifiedAt > incumbent.verifiedAt)
-      ) {
-        byGuild.set(proof.assetExternalId, proof);
-      }
-    }
-
-    return [...byGuild.values()].map((proof) => ({
-      guildId: proof.assetExternalId,
-      guildName: proof.assetDisplayName,
-      controlLevel: proof.controlLevel,
-      verifiedAt: proof.verifiedAt,
-    }));
+    return await manageableDiscordGuilds(ctx.db, user._id, Date.now());
   },
 });
+
+export async function manageableDiscordGuilds(
+  db: DatabaseReader,
+  userId: Id<"users">,
+  now: number,
+) {
+  const proofs = await db
+    .query("externalControlProofs")
+    .withIndex("by_userId_state", (q) => q.eq("userId", userId).eq("state", "active"))
+    .collect();
+
+  const usable = proofs.filter(
+    (proof) =>
+      proof.assetType === "discord_guild" &&
+      // Match the authorization check exactly. Between a proof lapsing and
+      // the sweeper marking it stale it is still `active`, and offering it
+      // here would show a server that `requireControlProof` then rejects,
+      // while hiding the re-verify prompt that would fix it.
+      (proof.revalidateAfter === undefined || proof.revalidateAfter > now),
+  );
+  // One guild manageable through two Discord logins has one proof per login.
+  // The picker is about servers, not evidence, so collapse to the strongest.
+  const byGuild = new Map<string, (typeof usable)[number]>();
+
+  for (const proof of usable) {
+    const incumbent = byGuild.get(proof.assetExternalId);
+
+    if (
+      incumbent === undefined ||
+      externalControlLevelRank(proof.controlLevel) >
+        externalControlLevelRank(incumbent.controlLevel) ||
+      (proof.controlLevel === incumbent.controlLevel && proof.verifiedAt > incumbent.verifiedAt)
+    ) {
+      byGuild.set(proof.assetExternalId, proof);
+    }
+  }
+
+  return [...byGuild.values()].map((proof) => ({
+    guildId: proof.assetExternalId,
+    guildName: proof.assetDisplayName,
+    controlLevel: proof.controlLevel,
+    verifiedAt: proof.verifiedAt,
+  }));
+}
 
 /**
  * Where a pending round-trip started, without consuming or authenticating it.

@@ -1,9 +1,14 @@
 "use client";
 
-import { Maximize, Minimize, Pause, Play, Volume2, VolumeX } from "lucide-react";
+import { Maximize, Minimize, Pause, Play, Volume2, VolumeX, PictureInPicture2 } from "lucide-react";
 
 export type VrcdnPlayerControlsProps = {
   fullscreen: boolean;
+  mode?: "video" | "audio";
+  onModeChange?: (mode: "video" | "audio") => void;
+  pipSupported?: boolean;
+  pipActive?: boolean;
+  onTogglePip?: () => void;
   /**
    * Which stream these controls drive. A profile can carry more than one live
    * VRCDN link and renders a player for each, so without this every strip
@@ -35,7 +40,7 @@ export type VrcdnPlayerControlsProps = {
 };
 
 const controlButton =
-  "flex size-11 cursor-pointer items-center justify-center rounded-control text-white/90 hover:text-white";
+  "flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-control text-white/90 hover:text-white";
 
 /**
  * The control strip for a live stream: no timeline, because there is nothing to
@@ -49,6 +54,7 @@ const controlButton =
  */
 export function VrcdnPlayerControls({
   connected,
+  mode, onModeChange, pipSupported = false, pipActive = false, onTogglePip,
   fullscreen,
   label,
   muted,
@@ -63,9 +69,10 @@ export function VrcdnPlayerControls({
   return (
     <div
       aria-label={`${label} controls`}
-      className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/70 to-transparent px-2 py-1"
+      className="absolute inset-x-0 bottom-0 flex flex-col bg-gradient-to-t from-black/70 to-transparent px-2 py-1"
       role="group"
     >
+      <div className="flex w-full items-center gap-1">
       <button aria-label={paused ? "Play" : "Pause"} className={controlButton} onClick={onTogglePlay} type="button">
         {paused ? <Play aria-hidden="true" className="size-5" /> : <Pause aria-hidden="true" className="size-5" />}
       </button>
@@ -75,7 +82,7 @@ export function VrcdnPlayerControls({
       {volumeSettable ? (
         <input
           aria-label="Volume"
-          className="h-11 w-24 cursor-pointer accent-white"
+          className="h-11 min-w-0 max-w-24 flex-1 cursor-pointer accent-white"
           max={1}
           min={0}
           onChange={(event) => onVolumeChange(Number(event.target.value))}
@@ -104,6 +111,13 @@ export function VrcdnPlayerControls({
           <Maximize aria-hidden="true" className="size-5" />
         )}
       </button>
+      </div>
+      {mode && onModeChange && <div className="flex min-h-11 items-center gap-1 border-t border-white/10">
+        <div role="group" aria-label="Playback mode" className="flex flex-1 gap-1">
+          {(["video", "audio"] as const).map(value => <button key={value} type="button" aria-pressed={mode === value} className={`min-h-11 shrink-0 cursor-pointer whitespace-nowrap rounded-control px-3 text-sm ${mode === value ? "bg-white/15 text-white" : "text-white/65 hover:text-white"}`} onClick={() => onModeChange(value)}>{value === "video" ? "Video" : "Audio only"}</button>)}
+        </div>
+        {pipSupported && <button type="button" aria-label={pipActive ? "Exit picture in picture" : "Picture in picture"} aria-pressed={pipActive} disabled={mode === "audio"} className={`${controlButton} disabled:cursor-default disabled:opacity-35`} onClick={onTogglePip}><PictureInPicture2 aria-hidden="true" className="size-5" /></button>}
+      </div>}
     </div>
   );
 }

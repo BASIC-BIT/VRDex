@@ -49,7 +49,7 @@ const control = new TelemetryControlClient({
   releaseSha: runtimeMetadata.releaseSha,
   workerId: process.env.VRDEX_GROUP_TELEMETRY_WORKER_ID,
 });
-const provider = new VrchatClient({ authCookie: secret.authCookie, twoFactorAuthCookie: secret.twoFactorAuthCookie, userAgent: requiredEnv("VRDEX_GROUP_TELEMETRY_USER_AGENT") });
+const provider = new VrchatClient({ userId: secret.vrchatUserId, authCookie: secret.authCookie, twoFactorAuthCookie: secret.twoFactorAuthCookie, userAgent: requiredEnv("VRDEX_GROUP_TELEMETRY_USER_AGENT") });
 const accountBudget = new RequestBudget(Number(process.env.VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE ?? 30));
 /**
  * Fast local guard for the proof share.
@@ -289,7 +289,7 @@ async function collect(assignment) {
       await control.send("ingest", {...lease, pollId: pollId(assignment.integrationId, snapshot.observedAt), observedAt: snapshot.observedAt,
         collectorVersion: COLLECTOR_PROTOCOL_VERSION, groupMemberCount: snapshot.group.memberCount, groupVisibility: snapshot.group.groupVisibility,
         joinPolicy: snapshot.group.joinPolicy, ...(snapshot.group.groupCreatedAt === undefined ? {} : {groupCreatedAt: snapshot.group.groupCreatedAt}),
-        instances: snapshot.instances, nextPollAt: snapshot.observedAt + randomPollDelayMs(snapshot.instances.length > 0)});
+        instances: snapshot.instances, nextPollAt: Date.now() + randomPollDelayMs(snapshot.instances.length > 0)});
       attempts.delete(assignment.integrationId);
       return;
     }
@@ -327,7 +327,7 @@ async function collect(assignment) {
         groupMemberCount: snapshot.group.memberCount,
         groupVisibility: snapshot.group.groupVisibility, joinPolicy: snapshot.group.joinPolicy,
         ...(snapshot.group.groupCreatedAt === undefined ? {} : { groupCreatedAt: snapshot.group.groupCreatedAt }),
-        instances: snapshot.instances, nextPollAt: snapshot.observedAt + randomPollDelayMs(snapshot.instances.length > 0) });
+        instances: snapshot.instances, nextPollAt: Date.now() + randomPollDelayMs(snapshot.instances.length > 0) });
       attempts.delete(assignment.integrationId);
       return;
     }
@@ -378,7 +378,7 @@ async function collect(assignment) {
       );
       if (!snapshot) return;
       const nextPollAt =
-        snapshot.observedAt + randomPollDelayMs(snapshot.instances.length > 0);
+        Date.now() + randomPollDelayMs(snapshot.instances.length > 0);
       await control.send("ingest", {
         ...lease,
         pollId: pollId(assignment.integrationId, snapshot.observedAt),
@@ -412,26 +412,33 @@ async function collect(assignment) {
     phase = "analytics";
     if (telemetryError) throw telemetryError;
     if (stopping || Date.now() >= deadline) return;
-    const auditProvider = budgetedClubProvider({
-      provider,
-      control,
-      assignment,
-      accountBudget,
-      integrationBudget,
-      pause: pauseWithHeartbeats,
-      shouldStop: () => stopping,
-      deadline,
-    });
-    if (assignment.namedMembershipCollectionEnabled !== false) await collectMembershipPage({
-      assignment,
-      authority: refreshed.authority,
-      provider: auditProvider,
-      control,
-      expectedUserId: secret.vrchatUserId,
-      accountBudget,
-      integrationBudget,
-      requestBudgeted: true,
-    });
+    if (assignment.namedMembershipCollectionEnabled !== false) {
+      const catchupEndAt = Date.now() - 60_000;
+      const membershipDeadline = Math.min(deadline, Date.now() + 90_000);
+      let authority = refreshed.authority;
+      // Leave time for the next ownership-proof poll before its two-minute freshness limit.
+      for (let page = 0; page < 32 && !stopping && Date.now() < membershipDeadline; page++) {
+        // Leave room for control-plane and provider latency before the hard one-minute boundary.
+        if (authority && Date.now() - authority.observedAt > 30_000) authority = (await refreshReadiness()).authority;
+        const result = await collectMembershipPage({
+          assignment,
+          authority,
+          provider,
+          control,
+          expectedUserId: secret.vrchatUserId,
+          accountBudget,
+          integrationBudget,
+          shouldStop: () => stopping,
+          deadline: membershipDeadline,
+          catchupEndAt,
+        });
+        if (Number.isFinite(result?.retryAt) && result.retryAt > Date.now()) {
+          await pauseWithHeartbeats(Math.min(result.retryAt - Date.now(), Math.max(0, membershipDeadline - Date.now())));
+          continue;
+        }
+        if (!result?.collected) break;
+      }
+    }
   } catch (error) {
     const attempt = (attempts.get(assignment.integrationId) ?? 0) + 1;
     attempts.set(assignment.integrationId, attempt);

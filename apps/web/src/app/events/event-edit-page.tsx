@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { EventBackendNotice } from "../_components/event-public-page";
 import { EventEditorPage } from "./event-editor-page";
-import { fetchEditableEventBySlug } from "@/convex/server";
+import { fetchEditableEventBySlug, fetchRecurringEventsEnabled } from "@/convex/server";
 import { formatDiscordEventPost } from "../../../../../convex/_eventDiscordExport";
 
 function firstHeaderValue(value: string | null): string | undefined {
@@ -27,7 +27,7 @@ function requestOrigin(requestHeaders: Headers): string | undefined {
   }
 }
 
-export async function EventEditPage({ communitySlug, eventSlug }: { communitySlug: string; eventSlug: string }) {
+export async function EventEditPage({ communitySlug, eventSlug, scope }: { communitySlug: string; eventSlug: string; scope?: string }) {
   const result = await fetchEditableEventBySlug(eventSlug);
 
   if (result.kind === "missing-url" || result.kind === "error") {
@@ -38,6 +38,7 @@ export async function EventEditPage({ communitySlug, eventSlug }: { communitySlu
     notFound();
   }
 
+  const recurringEnabled = scope === "series" && await fetchRecurringEventsEnabled();
   const routePath = `/${communitySlug}/events/${result.event.slug}`;
   const origin = requestOrigin(await headers());
   const canonicalUrl = origin === undefined ? routePath : new URL(routePath, origin).href;
@@ -52,6 +53,8 @@ export async function EventEditPage({ communitySlug, eventSlug }: { communitySlu
         communitySlug={communitySlug}
         discordPostText={discordPostText}
         event={result.event}
+        recurringEnabled={recurringEnabled}
+        scope={scope}
       />
     </div>
   );

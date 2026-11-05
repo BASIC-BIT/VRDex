@@ -103,3 +103,10 @@ test("staff invitation email refusal offers account recovery without serializing
     recoveryHref: null,
   });
 });
+
+test("integrations appear only with the flag and manage_integrations", () => {
+  assert.equal(clubNavigation("afterhours", false, ["manage_integrations"]).some(item => item.label === "Integrations"), false);
+  assert.equal(clubNavigation("afterhours", false, ["manage_integrations"], [], true).some(item => item.label === "Integrations"), true);
+  assert.equal(clubNavigation("afterhours", false, ["manage_events"], [], true).some(item => item.label === "Integrations"), false);
+  assert.equal(clubNavigation("afterhours", true, [], [], true).some(item => item.label === "Integrations"), true);
+});

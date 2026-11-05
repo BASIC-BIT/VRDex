@@ -70,7 +70,8 @@ variable "tags" {
 # These default to off with no targets. Hosted values live in the checked-in
 # `hosted.tfvars`, which Terraform does not auto-load — it reads only
 # `terraform.tfvars` and `*.auto.tfvars` — and which `terraform.yml` passes with
-# `-var-file` only when the repository is `BASIC-BIT/VRDex`.
+# `-var-file` only for the canonical repository: ID `1176245711`, or the name
+# `BASIC-BIT/VRDex` or `BITRATE-Labs/VRDex`.
 #
 # Two failure modes shaped that. Defaulting them off with the targets in a
 # gitignored `terraform.tfvars` meant CI could never create the records, so only

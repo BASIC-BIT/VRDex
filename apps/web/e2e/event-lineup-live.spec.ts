@@ -1,3 +1,4 @@
+import { lineupEvidencePage, attachLineupEvidence } from "./helpers/lineup-browser-evidence";
 import { chromium, firefox, expect, test, type Browser } from "@playwright/test";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -13,7 +14,7 @@ for (const engine of [chromium, firefox]) {
   const control=(id:string,state:string)=>fetch(`${transport.url}/control?id=${id}&state=${state}`,{method:"POST"});
   try {
    browser=await engine.launch();
-   const page=await browser.newPage();page.setDefaultTimeout(10000);
+   const page=await lineupEvidencePage(browser, info);page.setDefaultTimeout(10000);
    const messages:string[]=[]; const pageErrors:string[]=[];
    page.on("console",message=>{if (["error","warning"].includes(message.type())) messages.push(message.text());
     if (/Fast Refresh|reload/i.test(message.text())) diagnostics.push({type:"dev-navigation",at:performance.now(),message:message.text()});
@@ -203,7 +204,7 @@ for (const engine of [chromium, firefox]) {
    expect((await stats()).denied,JSON.stringify(await stats())).toBe(0);
    await info.attach(`runtime-${engine.name()}.json`,{body:JSON.stringify({browser:browser.version(),stats:await stats(),messages,pageErrors}),contentType:"application/json"});
    expect(pageErrors).toEqual([]);
-  } finally {try{await info.attach(`diagnostics-${engine.name()}.json`,{body:JSON.stringify(diagnostics,null,2),contentType:"application/json"});}finally{try{await browser?.close();}finally{await transport.close();}}}
+  } finally {try{await info.attach(`diagnostics-${engine.name()}.json`,{body:JSON.stringify(diagnostics,null,2),contentType:"application/json"});}finally{try{try { await attachLineupEvidence(browser, info); } finally { await browser?.close(); }}finally{await transport.close();}}}
  });
 }
 
@@ -222,7 +223,7 @@ for (const engine of [chromium, firefox]) {
   const messages:string[]=[];
   const evidence:Record<string,unknown>={messages};
   try {
-   browser=await engine.launch();const page=await browser.newPage();page.setDefaultTimeout(10000);
+   browser=await engine.launch();const page=await lineupEvidencePage(browser, info);page.setDefaultTimeout(10000);
    page.on("console",message=>{if(["error","warning"].includes(message.type()))messages.push(message.text());});
    page.on("pageerror",error=>messages.push("PAGEERROR: "+error.message));
    page.on("requestfailed",request=>messages.push("REQUEST: "+request.url()+" "+request.failure()?.errorText));
@@ -277,7 +278,7 @@ for (const engine of [chromium, firefox]) {
    await page.getByRole("button",{name:"Unmount",exact:true}).click();await expect.poll(async()=>(await stats()).active).toBe(0);
    evidence.stats=await stats();expect((await stats()).denied).toBe(0);
    expect(messages.filter(message=>message.startsWith("PAGEERROR:"))).toEqual([]);
-  }finally{try{await info.attach(`recovery-background-${engine.name()}.json`,{body:JSON.stringify(evidence,null,2),contentType:"application/json"});await browser?.close();}finally{await transport.close();}}
+  }finally{try{await info.attach(`recovery-background-${engine.name()}.json`,{body:JSON.stringify(evidence,null,2),contentType:"application/json"});try { await attachLineupEvidence(browser, info); } finally { await browser?.close(); }}finally{await transport.close();}}
  });
 }
 
@@ -290,7 +291,7 @@ for (const engine of [chromium, firefox]) {
   let browser: Browser | undefined;
   try {
    browser = await engine.launch();
-   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+   const page = await lineupEvidencePage(browser, info);
    const errors: string[] = [];
    page.on("pageerror", error => errors.push(error.message));
    await page.addInitScript(() => {
@@ -370,6 +371,61 @@ for (const engine of [chromium, firefox]) {
    await expect.poll(async () => (await (await fetch(`${transport.url}/stats`)).json()).active).toBe(0);
    expect(errors).toEqual([]);
    await info.attach("transport-stats", { body: JSON.stringify(await (await fetch(`${transport.url}/stats`)).json()), contentType: "application/json" });
-  } finally { await browser?.close(); await transport.close(); }
+  } finally {
+   try { await attachLineupEvidence(browser, info); }
+   finally { try { await browser?.close(); } finally { await transport.close(); } }
+  }
  });
 }
+
+test("@fixture native HLS lineup uses element gain and authoritative current metadata", async ({ page }, info) => {
+ test.skip(process.env.NATIVE_HLS_PLAYBACK_PROOF !== "true", "Opt-in local HLS fixture");
+ test.setTimeout(90_000);
+ const { mkdtemp, mkdir, readFile, rm } = await import("node:fs/promises");
+ const { tmpdir } = await import("node:os");
+ const { execFileSync } = await import("node:child_process");
+ const directory = await mkdtemp(path.join(tmpdir(), "native-lineup-browser-"));
+ const errors: string[] = [];
+ page.on("pageerror", error => errors.push(error.message));
+ try {
+  for (const mode of ["video", "audio"]) {
+   const output = path.join(directory, mode); await mkdir(output);
+   execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0x24374c:s=640x360:r=24", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "20", ...(mode === "audio" ? ["-map", "1:a:0", "-vn"] : ["-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-threads", "1", "-preset", "ultrafast", "-g", "48"]), "-c:a", "aac", "-f", "hls", "-hls_time", "2", "-hls_list_size", "0", "-hls_segment_filename", path.join(output, "part-%d.ts"), path.join(output, "index.m3u8")]);
+  }
+  let playlists = 0;
+  await page.route("**/native-lineup-fixture/**", async route => {
+   const parts = new URL(route.request().url()).pathname.split("/").slice(-2);
+   if (!/^(video|audio)$/.test(parts[0]) || !/^(index\.m3u8|part-\d+\.ts)$/.test(parts[1])) return route.abort();
+   if (parts[1] === "index.m3u8") playlists++;
+   await route.fulfill({ body: await readFile(path.join(directory, ...parts)), contentType: parts[1].endsWith("m3u8") ? "application/vnd.apple.mpegurl" : "video/mp2t" });
+  });
+  await page.addInitScript(() => { Object.defineProperty(window, "AudioContext", { value: class { constructor() { throw Error("Native lineup must not construct Web Audio"); } } }); });
+  await page.goto("/playwright/event-lineup-live?native=true");
+  const fixture = page.locator("[data-native-current]");
+  await expect(fixture).toHaveAttribute("data-native-opened", "0"); expect(playlists).toBe(0);
+  await page.getByRole("button", { name: "Play Harbor Sessions", exact: true }).click();
+  const shell = page.getByRole("region", { name: "Event playback", exact: true }).filter({ visible: true });
+  await expect.poll(() => shell.locator("video:not([hidden])").evaluate(node => (node as HTMLVideoElement).currentTime)).toBeGreaterThan(0.3);
+  await shell.getByRole("button", { name: "Audio only", exact: true }).click();
+  await expect.poll(() => shell.locator("audio").first().evaluate(node => (node as HTMLAudioElement).currentTime)).toBeGreaterThan(0.3);
+  await page.getByRole("button", { name: "Boundary", exact: true }).click();
+  await expect(fixture).toHaveAttribute("data-native-opened", "2");
+  await expect.poll(() => shell.locator("audio").nth(1).evaluate(node => (node as HTMLAudioElement).currentTime)).toBeGreaterThan(0.3);
+  await expect(fixture).toHaveAttribute("data-native-current", "aurora");
+  await expect(shell.getByText("DJ Aurora", { exact: true }).first()).toBeVisible();
+  expect(await shell.locator("audio").evaluateAll(nodes => nodes.filter(node => !(node as HTMLAudioElement).muted && !(node as HTMLAudioElement).paused).length)).toBe(1);
+  await shell.locator("audio").first().evaluate(node => Object.defineProperty(node, "readyState", { configurable: true, value: 0 }));
+  await expect(fixture).toHaveAttribute("data-native-current", "lumen");
+  await expect(fixture).toHaveAttribute("data-native-released", "1");
+  await expect(shell.getByRole("button", { name: "Audio only", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(shell.getByText("DJ Lumen", { exact: true }).first()).toBeVisible();
+  for (const [name, width, height] of [["desktop", 1280, 900], ["phone", 390, 844]] as const) {
+   await page.setViewportSize({ width, height });
+   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+   const screenshot = info.outputPath(`native-lineup-${name}.png`); await page.screenshot({ path: screenshot, fullPage: true }); await info.attach(`native-lineup-${name}`, { path: screenshot, contentType: "image/png" });
+  }
+  await shell.getByRole("button", { name: "Close event playback", exact: true }).click();
+  await expect(fixture).toHaveAttribute("data-native-released", "2");
+  expect(errors).toEqual([]);
+ } finally { await info.attach("native-diagnostics", { body: JSON.stringify(errors), contentType: "application/json" }); await page.goto("about:blank"); await rm(directory, { recursive: true, force: true }); }
+});

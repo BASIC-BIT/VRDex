@@ -9,6 +9,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { SectionTitle } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { EventInventoryControls, EventInventoryList, type EventInventoryCriteria, type EventInventoryView } from "./event-inventory-list";
+import { HeldImportsSection } from "./held-imports-section";
 
 const candidatePageSize = 20;
 const maxAutomaticAdvances = 3;
@@ -25,7 +26,7 @@ type InventoryBoundaryState = { failed: boolean; resetKey: string };
 class InventoryErrorBoundary extends Component<InventoryBoundaryProps, InventoryBoundaryState> {
   state = { failed: false, resetKey: this.props.resetKey };
   static getDerivedStateFromError() { return { failed: true }; }
-  static getDerivedStateFromProps({ resetKey }: InventoryBoundaryProps, state: InventoryBoundaryState) {
+  static getDerivedStateFromProps({ resetKey }: Pick<InventoryBoundaryProps, "resetKey">, state: InventoryBoundaryState) {
     return resetKey === state.resetKey ? null : { failed: false, resetKey };
   }
   render() {
@@ -37,6 +38,14 @@ class InventoryErrorBoundary extends Component<InventoryBoundaryProps, Inventory
       </div>
     </div>;
   }
+}
+
+// Retries on the inventory's refresh. Held imports are extra: when they fail, My events carries on without them.
+class HeldImportsBoundary extends Component<{ children: ReactNode; resetKey: string }, InventoryBoundaryState> {
+  state = { failed: false, resetKey: this.props.resetKey };
+  static getDerivedStateFromError() { return { failed: true }; }
+  static getDerivedStateFromProps = InventoryErrorBoundary.getDerivedStateFromProps;
+  render() { return this.state.failed ? null : this.props.children; }
 }
 
 function InventoryPager({ criteria, onRetry }: { criteria: EventInventoryCriteria; onRetry: () => void }) {
@@ -112,7 +121,7 @@ function ConnectedInventory({ viewerId }: { viewerId: string }) {
     controls={<EventInventoryControls view={view} query={query} onViewChange={setView} onQueryChange={setQuery} />}
     onRetry={onRetry}
     resetKey={traversalKey}
-    shortcuts={<InventoryShortcuts />}
+    shortcuts={<><InventoryShortcuts /><HeldImportsBoundary resetKey={traversalKey}><HeldImportsSection /></HeldImportsBoundary></>}
   >
     <InventoryTraversal key={traversalKey} view={view} normalizedQuery={normalizedQuery} timeZone={timeZone} onRetry={onRetry} />
   </InventoryErrorBoundary>;

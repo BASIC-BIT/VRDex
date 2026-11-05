@@ -258,7 +258,7 @@ Participant links support:
 
 Public person profile pages should only render published events through confirmed participant links to public person profiles.
 
-Approval, dispute handling, notifications, recurring events, RSVP/interested state, and friend-aware discovery are follow-on work tracked outside this first `#35` association slice.
+Approval, dispute handling, notifications, RSVP/interested state, and friend-aware discovery are follow-on work tracked outside this first `#35` association slice.
 
 ## Event Slots
 
@@ -285,11 +285,268 @@ The first slot editor uses relative minute offsets from the event start for oper
 
 Public previews include at most three ordered upcoming slot summaries. Discovery and profile queries include an event already in progress through its explicit end or the shared inclusive six-hour runtime window when `endAt` is absent, subject to their candidate limits.
 
+## Recurring events
+
+A series owns the schedule of a repeating night. Each night is an ordinary `events` row, so public pages, search, ICS, the board, and share cards treat it as the event it is. The code is in `convex/_eventSeries.ts`, `convex/eventSeries.ts`, and `convex/_eventSeriesModel.ts`.
+
+| Status | Decision |
+| --- | --- |
+| Locked decision | A series owns schedule, title, world or venue, and community. A night owns lineup, poster, and any one-off override of summary or time. |
+| Locked decision | Editing a night changes only that night and records what changed as overrides. Editing the series changes every upcoming night that has not overridden that field. |
+| Locked decision | Connector exports create a real series on Google Calendar and Discord, and VRChat gets occurrences. Built behind `VRDEX_CONNECTOR_SERIES_ENABLED`, which is unset on every deployment; see [Connector series](#connector-series). |
+| Current recommendation | Nights are real `events` rows materialised sixty days ahead. |
+| Current recommendation | Rules are a fixed set (weekly, every two weeks, monthly on the nth or last weekday), not free RRULE. |
+| Current recommendation | A night whose merged times would not fit keeps its times, and the skipped fields become overrides so it shows `Reset to series`. |
+| Current recommendation | Stream programmes are copied once and never fanned out. |
+
+### Series records
+
+`eventSeries` fields:
+
+- `communityProfileId`, `title`, `summary`, `timezone`, `venueLabel`, `worldSlug`, `mediaLinks`, `watchMode`, `watchSurfaceEnabled`, `bannerImageUrl`, `thumbnailImageUrl`, and `sourceUrl`, with the same shapes as on `events`
+- `sourceLabel`, copied from the first night at creation and onto each new night. It is not series-owned: it never fans out and is never an override
+- `rule`: `frequency` (`weekly`, `biweekly`, `monthly_weekday`), `weekday` (`0` to `6`, `0` is Sunday), `ordinal` (monthly only: `1` to `4`, or `-1` for the last weekday), and `startTime`, optional `endTime`, and optional `doorsTime` as `HH:MM` wall-clock times in the series `timezone`
+- `startsOn`, optional `endsOn` (inclusive), and optional `count` (`1` to `520`, counted from `startsOn`); when both bounds are set, the first one reached ends generation; `endsOn` may not precede `startsOn` when set, and the `Ends` date enforces this with a native `min` (the event date in the form, `startsOn` in the series editor). The exception: `eventSeries.end` can leave `endsOn` before `startsOn` on a series that has not started yet, and `seriesUpdatePatch` validates only the changed bounds
+- `horizonDays`: `60` on every new series, stored so it can vary per series later without a migration
+- `authorityUserId`, `state` (`active`, `ended`, `removed`), `createdAt`, and `updatedAt`
+
+A `doorsTime` later than `startTime` falls on the previous day, so overnight doors are legal. An `endTime` at or before `startTime` falls on the next day. The biweekly anchor is the first matching weekday on or after `startsOn`. Indexes: `by_communityProfileId_state` and `by_state`.
+
+### Occurrence fields
+
+`events` gains `seriesId`, `occurrenceDate` (the local date the rule produced), `overrides` (the series-owned field names this night has set itself), and `seriesRetiredAt` (when an edit to an active series retired this night). An event with `seriesId` is an occurrence. Moving a night to another community clears all four, because a series stays inside its community.
+
+`by_seriesId_occurrenceDate` is unique by convention. Convex has no unique index, so the materialiser looks the key up before it adopts or creates on any date. An unpublished night keeps its key, so its date is never created a second time.
+
+`seriesRetiredAt` separates a night the series retired from one staff unpublished. Only retirement on an `active` series sets it, and any publish clears it, so a published night never carries it.
+
+### Series-owned and night-owned fields
+
+| Owner | Fields |
+| --- | --- |
+| Series | `title`, `summary`, `timezone`, `venueLabel`, `worldSlug`, `mediaLinks`, `watchMode`, `watchSurfaceEnabled`, `bannerImageUrl`, `thumbnailImageUrl`, `sourceUrl`, plus `startAt`, `doorsOpenAt`, and `endAt` from the rule times |
+| Night | `notes`, lineup and slots, poster artwork |
+
+The locked split names summary and time, and the rule is wider in practice: any series-owned field can become an override on a night. `SERIES_OWNED_EVENT_FIELDS` is the canonical list.
+
+### Creating a series
+
+A series starts from a published timed event that is not already in a series. That event becomes the first night with empty overrides, even if it has already started, which is the one exception to past nights never changing. Materialisation still starts from today, so nothing earlier is backfilled.
+
+- Browser: the `Repeats` control appears on the Details stage when the flag is on and the event has a time and no series. Publishing calls `eventSeries.create`, which requires `manage_events` and derives `weekday` and `ordinal` from the start date.
+- API and MCP: `POST /api/v0/events` and `vrdex_event_create` accept `repeat`, with `weekday` required and unknown keys rejected. `repeat` is checked before the event is created: it requires the flag and `timezone`, and the weekday and ordinal must select the event's own start date. A monthly `ordinal` that is omitted comes from the start date, and day 29 or later means the last weekday. MCP relays the real denial message, and a replay returns the same `seriesId`. The update contract strips `repeat`.
+- Contributor intake and the channel intake agent never create a series.
+
+### Materialisation
+
+`materializeSeries` runs when a series is created, after each edit to an active series, and from the daily `materialize event series` cron at 06:20 UTC. It does nothing for a series that is not `active` or whose community is not public.
+
+The window runs from the later of `startsOn` and today, both in the series `timezone`, through the date `horizonDays` ahead. For each rule date, in order:
+
+1. If the date's `seriesId` plus `occurrenceDate` key exists, skip it, first returning a retired night (see Ending and removing).
+2. Adopt a matching standalone event.
+3. Skip the date if the rule start does not exist that day (see Daylight saving).
+4. Skip the date if the rule start has passed.
+5. Create a published night with the series-owned fields, empty night-owned fields, and empty `overrides`.
+
+A series world that is missing or unpublished leaves the night without a world link and does not fail the run. Each series runs in its own transaction. In the daily run, a failure raises the `series_materialize_failed:` alert described in [Convex environments](../deployment/convex-environments.md), and the next success resolves it. When materialisation runs inside a create or an edit, a failure fails that mutation instead.
+
+### Adoption
+
+Adoption runs before creation on every date, so creating a series is safe for a community whose upcoming nights already exist. A candidate is an event of the same community with that `eventDate` that:
+
+- has no `seriesId` and no `moderationRemovedAt`
+- is `published` and `scheduled`
+- has the series title, compared trimmed and case-insensitively
+- has not started: a timed event whose `startAt` has passed is not adopted, and a date-only event in the window is, because it has no start
+
+The first match gets `seriesId`, `occurrenceDate`, and an override for every series-owned field that differs from the series. A published contributed event that matches is adopted the same way.
+
+### Daylight saving
+
+Rule times resolve through `resolveEventLocalTime`.
+
+- A start that does not exist on a date skips that occurrence, and the date is returned in `skipped`.
+- An ambiguous time takes the earlier instant.
+- A doors or end time that does not exist is left off that night.
+- A series edit leaves the time fields alone on a date whose start does not exist.
+
+### Editing a night
+
+Browser, API, and MCP saves and contributor edits (`updateActorContribution`) all record overrides. Each series-owned field the save changed is added to `overrides`, and `worldSlug` is added when the linked published world changed. A save never removes an override, so typing the series value back in leaves the field overridden.
+
+`eventSeries.resetOverride` clears one field and copies the series value back. It requires `manage_events`, rejects a night that has started, including a date-only night whose date has passed, and rejects a moderation-removed night with `REMOVED_EVENT`. A reset that cannot apply, because the night's other times or slots cannot take the series time or the rule start does not exist that day, throws. The transaction rolls back, so the time and the override stay, and the note shows the generic error.
+
+On a night, `Part of a series.` and `Edit this night` always show. `Edit the series` is hidden unless the series is `active` and the flag is on. `Reset to series` is hidden under the same condition and also needs a `startAt` still in the future. `Where` resets `venueLabel` and `worldSlug` together.
+
+### Editing a series
+
+`eventSeries.update` patches the series row. A `timezone` change counts as a change to all three time fields, and a rule time change counts as a change to its time field. An edit that changes `startTime` or `doorsTime` is rejected when doors would open more than 12 hours before the start; creation has no such limit. In the series editor, changing `Starts` moves `Doors open` and `Ends (optional)` by the same delta, wrapping past midnight, and either can be retyped afterwards. On an `active` series it then runs, in order: retirement when the rule, `endsOn`, or `count` changed (see Ending and removing), fan-out, and materialisation.
+
+Fan-out reaches every published night that has not started, where a date-only night counts as upcoming through its own date. It skips moderation-removed nights, and on each night it skips that night's overrides. Time fields are skipped on a date-only night.
+
+- Timed slots store absolute times, so a night whose start moves has its slots moved by the same delta.
+- Overridden `doorsOpenAt` and `endAt` move by that delta too, so doors set an hour before the start stay an hour before it.
+- If the merged times would still fail the editor's checks (doors after start, end at or before start, a slot outside the new bounds), the night keeps all its times and the time fields that edit would have changed become overrides, so `Reset to series` appears and later edits stop targeting them. A warning is logged, and non-time fields still apply.
+
+An `ended` or `removed` series accepts only series-row edits: no fan-out, no retirement, no materialisation. The series editor is reachable only while `Edit the series` shows, and it does not offer `count`, which `eventSeries.update` accepts.
+
+### Ending and removing
+
+`eventSeries.end` sets `state` to `ended` (the default) or `removed`, sets `endsOn` to today in the series `timezone`, and retires every upcoming published night. No browser control calls it yet.
+
+Retirement never touches a started night and never hard-deletes:
+
+- A bare night is unpublished to `draft_private` and keeps its key. On an `active` series it also gets `seriesRetiredAt`.
+- A night with overrides, a lineup entry, or a slot stays published as a plain event, with `seriesId`, `occurrenceDate`, and `overrides` cleared.
+
+An edit to an active series retires by the same rule, but only the nights the new rule or bounds no longer schedule. `removed` also hides the series page and drops the series link from its nights.
+
+Retiring is reversible while the series is active. When materialisation reaches a date whose night has `seriesRetiredAt`, the rule's start is still ahead, the night's own start has not passed, and the night is not moderation-removed, it reapplies every series-owned field the night has not overridden and republishes it, keeping its URL and short link. So clearing `Ends`, raising `count`, or reverting a rule restores the nights. A night staff unpublished has no marker and stays unpublished.
+
+### Stream programmes
+
+A created night copies the programme of the latest occurrence that has one: media settings, broadcast policy, public and fallback links, and authorized outputs, with the programme in `draft`, or `ready` when its current output copies as `ready`, and `active` outputs as `ready`. Sources, scenes, sessions, and commands stay with the night. Adopted nights copy nothing.
+
+Current recommendation: the copy happens once, at creation. Changing a programme affects only nights created from it later. This is a deliberate ceiling; fanning programme config into existing nights is a later change if weekly re-setup turns out to be common.
+
+### Series page
+
+`/<community>/series/<series-id>` lists up to twenty upcoming nights, and its `calendar.ics` emits those nights rather than an RRULE, so overrides are always right. Each night's page links to it with `Upcoming nights`. A `removed` series or a non-public community has no page.
+
+### Flag
+
+`VRDEX_RECURRING_EVENTS_ENABLED` is off unless it is exactly `true`; see [Convex environments](../deployment/convex-environments.md#recurring-events). With it off, the `Repeats` control is hidden, `repeat` on API and MCP is rejected with `Recurring events are not enabled.`, `eventSeries.create`, `update`, `end`, and `resetOverride` throw the same message, and the cron materialises nothing. Nights and series pages that already exist stay in place.
+
+Connector series import and export need this flag and `VRDEX_CONNECTOR_SERIES_ENABLED`; `connectorSeriesEnabled()` in `convex/_eventSeriesModel.ts` reads the second only when the first is on. See [Connector series](#connector-series).
+
+### Connector series
+
+A Google recurring event or a Discord recurring scheduled event imports as one series whose nights VRDex materialises, and a VRDex series exports as one Google recurring event or one Discord recurring scheduled event. The rule mapping is `convex/_recurrenceRules.ts`; the shared sync is `convex/_eventSeriesSync.ts` and `convex/eventSeriesSync.ts`; the kinds' series branches are in `convex/eventSyncKinds/googleCalendar.ts`, `convex/googleCalendarConnector.ts`, and `convex/eventSyncKinds/discordScheduledEvents.ts`.
+
+Everything in this subsection runs only while `connectorSeriesEnabled()` is true. With it off, no series job is queued, a series job already queued completes without writing, and both kinds take the phase-one paths in [Connectors](#connectors) unchanged.
+
+#### Links
+
+A series link has `seriesId`, `externalId` equal to `externalSeriesId` (the Google master ID or the Discord scheduled event ID), and no `eventId`. There is at most one per connector and series, read through `by_connectorId_seriesId_eventId` with `eventId` undefined. A series with nothing on the source has a `none:` plus series ID link. A night link has `eventId` and also carries `seriesId` and `externalSeriesId`. On Google its `externalId` is the instance ID (the master ID, `_`, and the UTC start); on Discord it is the night's own one-off, or `none:` when the series carries the night. A Discord night grouped by the [grouping migration](#grouping-migration) keeps its phase-one `{scheduledEventId}:{YYYY-MM-DD}` ID until its first export.
+
+`enqueueSeriesSync` is the series hook: every series write calls it, as event writes call `enqueueEventSync`. It queues one `export_upsert` job with `payload.seriesId` and no `eventId` on each active `export` or `bidirectional` Google or Discord connector of the community, never beside a pending or running job for the same series. When the export lands, `completeJob` writes the series link and queues every upcoming night that has its own copy, an override, or a cancellation. A series edited while its job ran is queued again.
+
+#### Rule mapping
+
+| Series rule | Google `RRULE` | Discord `recurrence_rule` |
+| --- | --- | --- |
+| `weekly` | `FREQ=WEEKLY;BYDAY=SA` | `frequency: 2`, `interval: 1`, one `by_weekday` |
+| `biweekly` | `FREQ=WEEKLY;INTERVAL=2;BYDAY=SA` | `frequency: 2`, `interval: 2`, one `by_weekday` |
+| `monthly_weekday`, ordinal 1 to 4 | `FREQ=MONTHLY;BYDAY=2SA` | `frequency: 1`, `interval: 1`, one `by_n_weekday` |
+| `monthly_weekday`, ordinal `-1` | `FREQ=MONTHLY;BYDAY=-1SA` | none; exports night by night |
+| `endsOn` | `UNTIL`, the last minute of that local day | never written |
+| `count` | `COUNT`, only when there is no `endsOn` | never written |
+
+Anything else stays outside the fixed set and keeps phase-one expansion: daily, several weekdays, a fifth weekday, a month day, yearly, other intervals, `EXDATE`, `RDATE`, `BYSETPOS`, a second rule line, an all-day master, a master with no title, a private or confidential Google master, a Discord `by_month` rule, and a Discord rule with an `end` or a `count`. Google's weekday must match the master's own start; Discord's weekday is read from `recurrence_rule.start` in the series zone. `startsOn` is written on create only and is left out of the series hash, because Discord moves `start` forward as nights pass. No source carries doors, so an import keeps the series' own.
+
+#### Import
+
+Series import runs only for `autopublish` connectors. On a `hold` connector an item whose external series has no link here keeps phase one, and an item of a series that is linked here is ignored, cancellations included: no draft and no apply.
+
+An unlinked external series in the fixed set links to an active series of the community with the same title (trimmed, case-insensitive) that has no series link on this connector, and applies nothing; otherwise it creates a series, which adopts phase-one nights by title and date as [Adoption](#adoption) describes. A linked series takes an edit through the same path as `eventSeries.update`, which fans out to every upcoming night that has not overridden the field. The echo of VRDex's own export, compared with `lastExportedHash` and with the series' current hash, changes nothing. On a `bidirectional` connector the series edit wins unless the source's `externalUpdatedAt` is newer than `series.updatedAt`.
+
+Google reads an instance's master once per poll, or once per `import_item` job outside a poll, and links each instance to the night on the local date of its `originalStartTime`. An instance is compared with its master: where it differs in a carried field, the night takes that field and records it as an override; an instance equal to its master is linked and nothing is applied. Discord sends the whole series in every packet, and the packet's receipt time is its clock. VRDex's own cancel of a Discord series coming back is not a deletion, and a packet for a linked series whose series or community is gone is skipped rather than failed.
+
+An inbound deletion or cancellation of a series never ends the series and never cancels a night: the series link and every upcoming night's link become `external_deleted`, the staff-attention flag. A night with no link of its own gets a `none:` plus event ID placeholder, so the flag never takes a source ID another link may hold. A later valid delivery of the series restores the links. A rule that moves outside the fixed set on a linked series is treated the same way.
+
+#### Export
+
+Google gets one master with `recurrence`, and each overridden or cancelled night is a PATCH of its own instance. Ending a series patches `UNTIL`. A series with no master on Google that has ended or has no rule date left today or later gets no new master and a `none:` link, as on Discord. A night of the series that already has a standalone copy from before the series existed loses that copy once the master exists, but only when VRDex evidently created it: `lastExportedHash` set, no `externalSeriesId`, no `lastImportedAt`, and an ID that is not an instance ID. A link with `lastImportedAt` is an organiser's entry and stays. A night with nothing of its own writes nothing to an instance VRDex never wrote, such as an imported one. An instance VRDex did write (an exception, a cancel, or a retraction) goes back to the night's values with `status: confirmed` once the night changes again or Google still shows it cancelled, so un-cancelling, re-publishing, and `Reset to series` all reach Google.
+
+Discord gets one recurring scheduled event. A night that overrides its title, summary, venue, start, or end also exports as its own one-off scheduled event. A non-overridden night with a live one-off of its own has that one-off deleted when the bot created it (`creator_id` is the bot's user ID, read from `GET /users/@me`), unless the one-off has since become recurring on Discord. A one-off someone else created, or one whose creator cannot be confirmed, stays. A series that ended, whose `endsOn` has passed (the day after, since `endsOn` is inclusive), or whose rule has no date left cancels the scheduled event (`status: 4`), only while it is still scheduled. A series with no public night ahead yet, for example one whose first night is past the materialising horizon, sends nothing and leaves its link as it is. A monthly last-weekday series cannot be a Discord series, so its nights export as one-offs; a series whose rule changes to last-weekday cancels its live scheduled event first.
+
+On either kind, a recurring item a night's phase-one link already names is adopted as the series' master or scheduled event rather than posted again. Every export PATCH keeps text the source holds beyond VRDex's limits, through `patchKeepingGoogle` and `patchKeepingDescription`. A series or night whose link is `external_deleted` writes nothing. A kind that leaves a link as it is answers `unchanged`, and the runner then writes nothing to that link and does not clear the connector's failure count; nor does a series job that exported nothing. When a series export's new ID is already held by another row, such as a duplicate series an early echo created, that row gives the ID up and becomes `external_deleted` with its upcoming nights, so staff see it.
+
+#### Ceilings
+
+Current recommendation: each of these is a known ceiling, not a defect to fix before the gate turns on.
+
+- Discord has no per-night exceptions. An overridden night exports as a separate one-off, and the Discord series still shows that date, so the night appears twice.
+- A cancelled night that is not otherwise overridden stays visible in a Discord series.
+- A future `endsOn` or `count` cannot reach Discord. The Discord series keeps repeating until a series job runs after the end, and nothing schedules one; ending the series during a live night (`status: 2`) is not retried.
+- A monthly last-weekday series exports to Discord night by night.
+- A series first imported from Discord has its times in UTC, because Discord events carry no zone, so it drifts an hour across daylight saving until staff set its zone.
+- A non-overridden night unpublished on its own stays in the external series, because `export_delete` runs only with a link.
+- On Discord, a non-overridden series night deletes a live one-off on the same date only when VRDex created it. An organiser's hand-made one-off stays, so that night shows twice. A phase-one `{scheduledEventId}:{YYYY-MM-DD}` link is never deleted this way.
+- On Google, a hand-made copy that plan 08's list match adopted cannot be told apart from VRDex's own, so it is deleted once the series exports. A copy a reconcile matched by title and date carries neither `lastExportedHash` nor `lastImportedAt` and stays, because night jobs that leave a link as it is write nothing to it.
+- Reverting a Google exception to match its master does not revert the VRDex night.
+- Restoring a deleted series also restores a night whose own instance was cancelled before the series went; its flag returns only if Google sends that instance again.
+- A staff edit to a night is protected from an older Google exception while the night has overrides and its `updatedAt` differs from the series'. A later series write that fans another field out to that night equalises them, and the protection is lost.
+- An `import_item` job carries the item as it was when queued, so a second exception edit made before the first job runs can be skipped as stale.
+- Each linked Google series costs about one `import_item` job a day, because its instances still enqueue one as they roll into the window.
+- A night job can run before its series job. It then writes nothing, keeps its own ID, and asks for the series export, whose follow-up handles the night.
+- Discord refuses a PATCH while a night is live. The job retries for 15 minutes and then fails, so an edit made during the show can fail.
+- An edit that lands while a series job runs goes out only through `completeJob`'s re-queue.
+- Turning `VRDEX_CONNECTOR_SERIES_ENABLED` off sends every `none:` night to the phase-one export. On Google, its list match adopts the night's own instance when title and date match, so only an overridden night gets a standalone copy beside the master. On Discord, a night on a date the scheduled event already shows writes nothing.
+
+#### Before turning the gate on
+
+Current recommendation: settle each of these against the real provider first. No test covers them.
+
+1. Discord: which weekday `by_weekday` and `by_n_weekday.day` expect when `start` falls on the next UTC day, as every US-evening night does. This decides whether Discord series export ships.
+2. Discord: whether a recurring scheduled event keeps wall-clock time or a fixed UTC time across daylight saving.
+3. Discord: whether PATCH accepts `recurrence_rule` with `scheduled_start_time` moved forward, and whether `start` must equal it.
+4. Google: what happens to exceptions and instance IDs when a master's time or `RRULE` changes.
+5. Google: which `updated` a non-exception instance reports after a master edit.
+6. Google: whether an `UNTIL` patch reports the removed instances as cancelled items in incremental sync.
+7. Google: whether `events.get` returns a deleted instance with `status: cancelled`, not 404 or 410. Restoring an un-cancelled or re-published night depends on it.
+
+#### Grouping migration
+
+`migrations:groupOccurrenceLinks` (an internal action, `{ connectorId }`) groups one connector's phase-one occurrence links into series. It reads every `linked` night link with an `eventId` and an `externalSeriesId` but no `seriesId`, fetches each external series from its source, and returns `{ grouped, unparseable }` as lists of external series IDs. A series that is deleted or outside the fixed set, or that cannot take nights as below, is `unparseable`, and its links stay as they are. Otherwise the group joins the series already linked to it, else an unlinked series of the same title, else a new series; a series link in `external_deleted` or a series that is not `active` takes nothing. Each upcoming night in no series is attached on the date the source first scheduled it, read in the series zone: a Google instance ID names its original UTC start, and a Discord link names its UTC date, which is the rule date of a UTC series (a series in another zone reads the night's start instead). The night records the fields it differs on as overrides, so a night moved on Google keeps its rule date and overrides its times, and its link takes the `seriesId`; then the series materialises its missing nights. Unlike [Adoption](#adoption), which guesses by title, the link names the night, so it joins as it is: a cancelled, unpublished, moderation-removed, or started night keeps its state and holds its date, and nothing is republished. Only a night whose original date has passed stays a plain event. A night already in another series, a second night on a date the series holds, or a link whose ID names no date also stays a plain event, and the action logs its ID. Running it again changes nothing, so a run that fails partway, for example on a provider error, is safe to run again. It does nothing, and returns empty lists, while `connectorSeriesEnabled()` is false, for a connector that is not `active`, is in `hold` mode, or whose direction is `export` or `off`, and for a kind other than `google_calendar` and `discord_scheduled_events`. A held connector gets no series link from the migration, as series import gives it none.
+
+Do not run it on production until BASIC decides to. On another deployment, run it by hand for one connector:
+
+```bash
+pnpm cx -- dev run migrations:groupOccurrenceLinks '{"connectorId": "CONNECTOR_ID"}'
+```
+
+`eventSeriesSync:groupOccurrenceLinksForConnector` is the same migration behind a browser session: it takes `{ connectorId }`, requires super-admin access, and schedules the action at once. Nothing in the app calls it yet.
+
 ## Discord Event Export
 
 First `#121` slice: the event editor can preview and copy one deterministic Discord-ready post generated from the public event projection.
 
 The export includes the event title, canonical `/<community>/events/<event-code>` URL, host and world names when projected, Discord timestamp tokens for the event time and slot times, slot lineup rows or public participant rows, and projected public media/watch links. It does not post to Discord, run a bot/Gateway flow, use arbitrary user-authored templates, or include private operator/media-control state.
+
+## Discord Intake
+
+A `discord_announcements` connector turns posts in one Discord channel into held drafts, published events, or updates through `applyEventCandidate` (see [Connectors](#connectors)). The gateway relays each post to `internal.discordIntake.recordMessage`; runs need both `VRDEX_DISCORD_INTAKE_ENABLED` and `VRDEX_EVENT_CONNECTORS_ENABLED` on (see [Convex environments](../deployment/convex-environments.md#discord-intake)).
+
+The Integrations page connects a channel through `convex/discordIntake.ts`, all three behind `VRDEX_DISCORD_INTAKE_ENABLED`:
+
+- `connectContext` returns `enabled: false` and nothing else while the flag is off. Otherwise, for a caller with `manage_integrations`, it returns the guilds they hold a live proof for and `preselectedGuildId`: the community's linked guild they can manage (primary first), else their only guild, else `null`.
+- `listConnectableChannels` needs `manage_integrations` and a `manager` guild proof. It reads the bot's roles and the guild's channels and returns the text and announcement channels the bot can view and read history in, or `bot_missing` with the bot invite URL when Discord answers 403 or 404 for the bot's membership.
+- `connectChannel` runs the same checks, then asks Discord for the channel and refuses (`CONNECTOR_TARGET`) unless it sits in that guild and is a text or announcement channel, so a guild proof cannot claim another server's channel.
+
+`connectDiscordAnnouncements`, shared with the `/vrdex connect` command, refuses IDs that are not Discord snowflakes and names over 100 characters (`CONNECTOR_TARGET`).
+
+Tables, in `convex/schema.ts`:
+
+- `discordIntakeMessages`: one row per connector per relayed post, with author, content (at most 12,000 characters), Discord CDN attachments, and `editedAt` or `deletedAt`. A delete clears the row's content and attachments, and a redelivered copy of a deleted post changes nothing. `authorUserId` is set only when exactly one VRDex user has verified that Discord ID. Posts created before the connector existed are never recorded, so they are never read. Bot posts are dropped.
+- `discordIntakeRuns`: one debounced run per connector and Discord author: its `triggerMessageIds`, state (`pending`, `running`, `done`, `failed`), the agent's `decision`, a `reason` (the apply outcome, a skip reason, or a failure code), the working `draftId`, the resulting `eventId`, `startedAt`/`finishedAt`, and `stalledRetry` on a run the stalled-run sweep requeued, so that run is not requeued again. A retry counts against the daily run cap. The `by_state_startedAt` index finds `running` rows past the 15-minute lease for that sweep.
+- `discordIntakeSources`: which post fed which event or draft, one row per connector and message, with the sync link's `externalId` the post resolved to and the run that last used it.
+
+Each new or changed post restarts its author's quiet window: the connector's `quietWindowSeconds`, default 120 and clamped to 30..600. A create or update matching the stored content and attachments, and a repeat delete, restart nothing. Every changed post from that author in the window joins the same `pending` run, keyed by connector and Discord author, and the run starts once the author goes quiet.
+
+`claimRun` starts a run, or closes it `done` with a skip reason:
+
+- `connector_inactive`: `VRDEX_DISCORD_INTAKE_ENABLED` or `VRDEX_EVENT_CONNECTORS_ENABLED` is off, or the connector is not `active`, is `off`, or lost its community. A run that is no longer `pending` is left as it is.
+- `deferred`: another run of the same author on the connector is still `running`, whatever its age. The run stays `pending` and is rescheduled one quiet window later; new posts from the author keep joining it. Only the five-minute sweep closes a `running` run older than 15 minutes, as `failed` with reason `stalled`, so it reaches the ops alarm.
+- `authority_lost`: the authority user lost `manage_integrations`; the connector pauses with that `lastError`.
+- `binding_cap`: the connector already started 20 runs this UTC day; it pauses with that `lastError`, ops is emailed once (`discord-intake-cap:` alert key, connector and community IDs only), and `resumeConnector` at the next UTC midnight resolves the alert and reopens the connector if it is still paused for that reason.
+- `source_deleted`: every trigger post was deleted and a link was flagged. Whenever any trigger post was deleted, for each event the run's posts fed, when every `discordIntakeSources` row of that event points at a deleted post, the connector's link for the event becomes `external_deleted`. The event itself is never touched. A run with a live trigger left continues after flagging, and `finishRun` clears the flag again if that post feeds the event.
+- `trigger_deleted`: every trigger post was deleted and no link needed flagging.
+
+A started run reads the author's posts on the connector from the last 6 hours plus its trigger posts. The draft's source text lists live posts oldest first as `Author (ISO time): content`, keeping the newest posts within 12,000 characters. The model gets its own text with two labelled sections of live posts, oldest first, within the same limit: new or changed posts (the run's triggers) with their message IDs, then earlier posts for context only. Context drops first when that text is too long. Discord runs carry one extra agent instruction: explicit evidence comes only from the new or changed posts. The source URL is the newest post's; it stays on the draft for staff and is never published, and `discord_announcements` does not carry `sourceUrl` on updates. Up to three PNG, JPEG, or WebP attachments within the poster size limit are offered as posters: the trigger posts' first, then those of context posts with no `discordIntakeSources` row, each group largest first. The agent also receives the events these posts produced before (`priorEvents`), and its `list_events` and `get_event` tools see only published, unremoved events of the connector's community: `list_events` returns those prior events first, then events dated from 7 days ago to 90 days ahead, at most 40; `get_event` returns public fields only, with the `updatedAt` a later update must match. `list_events` also appends this connector's pending held drafts as `draft:<id>` rows with no lineup, leaving out in-flight working drafts, and dated events give way to them when the limit is tight, so a late flyer can find the draft its first post filed. `get_event` reads such a row as the draft would publish, without the post's own URL.
+
+A Discord link's `externalId` is the first trigger post of the run that created it. Each source row stores the `externalId` its post resolved to, and a run whose trigger posts already have source rows reuses it, so an edited or follow-up post finds the same link and event however later runs regroup the posts. `saveRunDraft` creates the run's working draft once, owned by the authority user and carrying the connector's id. `finishRun` first downgrades explicit evidence to `inferred` in four cases: text evidence whose excerpt is missing or absent from the live trigger posts (ignoring case and whitespace), a field the apply would write as empty, judged on the mapped value, so an explicit `event.startDate` with no usable start keeps the start (time TBA excepted), and `lineup` evidence on a run that reached an event without `get_event`. An `update` naming a `draft:` slug never reaches an event: the run applies through that draft's link, as decision `new`, and the run row stores `new`. When the slug names no pending draft on this connector it stays `new` and holds. Otherwise `finishRun` holds the candidate as a draft whatever the connector's mode in two cases: decision `new` with a link found while a trigger post has no source row, and a candidate with a `decision.slug` question. It applies the candidate with the run's ID as the idempotency key; an update patches only the fields the post states explicitly. When the link's held draft is still pending, `finishRun` writes the candidate into that draft's tentative block, evidence, and questions, which leaves the top-level fields staff set. If every post behind the draft is in this run, the candidate replaces all three, so an edit can shrink the draft. If another post also fed the draft, this run did not re-read it, so the candidate merges: tentative values are laid over the held ones, except that a null timezone keeps the held zone and a field with held explicit evidence keeps its value until a new explicit entry states it; a new lineup replaces the held lineup and its evidence as a whole; evidence keeps held entries with no new explicit entry for the same path, explicit first, within the limit of 40; questions take the new set. `finishRun` also moves the run's ready posters across, with their artwork when the held draft has none; and reports `draft`. The held draft keeps its first source text. `finishRun` records one source row per trigger post for the resulting event or draft, then, unless the candidate was forced into a hold, sets every `external_deleted` link of the resulting event on this connector back to `linked` and clears its `flagReviewedAt`, because a live post feeds the event again. A `not_event` result on a link with a pending held draft dismisses that draft in either mode, and a later edit refiles. `finishRun` closes the run `done` and expires the working draft whenever the result is not that draft. The run keeps its working draft unless the outcome is `draft`. `failRun` marks the run `failed` and expires its draft; a run that failed before its claim gets `startedAt` then, so it counts toward the alarm below and the daily cap. When a connector's three most recently started runs have all failed, ops is emailed once (`discord-intake:` alert key, connector and community IDs and the failure codes only); the next finished run, or removing or disconnecting the connector, resolves it.
 
 ## Event Link Previews
 
@@ -303,19 +560,118 @@ Private manager notes, source internals, participant/session associations, media
 
 ## Calendar Import And Export
 
-First `#138` slice: public calendar export is a safe serialization layer, and inbound Google Calendar import is a private staging layer.
+Public calendar export is a safe serialization layer. Google Calendar sync is a connector.
 
 The shared ICS serializer supports a single public event export and selected public event feeds. Calendar output is derived from the public event projection and includes event title, UTC start/end timestamps, public summary, canonical VRDex URL, and public host/world location text. It must not include private operator notes, moderation fields, unreviewed imports, hidden profile/world data, or media-control internals.
 
 Published cancelled events remain reachable by direct URL and export `STATUS:CANCELLED`; ordinary discovery and profile event lists exclude them. A cancelled event never promotes a watch surface.
 
-Reviewed Google Calendar imports use staging tables rather than canonical event writes:
+Google Calendar is a `google_calendar` connector on the [connector tables](#connectors):
 
-- `eventImportBatches` records the provider, source calendar, external batch or sync job, received timestamp, reviewer state, and importer.
-- `eventImportCandidates` records the imported event identity, available timestamps, title, location, description, recurrence hints, cancellation state, review state, publication state, and any later matched canonical event.
-- `eventImportCandidateFields` records field-level values, source labels, optional source URLs, confidence, visibility, and review state.
+- It carries title, start, end, summary, and venue label (as the Google `location`). Poster, world, and lineup never move.
+- Imports enter as intake candidates, like every other connector import. `listEvents` sends `eventTypes=default`, and items marked `private` or `confidential` are skipped, in reconcile matching too, so personal entries never import or link.
+- A poll applies items one at a time. An item that throws moves to its own `import_item` job, so it retries alone, its final failure shows in `lastError` until the next successful job, and the sync token still advances.
+- A linked export reads the Google item first, and an export that adopts an existing item uses the one it matched; a private or confidential item is never adopted. Where the clipped read-back already equals VRDex's value, Google's longer title, description, location, or all-day span stays; the description keeps or gains the event URL line.
+- Each instance of a recurring item within 60 days imports as its own event, linked by instance ID with the master ID as `externalSeriesId`. With connector series on, a master in the fixed set imports as a series instead; see [Connector series](#connector-series).
+- `dailySweep` queues a `reconcile` for each active importing connector, moving the 60-day recurring window forward, and revokes any Google credential over a day old with no live connector.
+- Exports end the Google description with the VRDex event URL.
+- An inbound Google cancellation flags the link `external_deleted`, on a held draft's link too; it never cancels the VRDex event. A later non-cancelled item sets the link back to `linked`. Polls list with `showDeleted=true`, so a full resync after a 410 still sees deletions; reconcile and the export dedupe list do not.
+- The daily watch renewal emails ops when an active importing connector's watch has expired or has gone seven days without renewing (`google_watch_renewal_stale:`), and resolves the alert once the connector is no longer stale, including when it leaves `active`.
+- A refused grant parks the credential's connectors as `needs_reauth` and emails ops (`google_reauth:`). The alert resolves when no connector on the credential is still parked.
 
-Google Calendar import preserves selected event provenance and maps only reviewable event facts. It can stage cancellation tombstones without event start times so later update flows can review deletions without aborting a batch. It does not import attendees, reminders, hidden calendar metadata, private notes, or arbitrary personal calendars by default. Imported candidates remain `draft_private` until an explicit later review/publication flow accepts the batch, candidate, and public fields.
+## Connectors
+
+Connectors sync a community's events with an external surface (Discord, Google Calendar, VRChat). Sync and connector management are gated by `VRDEX_EVENT_CONNECTORS_ENABLED`; see [Convex environments](../deployment/convex-environments.md#event-connectors). [Held imports](#held-imports) deliberately stay listed and actionable with the flag off, so pending drafts are not stranded.
+
+Tables, with validators in `convex/_eventConnectors.ts`:
+
+- `eventConnectors`: one connector per community, kind, and target, with direction, mode, the authority user whose `manage_integrations` permission every job re-checks, state, `lastSyncedAt`, and `lastError`. Indexes `by_communityProfileId`, `by_kind_target_channelId`, and `by_kind_target_guildId`.
+- `connectorCredentials`: encrypted OAuth tokens for Google and Notion connectors.
+- `eventSyncLinks`: one row per connector per external copy, keyed to an event, to a held draft, or to a series (see [Connector series](#connector-series)). Indexes `by_connectorId_externalId` (unique by convention), `by_connectorId_seriesId_eventId`, `by_eventId`, `by_draftId`, and `by_connectorId_state_flagReviewedAt`.
+- `eventSyncJobs`: the job queue. Indexes `by_connectorId_eventId_state` and `by_state_dueAt`.
+
+The settings page manages connectors through `convex/eventConnectors.ts`, a browser-session API. Each function authorizes the signed-in user with `manage_integrations` (or community ownership or super admin) against the connector's stored community. With the flag off, `listForCommunity` returns `enabled: false` and no connectors, and the mutations throw `CONNECTORS_DISABLED`.
+
+- `listForCommunity` returns the community's connectors, oldest first, without removed ones.
+- `create` takes a community profile, kind, direction, mode, target, and optional credential, and makes the caller the authority user. The profile must be a community (`CONNECTOR_FORBIDDEN`). `notion` is reserved and `discord_announcements` connects only through the `/vrdex connect` command or `connectChannel`, which prove guild control (`CONNECTOR_KIND_RESERVED`); the direction must be one the kind allows (`discord_board` exports, and every kind can be `off`), else `CONNECTOR_DIRECTION_INVALID`; the target must carry exactly the kind's IDs (`guildId` and `channelId` for `discord_board`, `guildId` for `discord_scheduled_events`, `calendarId` for `google_calendar`, and `groupId` for `vrchat_calendar`, which `create` fills in itself), Discord IDs must be 17 to 20 digits, calendar and group IDs at most 256 characters, and each display name at most 100 characters (`CONNECTOR_TARGET`); a credential must be the caller's own and `active` (`CONNECTOR_CREDENTIAL`); and a live connector of the same kind and target IDs is `CONNECTOR_EXISTS`. A direction other than `off` queues a `reconcile`.
+- `update` changes direction, mode, or `quietWindowSeconds` (an integer from 30 to 600, else `CONNECTOR_QUIET_WINDOW`), and throws `CONNECTOR_REMOVED` on a removed connector. Moving an active connector to a new direction other than `off` queues a `reconcile`. `state: "active"` resumes a `paused` connector only (else `CONNECTOR_RESUME_INVALID`): the caller becomes the authority user, `lastError` clears, and a `reconcile` is queued. On a `vrchat_calendar` connector the caller must also own the community or hold `manage_events` (else `CONNECTOR_FORBIDDEN`, leaving the connector unchanged), as `create` requires. A resume never clears `needs_reauth`; reconnecting the provider does that.
+- `remove` marks the connector `removed`, keeps its links, and resolves its `connector-failures:` and `discord-intake:` ops alerts. Its pending jobs close as `connector_inactive` when claimed. The `/vrdex disconnect` command removes through the same `removeConnector`, so it closes both alerts too. Removing the last `google_calendar` connector on a credential revokes that credential locally.
+
+The link is both the dedupe key and the echo guard. After a successful export the runner stores `externalId`, `lastExportedAt`, and `lastExportedHash`, the carried-field hash of what it sent (a kind that waits on a club operation puts that hash on the job's payload when the write is enqueued, because the event can change before the write settles); an inbound change with the same hash is the export coming back and is ignored. When the kind matched an external item an import had already linked (for example to a held draft), the runner adopts that link row instead of adding a second one for the same `externalId`. Deleting an export sets the link `vrdex_retracted`; kinds set `external_deleted` themselves on import. A link keyed to a held draft that is still pending blocks exports for that event: those jobs close as `pending_draft`, and publishing or dismissing the draft queues the export again.
+
+`enqueueEventSync` in `convex/_eventSync.ts` is the single hook every event write path calls. A public event queues `export_upsert` on each active export or bidirectional connector; an unpublished or removed event queues `export_delete` only where a `linked` link exists. Each connector keeps at most one pending job per event: a newer change replaces the pending row in place and cancels its scheduled run. Connector-level jobs (`reconcile`, `import_poll`, `board_refresh`) never replace each other.
+
+Jobs for one connector and event run one at a time; the other jobs for the same connector and event are a job's siblings. A job whose sibling is still in flight waits for that sibling's lease without spending an attempt, and runs as soon as the sibling finishes. A delete that reaches its run while the event is public again closes as `event_public`. An export that finishes after the event went private keeps its link and queues a delete for the copy it created. These checks apply only before a job has a club operation in flight: a reclaim settles that operation first, so an export that outlasts an unpublish still queues its delete, and a delete that outlasts a re-publish finishes before the re-publish's own export recreates the entry.
+
+`internal.eventSync.runJob` claims a job with a 10 minute lease, re-checks the flag, connector state, and authority (a lost `manage_integrations` pauses the connector as `authority_lost`; the VRChat calendar kind checks `manage_events` separately, when it enqueues a club operation), dispatches to the kind module, and completes or fails it. A failure retries after 1, 2, 4, then 8 minutes; the fifth failure marks the job `failed` and records the error on the connector. A completed job clears the connector's failure count and `lastError` and resolves its alert, with one exception: on a `bidirectional` connector `import_poll`, `import_item`, and `reconcile` only update `lastSyncedAt`, because a successful read says nothing about writes, so an export has to succeed first. An export that wrote nothing (a kind's `unchanged` answer, or a series job with no series or no series export) only updates `lastSyncedAt` too. A failing event job closes as `superseded` when a sibling is pending or running. A stalled pending job closes as `superseded` only beside a pending sibling: beside a running one it retries, because the running one holds an older snapshot. The job's `event_sync_job` analytics event carries a reason code (`handler_error`, `lease_expired`, or `stalled`), never the error text, which stays in the job's and connector's `lastError`. A `reconcile` on an exporting connector also queues `export_upsert`, two seconds apart, for each unlinked public event from one day back to 90 days ahead. A kind can return `AwaitingClubOperation` to hold its job `running` without spending an attempt. Each hold is a 30 minute lease, after which the runner reclaims the job and the kind decides whether to keep waiting, so one wait can span several holds; the kind can also wake the job early.
+
+The `recover event sync jobs` cron runs every five minutes. It fails running jobs whose lease expired more than five minutes ago (`lease_expired`) and pending jobs more than five minutes past due whose run never claimed them (`stalled`), each as a failed attempt, and deletes `done` and `failed` jobs after 30 days.
+
+Kinds register their `SyncKindHandler` in `convex/eventSyncKinds/index.ts`; the types live in `convex/eventSyncKinds/types.ts`.
+
+`discord_board` (`convex/eventSyncKinds/discordBoard.ts`) exports only: the bot keeps one embed message per event in one channel it posts to. The embed title links to the event page on `SITE_URL`, the description holds the lineup, and the fields are `Time` (or `Date` for a date-only event), `End`, `Host`, and `World` or `Worlds` (else `Venue`). The poster artwork is the image, and a cancelled event's description opens with a `Cancelled` line. An event is posted once it starts within 14 days and retired once its end is more than 24 hours past. A cancelled event is never newly posted: its live message is edited to show `Cancelled` and stays until retirement, and if that message has been deleted it is not posted again. A link whose `externalId` is `none:` plus the event ID means the event has no message.
+
+Retirement, and a community that stops being public, removes the message through an `export_upsert`: the link stays `linked` with a `none:` ID, which is not a retraction. An unpublished or removed event is retracted through `export_delete` as for any kind. The `refresh discord event boards` cron runs daily at 06:15 UTC and queues one `board_refresh` per active export board (none while the flag is off, and none beside a pending one). The refresh queues `export_upsert`, two seconds apart, for each live message to remove and for each published, scheduled event from 7 days back to 14 days ahead that has no message, skipping events with a pending job. Creating a board requires the staffer's active control proof for its guild (`CONTROL_NOT_VERIFIED` otherwise). Before every new post the handler reads the channel and requires it to be a text or announcement channel of the target guild; anything else pauses the connector with `lastError` `discord_channel_mismatch` and posts nothing. A 403 from Discord pauses the connector with `discord_forbidden`, and a 404 on the channel read or a post (the channel is gone) with `discord_channel_missing`; a 404 on an edit posts a fresh message only for an event that could be newly posted (scheduled and within 14 days), and a 404 on a delete counts as deleted. The bot needs Send Messages, Embed Links, and Manage Messages in the channel, which the invite's `DISCORD_BOT_PERMISSIONS` in `convex/_discordRest.ts` grants. Staff connect a board from the Integrations page: `listBoardChannels` returns a guild's text and announcement channels by position, only after `authorizeBoardTarget` confirms the caller has `manage_integrations` on the community and an active control proof for the guild (`CONTROL_NOT_VERIFIED` otherwise), and `isEnabled` hides the Connect control while the flag is off. `VRDEX_CONNECTOR_DISCORD_BOARD_ENABLED` gates the kind, its channel listing, and its Connect control; see [Convex environments](../deployment/convex-environments.md#event-connectors).
+
+`discord_scheduled_events` (`convex/eventSyncKinds/discordScheduledEvents.ts`, with the field mapping in `convex/_discordScheduledEventMap.ts`) syncs a community's events with the scheduled events of one Discord server. The target is `{ guildId }`, and the direction is `import`, `export`, `bidirectional`, or `off`. The carried fields are title, date, time TBA, time zone, start, end, summary, and venue. `VRDEX_CONNECTOR_DISCORD_SCHEDULED_EVENTS_ENABLED` gates the kind, the relay route, and the daily reconcile; see [Convex environments](../deployment/convex-environments.md#event-connectors).
+
+An export is an external event (`entity_type: 3`, `privacy_level: 2`, `channel_id: null`). Its location is the world names, else the venue label, else the event URL. Its end is the event's end, else the start plus 4 hours. Its description is the summary, a blank line, and the event URL as the last line. Its image is the artwork as a data URI: `image/png`, `image/jpeg`, or `image/gif`, at most 8 MiB, and any failure exports without an image. Name and location are limited to 100 characters and the description to 1000; a clipped string ends in an ellipsis (U+2026), and the description clips the summary, never the URL line. Before a first write the handler lists the server's events and adopts an unlinked one-off with the same name on the same local date, read in the event's own time zone, so it never creates a duplicate; series and finished events are never adopted. It reads the event's link again after the list: a link a reconcile wrote since the job was claimed is kept or patched, never overwritten, and an item held by a draft is adopted only by an event with no link, so two rows never share an `externalId`. When a same-named series has a night on that date within 90 days, the export writes nothing and leaves a `none:` link, and a reconcile links that row to the night once it enters the 60-day window. Date-only events and events that have already started are not exported, and an export that writes nothing leaves a `none:` plus event ID link. An edit to a linked Discord event that ended, was cancelled, or is gone creates a new one.
+
+A PATCH keeps a Discord description that reads back as the event's summary: when the text, minus its URL line and cut to the summary's 240 characters, equals the summary apart from whitespace, the PATCH leaves `description` out, or adds a missing URL line within the 1000 character limit by clipping that text. Any other description is replaced, so VRDex's summary cap never truncates what an organiser wrote there. A linked one-off that became a series on Discord gets no PATCH of any kind; with connector series on, its next import converts it to a series.
+
+A cancelled VRDex event PATCHes the Discord event to `status: 4`; Discord refuses this once an event has started, so only a scheduled one is patched. Unpublish, contributor retraction, and moderation removal DELETE the Discord event. An inbound `status: 4` or a delete marks the link `external_deleted`, on a held draft's link too, and VRDex never cancels or retracts because of it; VRDex's own cancel or delete coming back is not flagged. `external_deleted` is terminal for this kind: nothing restores the link, and an export leaves it alone.
+
+Discord scheduled events carry no updated timestamp, so the relay's receipt time is the item's `externalUpdatedAt`. An item at or before a link's `externalUpdatedAt` is ignored, because relay jobs are not serialised. An update to a linked event whose carried-field hash equals the event's current one only moves the link's import times: the gateway pushes VRDex's own PATCH back, possibly before the runner has written `lastExportedHash`. A pending draft blocks exports, so there the update is a real edit and the draft takes it. An unlinked item matches a syncable community event with the same title on the same local date, read in the event's own time zone, that has no link on this connector or only a `none:` one; that row takes the Discord ID.
+
+A recurring Discord event expands into one link per occurrence starting within 60 days. Each link's `externalId` is `{scheduledEventId}:{YYYY-MM-DD}` (UTC date) and its `externalSeriesId` is the scheduled event ID. With connector series on, a rule in the fixed set imports as a series instead, as [Connector series](#connector-series) describes. Expansion remains for rules outside the fixed set, on a `hold` connector until the series is linked, and while `connectorSeriesEnabled()` is false. Expanded occurrences never export: an edit to one in VRDex stays in VRDex, and Discord keeps its copy. Any relayed packet for a series walks every night, because Discord sends the whole series for any change, a status change included. The link's `lastImportedHash` stores the night as Discord last stated it, independent of VRDex, and a night whose hash is unchanged only moves its import times, so an edit made in VRDex stays. A real edit to the series on Discord changes that hash and overwrites the night through the import path, with the receipt time as usual. The first walk of a night has no stored hash and imports as any other. A pending draft takes a night's edit, and the hash moves with it.
+
+After a relayed walk, a `linked` night dated after today that the rule no longer generates (a series moved to another day, or a shortened `count` or `end`) is marked `external_deleted`. Its VRDex event stays as it is, and staff see the flag.
+
+Changes arrive by gateway push (see [Discord gateway](../deployment/discord-gateway.md)), backed by the daily reconcile: the `reconcile Discord scheduled event connectors` cron runs at 05:20 UTC and queues one `reconcile` per active connector whose direction is not `off` (none while the flag is off, and none beside a pending one). A reconcile reads the server's list and writes nothing to Discord. For each occurrence from now through 90 days ahead, an existing link is left alone and a match gets a `linked` link, without applying the item's fields. On an `import` or `bidirectional` connector, an item with an unmatched occurrence then gets one `import_item` job, however many of its nights are unmatched, and that job imports only those nights, so a reconcile never re-applies a linked night. Past items and items with `status` 3 or 4 are skipped. Existing links missing from the list are not flagged, so a delete made while the gateway was down goes unnoticed. Exports of unlinked events come from the runner's own `reconcile` step above; the upsert's list and match prevents duplicates.
+
+Connecting takes a staffer with `manage_integrations` and a usable `discord_guild` control proof for the server, the same bar as the board: `eventConnectors.create` enforces it, and `listConnectableGuilds` offers only servers the bot is in that pass it (one page of 200 bot servers). The bot needs Manage Events and Create Events, which the invite's `DISCORD_BOT_PERMISSIONS` grants. A 403 on any call pauses the connector with `discord_forbidden`; other failures throw `discord_` plus the status, and the job retries under the runner's backoff. A 404 on the event read or delete means the Discord event is gone.
+
+Imports that create events go through the intake draft and publish path with the connector's id. `saveIntakeDraft` writes `connectorId` onto the `eventIntakeDrafts` row, and `publishIntakeDraft` with `connectorId` publishes only a draft carrying that id, only for an `active` connector on the `system` surface (a staffer's publish outlives the connector), and only into that connector's community (else `CONNECTOR_DRAFT_MISMATCH`), and writes `connectorId` onto its `eventContributionReceipts` and `eventIntakePublishRequests` rows. A new event is the community's own listing: `sourceType: "community"`, the default `Community-submitted event` label, the publishing user's `submitter` subject, and no `contributorUserId`; the contribution fingerprint still dedupes it. Connector writes skip the per-account caps (20 active drafts, 20 active poster sources, 10 publishes and 100 publish requests per day, 20 extractions per day through `authorizeExtraction` with `connectorId`, which also requires an `active` connector) and keep the 100 publishes per community per day cap. Rows carrying `connectorId` never count toward the authority user's own caps on their later web or API writes: the personal counts read `by_actor_connector_expiresAt` (drafts), `by_actor_connector_createdAt` (receipts and publish requests), and `by_actor_connector_state` (poster sources, which copy the draft's `connectorId`) with `connectorId` equal to `undefined`, which matches only rows without the field.
+
+Imports update existing events through `internal.events.patchCommunityEventFieldsAsStaff`, a field-level patch in the intake field shape. It admits community owners, `manage_events` or `manage_integrations` staff, and super admins, and throws `VERSION_CONFLICT` before writing when `expectedUpdatedAt` is stale. Each patched field is compared with the canonical record (`correctionFields`), and only the fields that differ go through the same owner update path the API and MCP use, so unpatched fields, including the lineup, stay as they are. A start, date, or time zone change keeps the end and doors at their local wall times. A patch with no differing field writes nothing, enqueues nothing, and returns `changed: false`; a real change is audited with the staff user and the `system` surface. A patch the event cannot take (an invalid shape, a schedule that fails validation, such as a start moved before the event's doors, or a timed event turned date-only while `EVENT_DATE_ONLY_ENABLED` is off) throws `INVALID_EVENT_PATCH` with the reason, also before writing.
+
+Every inbound item goes through `applyEventCandidate` in `convex/_eventCandidateApply.ts`, which takes the candidate, the connector, the authority user, an optional working draft (its poster and source text carry through), the link or `externalId`, the source's `externalUpdatedAt`, an `idempotencyKey`, and the `expectedUpdatedAt` the caller read. It takes an optional `forceHold` that files a held draft whatever the connector's mode. It re-reads the connector and throws `CONNECTORS_DISABLED` while the flag is off, and `CONNECTOR_FORBIDDEN` unless the stored connector is `active`, its direction is not `off`, and the given user is its authority user and still holds `manage_integrations`. The candidate's own community is never trusted; every draft and event lands in the connector's community. The target is the linked event, or the `decision.update` slug when it belongs to the connector's community. Outcomes, checked in this order:
+
+- `not_event`: the candidate is not an event; nothing is written.
+- `skipped_pending_draft`: the link points at a held draft that is still pending, so later polls do not file a second one. A published or expired draft does not count, and dismissing a draft takes it off the link. An item with a newer `externalUpdatedAt` (Google, VRChat, Discord scheduled events) replaces the draft's tentative fields, evidence, and questions, leaving what staff saved, and the link records the import, because the source delivers that edit only once. Discord announcements pass no `externalUpdatedAt`; `finishRun` refreshes their draft instead.
+- `skipped_echo`: the carried-field hash equals the link's `lastExportedHash`; only the link's import times move.
+- `skipped_stale`: on a `bidirectional` connector the source's `externalUpdatedAt` is not newer than the event's `updatedAt`. VRDex wins, and the export its edit queued overwrites the copy, except on an expanded occurrence of a Discord series, which never re-exports. Import-only connectors have no stale guard.
+- `draft`: `hold` mode saves the candidate as tentative fields with its evidence and questions into a draft carrying the connector's id, and links it (keeping the target `eventId`, so My events shows a proposed update). `autopublish` also lands here when the staff patch throws `INVALID_EVENT_PATCH`, or when a new event's draft fails publish validation (`INVALID_EVENT_PATCH`, including a date-only event while `EVENT_DATE_ONLY_ENABLED` is off), or when publishing it throws `NEAR_DUPLICATE`, `REPOST_BLOCKED`, or `TARGET_QUOTA`. Those new-event drafts are re-saved as tentative fields too, so a later refresh replaces them in full.
+- `updated`: `autopublish` with a target patches only fields the source states explicitly (evidence `explicit`) and the connector kind carries; any explicit `lineup.*` evidence replaces the whole lineup, and an explicit start also sets time TBA.
+- `conflict`: the staff patch threw `VERSION_CONFLICT` against `expectedUpdatedAt`; a held draft is filed as for `hold`.
+- `published`: `autopublish` without a target publishes the working draft as the community's own listing and links it. A retry with the same `idempotencyKey` returns the first publish.
+
+Every outcome queues an `event_sync_apply` product analytics event with the connector id, kind, mode, and outcome. A link is inserted only when the item has an `externalId`.
+
+### Held imports
+
+A held import is an `eventIntakeDrafts` row with a `connectorId` and a `by_draftId` link or Discord source row; a run's in-flight working draft has neither and never lists. `resolvedAt` marks a draft that has left review, and `dismissedAt` marks one that left by dismissal. The draft belongs to the community, not the authority user: `getConnectorDraftForManager` opens it to community owners, `manage_events` staff, and super admins, whatever state the connector is in, and answers `Draft not found.` for anyone else and for an expired, resolved, or published draft. `saveIntakeDraft` answers the same for a resolved draft, the owner's included. `publishIntakeDraft` without a `connectorId` refuses a connector draft with `DRAFT_ACCESS`, so the REST, MCP, and action routes cannot publish one as a personal contribution.
+
+`eventInventory.listHeldImports` returns one row per pending draft, `new` or, when a link or the newest run's decision names an event in the connector's community, `update` with the change list. A missing or moderation-removed target lists as `new`. A post held as `new` and deleted before publish stays listed with no flag, because a flag needs a link with an event; a proposed update whose posts are all gone shows both rows. `targetName` is `#` plus `target.channelName` when set, else the calendar, group, or server name, else the target's ID. Staff attention rows (`flag`) come from `external_deleted` links with an event and no `flagReviewedAt`, one per event and reason; the reason is `source_deleted` on a `discord_announcements` link and `external_deleted` on any other.
+
+`convex/eventIntakeHeld.ts` holds the browser mutations:
+
+- `publish` with no `expectedVersion` is the row action. A new item saves the promoted fields (staff values over extracted ones, time TBA whenever no start remains, the connector's community whatever the draft says) and publishes through `publishIntakeDraft` as the community's listing. The clicker is the receipt and audit actor, the per-account caps stay skipped, the per-community cap applies, and the draft's artwork becomes the poster. A proposed update patches through `patchCommunityEventFieldsAsStaffRecord`, with rule 8's keys: explicit evidence the kind carries, plus every value a staffer saved. The Discord message URL never reaches the event. With `expectedVersion` (the editor) a stale version throws `VERSION_CONFLICT`, and only saved top-level values apply: extracted suggestions the staffer did not accept stay out. The editor shows a held draft with no start as date-only but never saves that reading: a new item publishes through the same promotion over its saved fields, and a proposed update keeps its clock unless a saved start or Time TBA says otherwise. A refused publish rolls the whole mutation back and the draft stays listed.
+- After either branch every `by_draftId` link gets the `eventId` and loses its `draftId`, every Discord source row gets the `eventId`, the draft is resolved, and an `upsert` is queued even when the patch changed nothing, because exports skipped during the hold have no other way back. When a source row of the draft has a live message, an `external_deleted` link goes back to `linked` and clears `flagReviewedAt`, because that post now feeds the event. A published cancelled Google item has no source row and keeps its `external_deleted` link, so it shows as a flag and is never exported again.
+- `dismiss` sets `dismissedAt`, `resolvedAt`, and an `expiresAt` 30 days out, after which `expireDrafts` deletes the row. Every `by_draftId` link loses its `draftId`, keeps any `eventId`, and queues an `upsert` for that event. Nothing else marks the link, so a dismissed item refiles only when its source really changes: Google and VRChat stop an unchanged item with their stored `externalUpdatedAt`, and Discord runs only on a new post or an edit.
+- `dismissFlag` is Keep. For a user who can update the event, it sets `flagReviewedAt` on the event's `external_deleted` links and leaves their state alone, so exports still will not recreate the copy. The Google, VRChat, and Discord paths that restore a link to `linked` clear `flagReviewedAt`, so a later deletion flags again, and any other restore site, `discord_scheduled_events` included, must do the same.
+
+### VRChat calendar
+
+The `vrchat_calendar` kind syncs a community's events with its connected VRChat group's calendar. It needs a connected group with an assigned collector account and the group's `calendar` feature, and `VRDEX_CONNECTOR_VRCHAT_CALENDAR_ENABLED` on; see [Convex environments](../deployment/convex-environments.md#event-connectors). A group has exactly one calendar, so there is no calendar or group picker.
+
+`create` throws `CONNECTOR_UNAVAILABLE` when the flag is off or the group is not ready, and `CONNECTOR_FORBIDDEN` unless the caller also owns the community or holds `manage_events`, because every job the connector enqueues re-checks that on its authority user. A super admin who is not staff of the community is refused here. The stored target is always the integration's `groupId` plus a `timezone`: the caller's value when `Intl.DateTimeFormat` accepts it, else `UTC`. Any `groupId`, `calendarId`, or name the caller sends is ignored. `api.vrchatCalendarConnector.availability` takes a community profile, requires connector authority, and returns `enabled` (both flags) and `ready` (`create` would accept this caller), which drive the Integrations page's Connect control.
+
+Carried fields are title, start, end, and summary. Exports also send the poster artwork and a last description paragraph of world names and the event URL; neither is imported. Titles are cut to 64 characters with an ellipsis (U+2026). VRChat sends no creation notification. Cancelling an event deletes its VRChat entry. Date-only events are not exported, and neither is an event that has already started, because VRChat refuses a past start. A switch to `import` stops exports too: a queued export finishes without writing and leaves its link as it is.
+
+A cron enqueues an `import_poll` every 30 minutes for each active import or bidirectional connector. Polls import new and changed entries and flag linked entries missing from the list as `external_deleted`. A list only covers a date window, so a flag is not final: when a poll or reconcile lists that entry again, its link goes back to `linked` and the entry follows the normal changed-item path. An entry matches an unlinked event with the same title on the same local date, read in the event's own time zone. An importing connector can also match an event whose link is `none:`, and that row takes the entry's ID. An export never matches an entry linked to another event. Every VRChat call is a club operation run by the collector, never a direct call from Convex: the sync job returns `AwaitingClubOperation` and waits, and the operation's terminal state resumes it. See [Calendar operations](community-group-telemetry.md#calendar-operations).
+
+A cancelled event, or an exported one changed to date-only, deletes its VRChat entry and leaves a `linked` link whose external ID is `none:` plus the event ID, which records that no entry exists. A date-only event whose entry was only paired, never exported, leaves the entry and its link alone: that entry is the organiser's. A `missed` operation is enqueued again without spending an attempt, because it was never submitted. A job waiting more than six hours on one operation records a failed attempt with `vrchat_operation_stalled` and emails ops at once under the connector's `connector-failures:` key, keeping the operation ID so its retries never enqueue a second write. An operation refused because the authority user lost `manage_events` pauses the connector with `authority_lost`, and resuming needs `manage_events` as described under `update`. A `feature_disabled` or `integration_unavailable` refusal also pauses the connector, with that code as its `lastError`; a community that replaced its group refuses `integration_unavailable`. A 404 flags an entry `external_deleted` only on a submitted write: a 404 at preflight is the group read, so it retries. A refused artwork upload rejects the operation, so the job retries under the runner's backoff. Artwork problems on the fetch side only drop the image, and the link records artwork only when the worker reports the upload, so the next update offers a dropped image again; see [Calendar operations](community-group-telemetry.md#calendar-operations).
 
 ## Event Operations Panel
 

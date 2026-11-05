@@ -1,6 +1,7 @@
 AGENTS.local.md
 .opencode/state/
 .codex/state/
+.superpowers/
 node_modules/
 .husky/_/
 .convex-home/

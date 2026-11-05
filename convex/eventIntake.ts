@@ -17,8 +17,7 @@ export const getEventIntakeDraft = query({ args: { draftId: v.string() }, return
   const { userId } = await requireUser(ctx);
   const draftId = ctx.db.normalizeId("eventIntakeDrafts", args.draftId);
   if (!draftId) return null;
-  const draft = await ctx.db.get(draftId);
-  return draft && draft.actorUserId === userId && draft.expiresAt > Date.now() ? getActorIntakeDraft(ctx.db, userId, draftId) : null;
+  return getActorIntakeDraft(ctx.db, userId, draftId).catch(() => null);
 } });
 export const currentIntakeActor = internalQuery({ args: {}, returns: v.id("users"), handler: async ctx => (await requireUser(ctx)).userId });
 export const saveActorDraft = internalMutation({ args: { ...actorArg, ...saveArgs }, returns: saved, handler: (ctx, args) => saveIntakeDraft(ctx.db, args.actorUserId, args) });
@@ -29,7 +28,7 @@ export const commitPublishIntake = internalMutation({ args: { ...actorArg, ...ac
   const replay = await replayIntakePublication(ctx.db, actorUserId, args);
   if (replay) return replay;
   if (classification?.decision === "block") throw new Error("CONTENT_BLOCKED");
-  const { createdEvent, ...result } = await publishIntakeDraft(ctx.db, actorUserId, args, Date.now(), actorSurface);
+  const { createdEvent, ...result } = await publishIntakeDraft(ctx, actorUserId, args, Date.now(), actorSurface);
   if (classification?.reviewReason && createdEvent) {
     const event = await ctx.db.get(result.eventId);
     await ctx.db.insert("eventReports", { eventId: result.eventId, communityProfileId: event?.communityProfileId, actorUserId, reason: classification.reviewReason, kind: classification.reviewReason, createdAt: Date.now() });

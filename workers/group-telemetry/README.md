@@ -2,6 +2,8 @@
 
 This account-scoped worker polls only explicitly assigned VRChat groups and sends aggregate observations to the Convex control plane. With the corresponding club features enabled, it also reads membership audit events and management data, and executes explicitly queued staff actions. It has no instance-attendance tracking code, strips user IDs embedded in aggregate instance locators, rejects foreign group markers, and never logs the account secret or provider payloads.
 
+Population and live-instance reads use the assigned account's full group-instance endpoint. They preserve the provider's snapshot timestamp, use `n_users` for occupants, and honor explicit closure without discarding occupants still present. The backend must accept the optional aggregate `closedAt` field before this collector is released. See the [observation model](../../docs/backend/community-group-telemetry.md#observation-model).
+
 ## Club analytics and management
 
 The club-management implementation in this revision has local test coverage; live provider proof and release approval remain separate. Existing integrations default to analytics only. Membership management, Posts and instance operations require independent feature enablement, current staff authority and the assigned bot's actual permissions. A provider permission catalog is not evidence that the bot holds those grants.
@@ -11,7 +13,8 @@ Membership audits retain aggregate movement and permission-controlled identifiab
 Queued provider reads and writes use the existing authenticated control plane, integration leases, credential generation and shared request budgets. Immediately before a write, the worker rechecks current human authorization, feature enablement, provider grants and relevant destination eligibility. Uncertain submitted writes are not automatically retried. Preflight retries are bounded; unsent work more than 15 minutes late becomes missed, including remaining invitation recipients. Event cancellation stops linked unsent work without undoing existing posts or instances.
 
 Fresh management preflight reserves its checks and write together. Ordinary
-actions require at least two requests per minute, normal instance closure three,
+actions require at least two requests per minute, normal instance closure and
+calendar writes with poster artwork three,
 and instance invitations four, within both account and integration limits.
 Lower configured limits reject that action with `operation_budget_too_low`;
 the worker never raises the limits itself. A reservation or execution deadline

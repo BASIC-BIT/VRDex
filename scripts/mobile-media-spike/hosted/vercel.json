@@ -1,0 +1,15 @@
+{
+  "framework": null,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [{ "source": "/relay/:path*", "destination": "https://sb-3ff8cher6fix.vercel.run/:path*" }],
+  "headers": [
+    { "source": "/(.*)", "headers": [
+      { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+      { "key": "X-Content-Type-Options", "value": "nosniff" },
+      { "key": "Referrer-Policy", "value": "no-referrer" }
+    ]},
+    { "source": "/media/(.*).m3u8", "headers": [{ "key": "Content-Type", "value": "application/vnd.apple.mpegurl" }] },
+    { "source": "/media/(.*).ts", "headers": [{ "key": "Content-Type", "value": "video/mp2t" }] }
+  ]
+}

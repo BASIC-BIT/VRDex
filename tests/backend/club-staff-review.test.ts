@@ -459,6 +459,19 @@ describe("independent staff boundary checks", () => {
         coverageState: "observed",
         fencingToken: 1,
       });
+      await ctx.db.insert("communityPopulationObservations", {
+        integrationId,
+        idempotencyKey: "future-point",
+        totalPopulation: 99,
+        activeInstanceCount: 2,
+        worldDistribution: [],
+        observedAt: now + 60_000,
+        source: "first_party",
+        collectorVersion: "v1",
+        coverageState: "observed",
+        fencingToken: 1,
+      });
+      await ctx.db.patch(integrationId, { lastSuccessfulObservationAt: now + 60_000 });
     });
     const client = t.withIdentity(recipient);
     const data = await client.query(
@@ -467,6 +480,16 @@ describe("independent staff boundary checks", () => {
     );
     assert.deepEqual(data!.readableCategories, ["current_population"]);
     assert.equal(data!.summary.currentPopulation, 42);
+    assert.equal(data!.summary.activeInstanceCount, 1);
+    await t.run(async ctx => {
+      const point = await ctx.db.query("communityPopulationObservations").filter(q => q.eq(q.field("idempotencyKey"), "point")).unique();
+      assert.ok(point);
+      await ctx.db.delete(point._id);
+    });
+    const futureOnly = await client.query(api.communityTelemetry.getPrivateDashboard, { communitySlug: "test-club", now });
+    assert.equal(futureOnly!.summary.currentPopulation, undefined);
+    assert.equal(futureOnly!.summary.activeInstanceCount, undefined);
+    assert.equal(futureOnly!.integration.freshness, "stale");
     assert.deepEqual(data!.sessions, []);
     assert.deepEqual(data!.population, []);
     assert.deepEqual(data!.instancePopulation, []);

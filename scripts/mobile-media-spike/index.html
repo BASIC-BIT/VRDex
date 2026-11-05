@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VRDex mobile media experiment</title>
+<style>body{font:16px system-ui;max-width:760px;margin:24px auto;padding:0 16px;background:#151515;color:#eee}video{width:100%;background:#000}button,select{font:inherit;padding:10px;margin:6px 0}pre{font-size:12px;overflow:auto;max-height:360px}</style>
+<h1>Mobile media experiment</h1>
+<p>Throwaway harness, separate from the site. Synthetic tone and test pattern. No lineup changes.</p>
+<select aria-label="Transport"><option value="ts">Current MPEG-TS transport</option><option value="hls">Native live HLS video</option><option value="audio">Native live HLS audio only</option></select>
+<button id="play">Start selected stream</button><button id="pip">Picture in picture</button>
+<video controls playsinline aria-label="Test stream"></video>
+<p>Try app switching, then screen lock for 15–30 minutes. Return here and download the evidence. A time counter alone cannot prove audible output.</p>
+<button id="download">Download evidence</button><pre></pre><script src="/client.js"></script></html>

@@ -1,10 +1,12 @@
 "use client";
 
+import type { PlaybackStatus } from "@/lib/event-playback-owner";
 import { ExternalLink } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { usePostHog } from "posthog-js/react";
 
-import { VrcdnStreamPlayer } from "./vrcdn-stream-player";
+import { WatchPlayPoster } from "./vrcdn-stream-player";
+import { useEventPlayback } from "./event-playback-provider";
 import { ProfileDestinationArtwork } from "./profile-destination-artwork";
 import { buttonVariants } from "@/components/ui/button";
 import { ConnectionVerification } from "@/components/ui/connection-verification";
@@ -30,6 +32,7 @@ export type ProfileVrcdnStream = {
   pcUrl: string;
   previewUrl: string;
   questUrl: string;
+  directVideoUrl?: string;
   streamId: string;
 };
 
@@ -53,6 +56,8 @@ type ProfileVrcdnStreamsProps = {
   initialLiveStates?: VrcdnLiveStates;
   links: ProfileVrcdnLink[];
   profileSlug: string;
+  profileId?: string;
+  displayName?: string;
   streams: ProfileVrcdnStream[];
   twitchContent?: ReactNode;
 };
@@ -70,10 +75,13 @@ export function ProfileVrcdnStreams({
   initialLiveStates,
   links,
   profileSlug,
+  profileId,
+  displayName,
   streams,
   twitchContent,
 }: ProfileVrcdnStreamsProps) {
   const posthog = usePostHog();
+  const playback = useEventPlayback();
   const claimableStreamIds = useMemo(() => [
     ...new Set(streams.filter(({ claimable }) => claimable).map(({ streamId }) => streamId)),
   ], [streams]);
@@ -86,6 +94,7 @@ export function ProfileVrcdnStreams({
   const [activePlaybackStreamIds, setActivePlaybackStreamIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [retained, setRetained] = useState<{ streamId: string; status: PlaybackStatus }>();
   const conflictEpisodesRef = useRef(new Set<string>());
 
   useEffect(() => {
@@ -166,21 +175,22 @@ export function ProfileVrcdnStreams({
     }
   }, [activePlaybackStreamIds, claimableStreamIds, lifecycles, posthog]);
 
-  const handlePlaybackActiveChange = useCallback((streamId: string, active: boolean) => {
-    setActivePlaybackStreamIds((current) => {
-      const next = new Set(current);
-      if (active) {
-        next.add(streamId);
-      } else {
-        next.delete(streamId);
-      }
-      return next;
-    });
-  }, []);
-
-  const requestSanityCheck = useCallback(() => {
-    heartbeatRef.current?.requestSanityCheck();
-  }, []);
+  useEffect(() => {
+    if (!playback) return;
+    const sync=()=>{
+      const state=playback.getSnapshot();
+      const active=state.request;
+      const streamId=active && "profileId" in active && active.profileId===profileId ? active.sourceId : undefined;
+      setRetained(previous => previous?.streamId === streamId && previous?.status === state.status ? previous : streamId ? { streamId, status: state.status } : undefined);
+      setActivePlaybackStreamIds(previous=>{
+        const next=streamId && state.status==="playing" ? streamId : undefined;
+        if(previous.size===(next?1:0) && (!next || previous.has(next)))return previous;
+        return new Set(next?[next]:[]);
+      });
+      if(streamId && state.status==="unavailable")heartbeatRef.current?.requestSanityCheck();
+    };
+    sync();return playback.subscribe(sync);
+  },[playback,profileId]);
 
   const hasLinks = links.length > 0 || discordHandles.length > 0;
   const hasWatchSurface = Boolean(twitchContent || streams.length > 0);
@@ -221,12 +231,12 @@ export function ProfileVrcdnStreams({
       {hasWatchSurface ? (
         <aside className="border-t border-border py-8 lg:border-t-0 lg:border-l lg:pl-8">
           {twitchContent}
-          {streams.map(({ claimable, key, label, pcUrl, previewUrl, questUrl, streamId }, index) => {
+          {streams.map(({ claimable, key, label, pcUrl, previewUrl, questUrl, directVideoUrl, streamId }, index) => {
             const lifecycle = lifecycles[streamId];
             const live = claimable && lifecycle?.presentation === "live";
             const playbackActive = activePlaybackStreamIds.has(streamId);
             const showPlayer = claimable && (
-              live || lifecycle?.status === "pending_offline" || playbackActive
+              live || lifecycle?.status === "pending_offline" || playbackActive || retained?.streamId === streamId
             );
             const title = streams.length > 1 ? `${label} ${streamId}` : label;
 
@@ -252,12 +262,10 @@ export function ProfileVrcdnStreams({
                 </div>
                 {showPlayer ? (
                   <div className="mt-4 overflow-hidden rounded-control border border-border">
-                    <VrcdnStreamPlayer
-                      onHealthSignal={requestSanityCheck}
-                      onPlaybackActiveChange={(active) => handlePlaybackActiveChange(streamId, active)}
-                      src={questUrl}
-                      title={title}
-                    />
+                    <div data-event-playback-inline={`profile:${profileId}:${streamId}`}>
+                      {retained?.streamId === streamId ? <div aria-hidden="true"><div className="aspect-video" /><div className="h-[152px]" />{(retained.status === "blocked" || retained.status === "unavailable") && <div className="h-11" />}</div> : <button type="button" aria-label={`Play ${title}`} className="block w-full" disabled={!playback || !profileId}
+                        onClick={()=>{if(playback && profileId)void playback.play({kind:"vrcdn",profileId,profileSlug,title:`${displayName ?? profileSlug} - VRDex`,href:`/${profileSlug}`,sourceId:streamId,src:directVideoUrl??questUrl,transport:directVideoUrl?"video":"mpegts"});}}><WatchPlayPoster /></button>}
+                    </div>
                   </div>
                 ) : null}
               </div>

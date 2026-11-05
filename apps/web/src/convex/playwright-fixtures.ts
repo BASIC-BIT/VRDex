@@ -1589,6 +1589,35 @@ export function getPlaywrightPublicWorldFixture(slug: string): PublicWorld | nul
   return null;
 }
 
+const seriesId = "playwright-afterglow-series";
+const seriesNightSlug = "playwright-afterglow-series-night";
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function getPlaywrightPublicEventSeriesFixture(id: string) {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true" ||
+    id !== seriesId
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    title: eventPreview.title,
+    summary: eventPreview.summary,
+    communitySlug,
+    communityName: eventPreview.communityName,
+    nights: [0, 1, 2, 3].map(week => ({
+      ...eventPreview,
+      id: `${seriesNightSlug}-${week}`,
+      slug: week === 0 ? seriesNightSlug : `${seriesNightSlug}-${week}`,
+      startAt: eventStartAt + week * WEEK_MS,
+      doorsOpenAt: eventDoorsOpenAt + week * WEEK_MS,
+    })),
+  };
+}
+
 export function getPlaywrightPublicEventFixture(slug: string): PublicEvent | null {
   if (
     process.env.NODE_ENV === "production" ||
@@ -1608,6 +1637,10 @@ export function getPlaywrightPublicEventFixture(slug: string): PublicEvent | nul
         { key: "host-guest", position: 2, displayLabel: "Guest set" },
       ], slots: [{ ...publicEvent.slots[0], playbackKey: "host-first", stream: { streamId: "dj-aurora", pcUrl: "rtspt://stream.vrcdn.live/live/dj-aurora", questUrl: "https://stream.vrcdn.live/live/dj-aurora.live.ts" } }],
     };
+  }
+
+  if (slug === seriesNightSlug) {
+    return { ...publicEvent, slug, seriesId };
   }
 
   if (slug === "playwright-date-only-event") {

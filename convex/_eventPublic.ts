@@ -113,6 +113,7 @@ export type PublicEvent = PublicEventPreview & {
   lineup: PublicEventLineupEntry[];
   id: string;
   slug: string;
+  seriesId?: string;
   watchMode: "event_stream" | "performer_sequence";
   watchSurfaceEnabled: boolean;
   authoredBannerImageUrl?: string;
@@ -512,7 +513,7 @@ export async function getPublicEventCommunityImage(db: DatabaseReader, community
 
 export async function getPublishedCommunity(
   db: DatabaseReader,
-  event: Doc<"events">,
+  event: Pick<Doc<"events">, "communityProfileId">,
   profileCache?: Map<Id<"profiles">, Promise<Doc<"profiles"> | null>>,
 ) {
   if (event.communityProfileId === undefined) {
@@ -805,8 +806,14 @@ export async function getPublicEventBySlug(
   }
 
   const record = await getPublicEventRecord(db, event);
+  const projected = record === null ? null : toPublicEvent(record);
+  if (projected === null || event.seriesId === undefined) {
+    return projected;
+  }
 
-  return record === null ? null : toPublicEvent(record);
+  const series = await db.get(event.seriesId);
+
+  return series === null || series.state === "removed" ? projected : { ...projected, seriesId: series._id };
 }
 
 /** Caller must authorize event operations before requesting unpublished content. */
@@ -851,6 +858,7 @@ export async function getEventForEditor(
     ...(record?.lineupEntries?.flatMap(row => row.entry.personProfileId ? [row.entry.personProfileId] : []) ?? []),
     ...(record?.participants.map(row => row.profile._id) ?? []),
   ]);
+  const series = event.seriesId === undefined ? null : await db.get(event.seriesId);
   const retainedLineupAssociations = {
     participantIds: participantAssociations.filter(row => !representedPersonIds.has(row.personProfileId)).map(row => row._id),
     slotIds: slotAssociations.filter(row => !projected?.slots.some(slot => slot.playbackKey === row._id)).map(row => row._id),
@@ -896,6 +904,26 @@ export async function getEventForEditor(
         ...(editableWorldAssociation === undefined ? {} : { editableWorldAssociation }),
         preservedCommunityProfileId: event.communityProfileId,
         publicationState: event.publicationState,
+        series: series === null ? null : {
+          id: series._id as string,
+          title: series.title,
+          ...optionalField("summary", series.summary),
+          timezone: series.timezone,
+          ...optionalField("venueLabel", series.venueLabel),
+          ...optionalField("worldSlug", series.worldSlug),
+          ...optionalField("sourceUrl", series.sourceUrl),
+          ...optionalField("bannerImageUrl", series.bannerImageUrl),
+          ...optionalField("thumbnailImageUrl", series.thumbnailImageUrl),
+          ...optionalField("mediaLinks", series.mediaLinks),
+          ...optionalField("watchMode", series.watchMode),
+          ...optionalField("watchSurfaceEnabled", series.watchSurfaceEnabled),
+          rule: series.rule,
+          startsOn: series.startsOn,
+          ...optionalField("endsOn", series.endsOn),
+          ...optionalField("count", series.count),
+          state: series.state,
+        },
+        overrides: event.overrides ?? [],
       };
 }
 

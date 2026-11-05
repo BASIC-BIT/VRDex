@@ -1525,3 +1525,28 @@ describe("profile media-kit owner management", () => {
     );
   });
 });
+
+it("projects current revision and selected public artwork eligibility without widening hidden assets", async () => {
+  const { t, profileId, assetIds } = await seedOwnedProfile(2);
+  const args = { slug: "media-owner", assetId: assetIds[0]! };
+  const gallery = await t.query(api.profileAssets.getPublicAssetForStorage, args);
+  assert.equal(gallery?.nowPlayingEligible, false);
+  await t.run(async ctx => {
+    const placement = await ctx.db.query("profileAssetPlacements").withIndex("by_assetId", q => q.eq("assetId", assetIds[0]!)).unique();
+    await ctx.db.patch(placement!._id, { placement: "profile_image" });
+  });
+  const selected = await t.query(api.profileAssets.getPublicAssetForStorage, args);
+  assert.equal(selected?.nowPlayingEligible, true);
+  assert.equal(typeof selected?.revision, "string");
+  await t.run(async ctx => { await ctx.db.patch(assetIds[0]!, { visibility: "private" }); });
+  assert.equal(await t.query(api.profileAssets.getPublicAssetForStorage, args), null);
+  await t.run(async ctx => {
+    await ctx.db.patch(assetIds[0]!, { visibility: "public", updatedAt: 123 });
+    await ctx.db.patch(profileId, { fieldVisibility: { avatarImageUrl: "private" } });
+  });
+  assert.equal(await t.query(api.profileAssets.getPublicAssetForStorage, args), null);
+  await t.run(async ctx => { await ctx.db.patch(profileId, { fieldVisibility: {} }); });
+  assert.equal((await t.query(api.profileAssets.getPublicAssetForStorage, args))?.revision, "123");
+  await t.run(async ctx => { await ctx.db.patch(profileId, { publicSurfacingState: "suppressed" }); });
+  assert.equal(await t.query(api.profileAssets.getPublicAssetForStorage, args), null);
+});

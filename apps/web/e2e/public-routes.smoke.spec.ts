@@ -582,7 +582,31 @@ test.describe("fixture lookup smoke", () => {
     expect(await previewPosition()).toEqual(previewBefore);
   });
 
+  // Public-page fixtures have synthetic IDs; retained authorization must read the
+  // same projection, rather than accidentally querying an unrelated seeded row.
+  async function retainAuroraFixture(page: import("@playwright/test").Page) {
+    await page.route("**/api/query", async route => {
+      const query = route.request().postDataJSON();
+      const args = Array.isArray(query.args) ? query.args[0] : query.args;
+      if (query.path !== "profiles:getPublicBySlug" || args?.slug !== "playwright-dj-aurora") return route.fallback();
+      await route.fulfill({
+        headers: { "Access-Control-Allow-Origin": "*" },
+        contentType: "application/json",
+        json: {
+          status: "success",
+          value: {
+            id: "fixture-profile-dj-aurora",
+            slug: "playwright-dj-aurora",
+            displayName: "DJ Aurora",
+            outboundLinks: [{ type: "vrcdn", url: "https://stream.vrcdn.live/live/dj-aurora.live.ts" }],
+          },
+        },
+      });
+    });
+  }
+
   test("confirmed offline state does not interrupt active VRCDN playback", async ({ page }) => {
+    await retainAuroraFixture(page);
     let attempts = 0;
     let releaseFirstResponse: () => void = () => {};
     let releaseMedia: () => void = () => {};
@@ -618,6 +642,8 @@ test.describe("fixture lookup smoke", () => {
     await expect(video).toBeVisible();
     await video.evaluate((element) => {
       element.setAttribute("data-lifecycle-marker", "playing");
+      // This policy fixture holds network bytes; model the state of a real playing event.
+      Object.defineProperty(element, "paused", { configurable: true, get: () => false });
       element.dispatchEvent(new Event("playing"));
     });
     await expect(page.getByText("LIVE", { exact: true })).toBeVisible();
@@ -639,7 +665,8 @@ test.describe("fixture lookup smoke", () => {
     releaseMedia();
   });
 
-  test("player ended requests a sanity check without declaring offline", async ({ page }) => {
+  test("player ended requests a sanity check without declaring offline", async ({ page }, testInfo) => {
+    await retainAuroraFixture(page);
     let attempts = 0;
     let releaseMedia: () => void = () => {};
     const mediaHold = new Promise<void>((resolve) => {
@@ -667,7 +694,9 @@ test.describe("fixture lookup smoke", () => {
 
     await page.clock.install();
     await video.evaluate((element) => {
+      Object.defineProperty(element, "paused", { configurable: true, get: () => false });
       element.dispatchEvent(new Event("playing"));
+      Object.defineProperty(element, "paused", { configurable: true, get: () => true });
       element.dispatchEvent(new Event("ended"));
     });
 
@@ -680,6 +709,12 @@ test.describe("fixture lookup smoke", () => {
     await expect.poll(() => attempts).toBe(2);
     await expect(vrcdnBlock.getByText("Live now", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+    if (process.env.PLAYWRIGHT_CAPTURE_SCREENSHOTS !== "false") {
+      await testInfo.attach("profile-playback-stopped", {
+        body: await page.screenshot(),
+        contentType: "image/png",
+      });
+    }
 
     releaseMedia();
   });

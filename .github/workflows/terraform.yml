@@ -34,6 +34,7 @@ on:
           - group-telemetry-collector
           - group-telemetry-login-host
           - vrclinking-adapter
+          - discord-gateway
       apply:
         description: Apply the selected stack after a successful plan.
         required: true
@@ -56,6 +57,9 @@ env:
   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
   TERRAFORM_POSTHOG_PUBLIC_KEY: ${{ secrets.TERRAFORM_POSTHOG_PUBLIC_KEY }}
   TERRAFORM_TEMPORAL_INPUT_HASH_KEY: ${{ secrets.TERRAFORM_TEMPORAL_INPUT_HASH_KEY }}
+  TERRAFORM_GOOGLE_CONNECTOR_CLIENT_ID: ${{ secrets.TERRAFORM_GOOGLE_CONNECTOR_CLIENT_ID }}
+  TERRAFORM_GOOGLE_CONNECTOR_CLIENT_SECRET: ${{ secrets.TERRAFORM_GOOGLE_CONNECTOR_CLIENT_SECRET }}
+  TERRAFORM_DISCORD_POSTER_TOKEN: ${{ secrets.TERRAFORM_DISCORD_POSTER_TOKEN }}
   TERRAFORM_SES_DOMAIN_NAME: ${{ vars.TERRAFORM_SES_DOMAIN_NAME }}
   TERRAFORM_SES_FROM_EMAIL: ${{ vars.TERRAFORM_SES_FROM_EMAIL }}
   TERRAFORM_ROUTE53_ZONE_ID: ${{ vars.TERRAFORM_ROUTE53_ZONE_ID }}
@@ -247,6 +251,19 @@ jobs:
             requires_ses_domain: "false"
             requires_profile_assets_enabled: "false"
             requires_upstash: "false"
+          - name: discord-gateway
+            path: infra/terraform/discord-gateway
+            backend: "true"
+            plan: "false"
+            auto_apply: "false"
+            manual_apply: "false"
+            requires_aws: "false"
+            requires_vercel: "false"
+            requires_posthog: "false"
+            requires_posthog_public_key: "false"
+            requires_ses_domain: "false"
+            requires_profile_assets_enabled: "false"
+            requires_upstash: "false"
           # Validate-only, not plan-only. `plan: "false"` makes the plan gate
           # exit before touching remote state, so CI never sees a create or a
           # destroy on this stack — do not read the flags below as a plan.
@@ -330,8 +347,8 @@ jobs:
         working-directory: ${{ matrix.stack.path }}
         run: terraform validate
 
-      - name: Test restream permissions without AWS
-        if: steps.selection.outputs.run == 'true' && (matrix.stack.name == 'state-mgmt' || matrix.stack.name == 'restream-worker')
+      - name: Test without AWS
+        if: steps.selection.outputs.run == 'true' && (matrix.stack.name == 'state-mgmt' || matrix.stack.name == 'restream-worker' || matrix.stack.name == 'discord-gateway')
         working-directory: ${{ matrix.stack.path }}
         run: terraform test -no-color
 
@@ -373,7 +390,18 @@ jobs:
           # silently drops the hosted values would plan 5 to destroy against the
           # live Clerk CNAMEs and apply it unattended, taking production
           # authentication DNS with it. Skipping the stack is the safe failure.
-          if [ "${{ matrix.stack.requires_clerk_dns }}" = "true" ] && [ "$GITHUB_REPOSITORY" = "BASIC-BIT/VRDex" ]; then
+          #
+          # The canonical repository is matched by its numeric ID so an owner
+          # transfer or rename cannot turn this off, and also by its old and new
+          # names so a wrong or stale ID cannot either. Wrongly treating a repo
+          # as canonical only adds records; wrongly treating it as a fork
+          # destroys them. The Plan step reads this output.
+          canonical_repository=false
+          if [ "${GITHUB_REPOSITORY_ID:-}" = "1176245711" ] || [ "$GITHUB_REPOSITORY" = "BASIC-BIT/VRDex" ] || [ "$GITHUB_REPOSITORY" = "BITRATE-Labs/VRDex" ]; then
+            canonical_repository=true
+          fi
+          echo "canonical_repository=$canonical_repository" >> "$GITHUB_OUTPUT"
+          if [ "${{ matrix.stack.requires_clerk_dns }}" = "true" ] && [ "$canonical_repository" = "true" ]; then
             if [ ! -f "${{ matrix.stack.path }}/hosted.tfvars" ]; then missing+=("${{ matrix.stack.path }}/hosted.tfvars"); fi
           fi
 
@@ -457,6 +485,7 @@ jobs:
           TF_VAR_temporal_input_hash_key: ${{ env.TERRAFORM_TEMPORAL_INPUT_HASH_KEY }}
           TF_VAR_upstash_email: ${{ env.TERRAFORM_UPSTASH_EMAIL }}
           TF_VAR_upstash_api_key: ${{ env.TERRAFORM_UPSTASH_API_KEY }}
+          CANONICAL_REPOSITORY: ${{ steps.gate.outputs.canonical_repository }}
         run: |
           set -euo pipefail
 
@@ -467,11 +496,12 @@ jobs:
               ;;
             web-domains)
               if [ -n "$TERRAFORM_ROUTE53_ZONE_ID" ]; then args+=("-var=route53_zone_id=$TERRAFORM_ROUTE53_ZONE_ID"); fi
-              # Canonical repository only. `hosted.tfvars` is checked in so the
-              # hosted DNS is reconstructible from git, and is not auto-loaded, so
-              # a fork plans no Clerk records and never delegates its own
-              # authentication-email DNS to this Clerk tenant.
-              if [ "$GITHUB_REPOSITORY" = "BASIC-BIT/VRDex" ]; then args+=("-var-file=hosted.tfvars"); fi
+              # Canonical repository only, as decided by the plan gate.
+              # `hosted.tfvars` is checked in so the hosted DNS is reconstructible
+              # from git, and is not auto-loaded, so a fork plans no Clerk records
+              # and never delegates its own authentication-email DNS to this
+              # Clerk tenant.
+              if [ "$CANONICAL_REPOSITORY" = "true" ]; then args+=("-var-file=hosted.tfvars"); fi
               ;;
             ses)
               args+=("-var=domain_name=$TERRAFORM_SES_DOMAIN_NAME")
@@ -484,6 +514,14 @@ jobs:
               if [ -n "$TERRAFORM_PROFILE_ASSETS_STAGING_ALLOWED_ORIGINS" ]; then args+=("-var=staging_direct_upload_allowed_origins=$TERRAFORM_PROFILE_ASSETS_STAGING_ALLOWED_ORIGINS"); fi
               if [ -n "$TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS" ]; then args+=("-var=staging_custom_environment_ids=$TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS"); fi
               if [ -n "$TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_NAMES" ]; then args+=("-var=staging_custom_environment_names=$TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_NAMES"); fi
+              ;;
+            vercel)
+              # An empty TF_VAR is a set value, not null, so a fork without these secrets must not export them.
+              if [ -n "$TERRAFORM_GOOGLE_CONNECTOR_CLIENT_ID" ] && [ -n "$TERRAFORM_GOOGLE_CONNECTOR_CLIENT_SECRET" ]; then
+                export TF_VAR_google_connector_client_id="$TERRAFORM_GOOGLE_CONNECTOR_CLIENT_ID"
+                export TF_VAR_google_connector_client_secret="$TERRAFORM_GOOGLE_CONNECTOR_CLIENT_SECRET"
+              fi
+              if [ -n "$TERRAFORM_DISCORD_POSTER_TOKEN" ]; then export TF_VAR_discord_poster_token="$TERRAFORM_DISCORD_POSTER_TOKEN"; fi
               ;;
             rate-limit-redis)
               if [ -n "$TERRAFORM_RATE_LIMIT_STAGING_CUSTOM_ENVIRONMENT_IDS" ]; then args+=("-var=staging_custom_environment_ids=$TERRAFORM_RATE_LIMIT_STAGING_CUSTOM_ENVIRONMENT_IDS"); fi

@@ -62,6 +62,11 @@ The release job requires these GitHub settings:
 | `CONVEX_DEPLOYMENT_PROD` | variable | Explicit production Convex deployment selector. |
 | `CONVEX_DEPLOY_KEY_PROD` | secret | Production query authorization used only for the readiness check. |
 
+The release role's trust is not managed in git. Before the repository moves to
+`BITRATE-Labs`, update it out of band to accept the new-owner subjects the same
+way `infra/terraform/state-mgmt` does (see "Owner transfer trust" there), or the
+release job loses AWS access after the move.
+
 Provision the OIDC role through a separately reviewed IAM bootstrap. The
 release role needs read access to refresh this stack, ECR layer upload for only
 `vrdex-group-telemetry`, `iam:PassRole` for only the existing collector task and

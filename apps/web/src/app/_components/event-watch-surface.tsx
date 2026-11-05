@@ -330,7 +330,7 @@ function WatchEmbedFrame({ embed }: { embed: WatchEmbed }) {
   return <ForegroundWatchEmbed key={embed.src} src={embed.src} title={embed.title} />;
 }
 
-export function EventWatchSurface(props: Parameters<typeof StandaloneEventWatchSurface>[0] & { playbackRequest?: PlaybackRequest }) {
+export function EventWatchSurface(props: Parameters<typeof StandaloneEventWatchSurface>[0] & { playbackRequest?: Extract<PlaybackRequest,{eventId:string}> }) {
   const owner = useEventPlayback();
   if (owner && props.playbackRequest) return <EventPlaybackInline owner={owner} request={props.playbackRequest} />;
   return <StandaloneEventWatchSurface {...props} />;

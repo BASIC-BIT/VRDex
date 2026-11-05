@@ -2,7 +2,10 @@ import { ClubProvider } from "./club-provider.mjs";
 import { VrchatProviderError } from "./vrchat-client.mjs";
 import { budgetedClubProvider } from "./club-request-budget.mjs";
 
-export async function executeClubOperation({ assignment, provider, control, expectedUserId, accountBudget, integrationBudget, pause, shouldStop, clock = Date.now, deadline = clock() + 240_000 }) {
+// A provider write, or a calendar read whose result Convex will act on.
+const isProviderAttempt = (path, options) => (options?.method && options.method !== "GET") || path.startsWith("/calendar/");
+
+export async function executeClubOperation({ assignment, provider, control, expectedUserId, accountBudget, integrationBudget, pause, shouldStop, clock = Date.now, deadline = clock() + 240_000, fetchImage }) {
   const scope = { integrationId: assignment.integrationId, fencingToken: assignment.fencingToken, epochStartedAt: assignment.epochStartedAt };
   const job = await control.send("club_operation_claim", scope);
   if (!job) return { processed: false };
@@ -10,7 +13,11 @@ export async function executeClubOperation({ assignment, provider, control, expe
   const claim = { ...scope, operationId: job.operationId, nonce: job.nonce };
   // Authenticate first, then reserve the grant read and all remaining checks
   // together with the write. No refresh loop can consume the write's slot.
-  const freshRequestCount = job.payload.kind === "invite_to_instance" ? 4 : ["close_instance", "edit_post", "delete_post"].includes(job.payload.kind) ? 3 : 2;
+  // Calendar: the grant read plus the call, and the artwork upload when there is
+  // artwork. Later list pages reserve one request each through the budget loop.
+  const { kind } = job.payload;
+  const freshRequestCount = kind === "invite_to_instance" ? 4
+    : ["close_instance", "edit_post", "delete_post"].includes(kind) || ((kind === "create_calendar_event" || kind === "update_calendar_event") && job.payload.imageUrl !== undefined) ? 3 : 2;
   if (Math.min(accountBudget.limit, integrationBudget.limit, assignment.requestsPerMinute ?? Infinity) < freshRequestCount) {
     await control.send("club_operation_reject", { ...claim, code: "operation_budget_too_low" });
     return { processed: true, status: "rejected", code: "operation_budget_too_low" };
@@ -19,13 +26,17 @@ export async function executeClubOperation({ assignment, provider, control, expe
   // This wrapper runs only after all budget/deadline guards, immediately before
   // transport. Authorization alone does not mean a provider write was attempted.
   const transport = { request(path, options) {
-    if (options?.method && options.method !== "GET") transportAttempted = true;
+    // The artwork upload is not the operation's own call: an event write that
+    // never left the worker after it must stay a definite rejection.
+    if (isProviderAttempt(path, options) && path !== "/file/image") transportAttempted = true;
     return provider.request(path, options);
   } };
   const client = budgetedClubProvider({ provider: transport, control, assignment, accountBudget, integrationBudget, pause, shouldStop, clock, deadline: executionDeadline,
     reservationSize: path => path === `/groups/${encodeURIComponent(assignment.vrchatGroupId)}?includeRoles=true` ? freshRequestCount : 1,
-    beforeRequest: async (_path, options) => {
-      if (!options?.method || options.method === "GET") return;
+    beforeRequest: async (path, options) => {
+      // Authorize once per operation: the artwork upload and the event write
+      // share one authorization, as do all pages of a calendar list.
+      if (!isProviderAttempt(path, options) || submitted) return;
       if (!evidence) throw new VrchatProviderError("Missing operation preflight.", { status: 403, category: "provider_authority" });
       // Slow provider reads may still age the evidence. Defer the untouched job
       // instead of performing refresh reads with its reserved write capacity.
@@ -41,7 +52,7 @@ export async function executeClubOperation({ assignment, provider, control, expe
       submitted = true;
     },
   });
-  const adapter = new ClubProvider({ client, groupId: assignment.vrchatGroupId, expectedUserId, clock });
+  const adapter = new ClubProvider({ client, groupId: assignment.vrchatGroupId, expectedUserId, clock, fetchImage });
   let outcome = await adapter.execute(job.payload, { onPreflight: value => { evidence = value; } });
   // Keep bounded provider failure metadata for the collector after recording
   // the job outcome. It is not part of the control-plane completion payload.
@@ -57,13 +68,18 @@ export async function executeClubOperation({ assignment, provider, control, expe
     await control.send("club_operation_reject", { ...claim, code: outcome.code ?? "preflight_failed" });
     return { processed: true, status: "rejected", code: outcome.code, ...failure };
   }
-  if (!transportAttempted) {
+  // A definite rejection (such as a refused artwork upload) keeps its own code.
+  if (!transportAttempted && outcome.status !== "rejected") {
     outcome = { status: "rejected", code: "submission_not_attempted" };
   }
   const result = {};
   if (outcome.status === "succeeded") {
     if (job.payload.kind === "create_instance") { result.worldId = outcome.result.worldId; result.instanceId = outcome.result.instanceId; }
     if (job.payload.kind === "publish_post" || job.payload.kind === "edit_post") result.postId = outcome.result.id;
+    if (kind === "create_calendar_event") result.calendarEventId = outcome.result.id;
+    if (kind === "update_calendar_event") result.calendarEventId = job.payload.calendarEventId;
+    if (outcome.artworkUploaded) result.calendarArtworkUploaded = true;
+    if (kind === "list_calendar_events") Object.assign(result, outcome.result);
   }
   await control.send("club_operation_complete", { ...claim, status: outcome.status,
     ...(outcome.code ? { code: outcome.code } : {}), ...(Object.keys(result).length ? { result } : {}),

@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { request } from "node:https";
-import { lookup } from "node:dns/promises";
+import { Resolver } from "node:dns/promises";
 import { randomUUID } from "node:crypto";
 import { isIPv4 } from "node:net";
 export function isPublicIPv4(address) {
@@ -18,8 +18,14 @@ export function isPublicIPv4(address) {
     (a === 198 && (b === 18 || b === 19))
   );
 }
-/** Only canonical MPEGTS VRCDN or exact deployment-owned HTTPS endpoints. */
-export function validateSourceEndpoint(value, operatorEndpoints = []) {
+/** Explicit MP4 mode does not broaden the existing MPEGTS allowlist. */
+export function validateSourceEndpoint(
+  value,
+  operatorEndpoints = [],
+  inputFormat = "mpegts",
+) {
+  if (!["mpegts", "vrcdn_fmp4"].includes(inputFormat))
+    throw Error("Unsupported input format");
   const url = new URL(value);
   if (
     url.protocol !== "https:" ||
@@ -31,7 +37,10 @@ export function validateSourceEndpoint(value, operatorEndpoints = []) {
     throw Error("Unsupported source endpoint");
   const canonical =
     url.hostname === "stream.vrcdn.live" &&
-    /^\/live\/[a-zA-Z0-9_-]{2,128}\.live\.ts$/.test(url.pathname) &&
+    (inputFormat === "vrcdn_fmp4"
+      ? /^\/live\/[a-zA-Z0-9_-]{2,128}\.live\.mp4$/
+      : /^\/live\/[a-zA-Z0-9_-]{2,128}\.live\.ts$/
+    ).test(url.pathname) &&
     !url.search;
   if (!canonical && !operatorEndpoints.includes(url.href))
     throw Error("Source endpoint is not authorized");
@@ -50,7 +59,9 @@ export function validateSourceEndpoint(value, operatorEndpoints = []) {
  */
 export async function createSourceRelay({
   operatorEndpoints = [],
-  resolveAddresses = lookup,
+  inputFormat = "mpegts",
+  resolveAddresses,
+  createResolver = () => new Resolver({ timeout: 1000, tries: 1 }),
   requestSource = request,
 } = {}) {
   const routes = new Map();
@@ -72,7 +83,7 @@ export async function createSourceRelay({
       res.writeHead(409).end();
       return;
     }
-    let upstream, responseStream, dnsWork;
+    let upstream, responseStream, dnsWork, resolver, dnsTimer;
     let cleanup;
     const abort = () => {
       if (cleanup) return cleanup;
@@ -89,6 +100,8 @@ export async function createSourceRelay({
       ]).then(() => {
         route.connections.delete(abort);
       });
+      resolver?.cancel();
+      clearTimeout(dnsTimer);
       upstream?.destroy();
       responseStream?.destroy();
       res.destroy();
@@ -97,16 +110,29 @@ export async function createSourceRelay({
     route.connections.add(abort);
     res.on("close", abort);
     try {
-      dnsWork = Promise.resolve().then(() =>
-        resolveAddresses(route.url.hostname, { all: true, family: 4 }),
-      );
+      // A resolver belongs to this connection only. Injected legacy lookup hooks
+      // retain their physical-completion ownership semantics during disposal.
+      dnsWork = Promise.resolve().then(() => {
+        if (resolveAddresses)
+          return resolveAddresses(route.url.hostname, { all: true, family: 4 });
+        resolver = createResolver();
+        if (cleanup) throw Error("Source cancelled");
+        return resolver
+          .resolve4(route.url.hostname)
+          .then((addresses) =>
+            addresses.map((address) => ({ address, family: 4 })),
+          );
+      });
       const addresses = await Promise.race([
         dnsWork,
         new Promise((_, reject) => {
-          const timer = setTimeout(() => reject(Error("DNS timeout")), 2000);
-          timer.unref();
+          dnsTimer = setTimeout(() => {
+            resolver?.cancel();
+            reject(Error("DNS timeout"));
+          }, 2000);
+          dnsTimer.unref();
         }),
-      ]);
+      ]).finally(() => clearTimeout(dnsTimer));
       if (
         stopped ||
         routes.get(req.url) !== route ||
@@ -132,12 +158,22 @@ export async function createSourceRelay({
             response.destroy();
             return;
           }
-          if (response.statusCode !== 200) {
+          if (
+            response.statusCode !== 200 ||
+            (inputFormat === "vrcdn_fmp4" &&
+              response.headers["content-type"]
+                ?.split(";")[0]
+                .trim()
+                .toLowerCase() !== "video/mp4")
+          ) {
             response.destroy();
             res.writeHead(502).end();
             return;
           }
-          res.writeHead(200, { "Content-Type": "video/mp2t" });
+          res.writeHead(200, {
+            "Content-Type":
+              inputFormat === "vrcdn_fmp4" ? "video/mp4" : "video/mp2t",
+          });
           response.on("error", () => res.destroy());
           response.pipe(res);
         },
@@ -185,7 +221,11 @@ export async function createSourceRelay({
     resolveSource(source) {
       if (source.type !== "vrcdn_link" && source.type !== "rtmp_source")
         throw Error("Unsupported source kind");
-      const url = validateSourceEndpoint(source.publicUrl, operatorEndpoints);
+      const url = validateSourceEndpoint(
+        source.publicUrl,
+        operatorEndpoints,
+        inputFormat,
+      );
       // Current and next only; existing endpoint reuse avoids decoder churn.
       let route = [...routes].find(
         ([, value]) => value.key === sourceKey(source),

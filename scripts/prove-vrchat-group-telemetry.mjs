@@ -123,6 +123,7 @@ if (!session) {
   authenticationMode = "local_loopback_keychain";
 }
 const client = new VrchatClient({
+  userId: session.userId,
   authCookie: session.authCookie,
   twoFactorAuthCookie: session.twoFactorAuthCookie,
   userAgent,

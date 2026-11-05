@@ -4,6 +4,7 @@ import { resolveClubSubject } from "./_clubAccess";
 import { getActiveProfileOwner } from "./_profileOwnership";
 import { clubOperationRequirement } from "./_clubOperationPolicy";
 import { policyOperation } from "./_clubOperations";
+import { resumeConnectorSyncJob } from "./_vrchatCalendarConnector";
 
 export async function notificationRecipient(
   db: DatabaseReader,
@@ -59,6 +60,11 @@ export async function recordClubOperationFailure(
   operationId: Id<"clubOperations">,
 ) {
   const job = await ctx.db.get(operationId);
+  // Connector operations file no notice: a terminal one resumes its sync job, which reports failures on the connector.
+  if (job?.connectorSync) {
+    if (job.state !== "pending" && job.state !== "claimed" && job.state !== "submitted") await resumeConnectorSyncJob(ctx, job);
+    return;
+  }
   if (
     !job ||
     !(

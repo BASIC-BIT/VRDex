@@ -1,6 +1,6 @@
 import { readCollectionSubject, readManagedIntegration } from "./_groupObservationPolicy";
 import { assertAutomaticOperationAllowed } from "./_communityTelemetry";
-import { v, convexToJson } from "convex/values";
+import { v, convexToJson, type Infer } from "convex/values";
 import { internal } from "./_generated/api";
 import { recordClubOperationFailure } from "./_clubNotifications";
 import { syncClubEventOperationPage } from "./_clubOperationEvents";
@@ -27,6 +27,9 @@ import {
 } from "./_clubOperationPolicy";
 import {
   clubOperationPayload,
+  staffOperationPayload,
+  CALENDAR_OPERATION_KINDS,
+  type StaffOperationPayload,
   operationSchedule,
   operationState,
   policyOperation,
@@ -35,6 +38,10 @@ import {
   CLAIM_MS,
   type OperationPayload,
 } from "./_clubOperations";
+import { operationResult } from "./_clubOperations";
+import { userAuthSubject } from "./_eventConnectors";
+import { vrchatCalendarReadiness } from "./_vrchatCalendarConnector";
+import { vrchatCalendarEnabled } from "./eventSyncKinds/vrchatCalendar";
 
 // A unique nonce prevents Convex from replaying a cached clock result when a
 // composer checks a schedule immediately before submission.
@@ -51,6 +58,48 @@ async function patchOperation(
 ) {
   await ctx.db.patch(id, patch);
   await recordClubOperationFailure(ctx, id);
+}
+
+export type ConnectorOperationRefusal = "integration_unavailable" | "feature_disabled" | "staff_permission";
+// A connector's operation runs as its authority user, now, with no event: event fanout must never cancel it.
+export async function enqueueConnectorOperation(ctx: MutationCtx, args: {
+  connector: Doc<"eventConnectors">; payload: OperationPayload; syncJobId: Id<"eventSyncJobs">;
+}): Promise<{ operationId: Id<"clubOperations"> } | { refused: ConnectorOperationRefusal }> {
+  const { connector, payload, syncJobId } = args;
+  const subject = await userAuthSubject(ctx.db, connector.authorityUserId);
+  const actor = subject ? await resolveClubSubject(ctx.db, connector.communityProfileId, subject) : null;
+  if (!subject || !actor || (actor.kind !== "owner" && !actor.permissions.includes("manage_events")))
+    return { refused: "staff_permission" };
+  const readiness = await vrchatCalendarReadiness(ctx.db, connector.communityProfileId);
+  if (!readiness.ready)
+    return { refused: readiness.code === "feature_disabled" ? "feature_disabled" : "integration_unavailable" };
+  const { integration } = readiness;
+  // The community swapped groups: this connector's links and target name the old one.
+  if (integration.vrchatGroupId !== connector.target.groupId) return { refused: "integration_unavailable" };
+  validatePayload(payload, integration.vrchatGroupId);
+  const now = Date.now();
+  const requestId = `sync_${syncJobId}_${now}`;
+  const operationId = await ctx.db.insert("clubOperations", {
+    communityProfileId: connector.communityProfileId,
+    integrationId: integration._id,
+    epochStartedAt: integration.telemetryEpochStartedAt ?? integration.createdAt,
+    requestId,
+    batchId: requestId,
+    payload,
+    schedule: { kind: "immediate" },
+    dueAt: now,
+    readyAt: now,
+    actor: subject,
+    createdBy: subject,
+    revision: 1,
+    state: "pending",
+    connectorSync: { connectorId: connector._id, jobId: syncJobId },
+    createdAt: now,
+    updatedAt: now,
+  });
+  readCollectionSubject(integration);
+  await ctx.db.patch(integration._id, { nextPollAt: Math.min(integration.nextPollAt ?? now, now) });
+  return { operationId };
 }
 export async function rejectConnectionOperations(
   ctx: MutationCtx,
@@ -254,7 +303,7 @@ export const enqueue = mutation({
   args: {
     communityProfileId: v.id("profiles"),
     requestId: v.string(),
-    payloads: v.array(clubOperationPayload),
+    payloads: v.array(staffOperationPayload),
     schedule: operationSchedule,
     reviewedDueAt: v.optional(v.number()),
   },
@@ -294,6 +343,12 @@ async function resolvedOperation(
   | { status: "ready"; payload: OperationPayload }
   | { status: "pending" | "rejected"; code: string }
 > {
+  // Claim and authorize both pass here, so Disconnect, pause, Off, and the kind flag stop a queued connector write.
+  if (job.connectorSync) {
+    const connector = await ctx.db.get(job.connectorSync.connectorId);
+    if (connector?.state !== "active" || connector.direction === "off" || !vrchatCalendarEnabled())
+      return { status: "rejected", code: "connector_inactive" };
+  }
   if (job.payload.kind !== "invite_to_created_instance")
     return { status: "ready", payload: job.payload };
   const dependency = await ctx.db.get(job.payload.creationOperationId);
@@ -487,7 +542,7 @@ export const edit = mutation({
   args: {
     operationId: v.id("clubOperations"),
     expectedRevision: v.number(),
-    payload: clubOperationPayload,
+    payload: staffOperationPayload,
     schedule: operationSchedule,
     reviewedDueAt: v.optional(v.number()),
   },
@@ -639,7 +694,7 @@ export const list = query({
       v.object({
         id: v.id("clubOperations"),
         revision: v.number(),
-        payload: clubOperationPayload,
+        payload: staffOperationPayload,
         schedule: operationSchedule,
         state: operationState,
         dueAt: v.number(),
@@ -675,7 +730,7 @@ export const list = query({
       )
       .order("desc");
     const page = await (actor.kind === "owner"
-      ? operationQuery
+      ? operationQuery.filter(q => q.and(...CALENDAR_OPERATION_KINDS.map(kind => q.neq(q.field("payload.kind"), kind))))
       : operationQuery.filter(q => q.or(...visibleKinds.map(kind => q.eq(q.field("payload.kind"), kind)))))
       .paginate(args.paginationOpts);
     return {
@@ -683,12 +738,13 @@ export const list = query({
       continueCursor: page.continueCursor,
       page: page.page
         .filter(
-          (j) =>
-            actor.kind === "owner" ||
+          (j): j is typeof j & { payload: StaffOperationPayload } =>
+            !(CALENDAR_OPERATION_KINDS as readonly string[]).includes(j.payload.kind) &&
+            (actor.kind === "owner" ||
             actor.permissions.includes(
               clubOperationRequirement(policyOperation(j.payload, "unknown"))
                 .permission,
-            ),
+            )),
         )
         .map((j) => ({
           id: j._id,
@@ -1159,13 +1215,7 @@ export const complete = internalMutation({
       v.literal("indeterminate"),
     ),
     code: v.optional(v.string()),
-    result: v.optional(
-      v.object({
-        worldId: v.optional(v.string()),
-        instanceId: v.optional(v.string()),
-        postId: v.optional(v.string()),
-      }),
-    ),
+    result: v.optional(operationResult),
   },
   returns: v.object({ recorded: v.boolean() }),
   handler: async (ctx, args) => {
@@ -1193,9 +1243,10 @@ export const complete = internalMutation({
       throw new Error("Invalid outcome code.");
     if (
       args.result &&
-      Object.values(args.result).some(
+      (Object.values(args.result).some(
         (x) => typeof x === "string" && x.length > 600,
-      )
+      ) ||
+        !calendarResultValid(job.payload.kind, args.result))
     )
       throw new Error("Invalid operation result.");
     await patchOperation(ctx, job._id, {
@@ -1208,6 +1259,19 @@ export const complete = internalMutation({
     return { recorded: true };
   },
 });
+
+const CALENDAR_EVENT_ID = /^cal_[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$/;
+function calendarResultValid(kind: OperationPayload["kind"], result: Infer<typeof operationResult>) {
+  if (result.calendarEventId !== undefined &&
+      ((kind !== "create_calendar_event" && kind !== "update_calendar_event") || !CALENDAR_EVENT_ID.test(result.calendarEventId)))
+    return false;
+  if (result.calendarArtworkUploaded !== undefined && kind !== "create_calendar_event" && kind !== "update_calendar_event")
+    return false;
+  if ((result.calendarEvents !== undefined || result.calendarEventsTruncated !== undefined) && kind !== "list_calendar_events")
+    return false;
+  const items = result.calendarEvents ?? [];
+  return items.length <= 200 && items.every(item => CALENDAR_EVENT_ID.test(item.id)) && new TextEncoder().encode(JSON.stringify(result)).length <= 500_000;
+}
 
 // Independent of collector authorization and leases. Paginate in immutable
 // creation order so future work cannot starve older overdue rows.

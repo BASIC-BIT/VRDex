@@ -121,6 +121,27 @@ jobs:
       - name: Run MCP package verification
         run: pnpm verify:vrdex-mcp
 
+      - name: Verify media relay package
+        run: |
+          pnpm --filter @vrdex/media-relay typecheck
+          pnpm --filter @vrdex/media-relay test
+
+      - name: Setup Terraform for relay mocks
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+
+      - name: Validate media relay with mock providers
+        env:
+          TF_IN_AUTOMATION: "true"
+          TF_INPUT: "false"
+          AWS_EC2_METADATA_DISABLED: "true"
+        run: |
+          terraform -chdir=infra/terraform/media-relay init -backend=false
+          terraform -chdir=infra/terraform/media-relay validate
+          terraform -chdir=infra/terraform/media-relay test
+
   typecheck-web:
     name: Typecheck Web
     runs-on: ubuntu-latest
@@ -491,7 +512,9 @@ jobs:
     name: Playwright Public Smoke
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
     needs: [build-web, visual-selection]
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -547,9 +570,11 @@ jobs:
     name: Playwright Data Flow
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
     needs: [build-web, visual-selection]
-    runs-on: ubuntu-latest
-    # Allow auth setup and the complete serial fixture suite to finish.
-    timeout-minutes: 30
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
+    # The serial flow suite plus composed-media checks exceeds 30 minutes on hosted runners.
+    timeout-minutes: 45
     permissions:
       contents: read
 
@@ -618,6 +643,30 @@ jobs:
           VRDEX_E2E_CONVEX_SECRET: local-convex-e2e-secret
         run: pnpm --filter web exec playwright test --grep @flow --project=desktop-chromium --workers=1
 
+      - name: Install synthetic media tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg pulseaudio pulseaudio-utils
+          pnpm --filter web exec playwright install --with-deps firefox
+
+      - name: Prepare local browser audio backend
+        run: node scripts/playwright-audio-backend.mjs prepare
+
+      - name: Run isolated composed media acceptance
+        env:
+          MOBILE_MEDIA_ACCEPTANCE: "true"
+          EVENT_PLAYBACK_PROOF: "true"
+          NATIVE_HLS_PLAYBACK_PROOF: "true"
+          CLERK_SECRET_KEY: ""
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ""
+          PLAYWRIGHT_OUTPUT_DIR: playwright-artifacts/mobile-media/results
+          PLAYWRIGHT_HTML_REPORT_DIR: playwright-artifacts/mobile-media/report
+          PLAYWRIGHT_JSON_REPORT_FILE: playwright-artifacts/mobile-media/results.json
+        run: pnpm --filter web exec playwright test mobile-hls-playback.spec.ts event-lineup-live.spec.ts --project=desktop-chromium --workers=1
+
+      - name: Stop job-owned browser audio backend
+        if: always()
+        run: node scripts/playwright-audio-backend.mjs cleanup
+
       - name: Write data-flow summary
         if: always()
         env:
@@ -664,7 +713,9 @@ jobs:
     name: Playwright Hosted Data Flow
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true' && github.event.pull_request.head.repo.fork == false
     needs: [build-web, visual-selection]
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -855,7 +906,9 @@ jobs:
     name: Playwright Public Preview
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
     needs: [build-web, visual-selection]
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -978,7 +1031,9 @@ jobs:
     name: Playwright Image Diff
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.visuals == 'true'
     needs: [build-web, visual-selection]
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1054,7 +1109,9 @@ jobs:
     name: Storybook Component Preview
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.browsers == 'true'
     needs: [build-storybook, visual-selection]
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1124,7 +1181,9 @@ jobs:
     name: Storybook Image Diff
     if: github.event_name == 'pull_request' && needs.visual-selection.outputs.visuals == 'true'
     needs: [build-storybook, visual-selection]
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where this Playwright version cannot install chromium.
+    # Revert to ubuntu-latest once Playwright is upgraded to a release that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read

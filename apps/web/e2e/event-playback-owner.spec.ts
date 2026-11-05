@@ -178,8 +178,10 @@ test('operator preview retains rename ownership, gates replacements until Monito
   await page.getByRole('group', { name: 'Event a controls' }).getByRole('button', { name: 'Play', exact: true }).click();
   await expect(preview.locator('iframe')).toHaveCount(0);
   await expect(preview.locator('[aria-label="Local preview player"]')).toHaveAttribute('inert', '');
+  const callsBeforeMonitor = await page.evaluate(() => (window as unknown as { previewCalls: string[] }).previewCalls.filter(call => call === 'muted:false').length);
   await preview.getByRole('button', { name: 'Monitor', exact: true }).click();
   await expect(preview.locator('iframe')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { previewCalls: string[] }).previewCalls.filter(call => call === 'muted:false').length)).toBe(callsBeforeMonitor + 1);
   expect(await page.evaluate(() => (window as unknown as { programPausedAtUnmute: boolean }).programPausedAtUnmute)).toBe(true);
   const callsBeforeReplace = await page.evaluate(() => (window as unknown as { previewCalls: string[] }).previewCalls.filter(call => call === 'muted:false').length);
   await page.getByRole('button', { name: 'Replace preview', exact: true }).click();

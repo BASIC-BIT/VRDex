@@ -1,6 +1,46 @@
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { QUIET_POLL_MAX_MS } from "./_communityTelemetry";
+import type { PopulationGap } from "./_clubAnalyticsMath";
+
+/** Background calculations need only a barrier decision, not every coverage row. */
+export async function populationPairHasGap(ctx: QueryCtx | MutationCtx, input: {
+  integrationId: Id<"communityVrchatIntegrations">; epochStartedAt: number; startAt: number; endAt: number;
+}): Promise<boolean> {
+  const start = Math.max(input.startAt, input.epochStartedAt);
+  if (input.endAt <= start) return false;
+  const before = await ctx.db.query("collectionCoverageWindows")
+    .withIndex("by_integrationId_startedAt", q => q.eq("integrationId", input.integrationId)
+      .gte("startedAt", input.epochStartedAt).lte("startedAt", start)).order("desc").first();
+  if (before && before.state !== "observed" && before.state !== "estimated" && (before.endedAt ?? Infinity) > start) return true;
+  for (const state of ["degraded", "unknown", "stale"] as const) {
+    const barrier = await ctx.db.query("collectionCoverageWindows")
+      .withIndex("by_integrationId_state_startedAt", q => q.eq("integrationId", input.integrationId)
+        .eq("state", state).gt("startedAt", start).lt("startedAt", input.endAt))
+      .filter(q => q.or(q.eq(q.field("endedAt"), undefined), q.gt(q.field("endedAt"), q.field("startedAt"))))
+      .first();
+    if (barrier) return true;
+  }
+  return false;
+}
+
+export async function readPopulationGaps(ctx: QueryCtx | MutationCtx, input: {
+  integrationId: Id<"communityVrchatIntegrations">; epochStartedAt: number; startAt: number; endAt: number;
+}): Promise<{ complete: true; gaps: PopulationGap[] } | { complete: false }> {
+  const start = Math.max(input.startAt, input.epochStartedAt);
+  const before = await ctx.db.query("collectionCoverageWindows")
+    .withIndex("by_integrationId_startedAt", q => q.eq("integrationId", input.integrationId)
+      .gte("startedAt", input.epochStartedAt).lt("startedAt", start)).order("desc").first();
+  const rows = await ctx.db.query("collectionCoverageWindows")
+    .withIndex("by_integrationId_startedAt", q => q.eq("integrationId", input.integrationId)
+      .gte("startedAt", start).lt("startedAt", input.endAt)).take(1001);
+  if (rows.length > 1000) return { complete: false };
+  const gaps = [...(before ? [before] : []), ...rows]
+    .filter(row => row.state !== "observed" && row.state !== "estimated")
+    .map(row => ({ startAt: Math.max(start, row.startedAt), endAt: Math.min(input.endAt, row.endedAt ?? input.endAt) }))
+    .filter(gap => gap.endAt > gap.startAt);
+  return { complete: true, gaps };
+}
 
 // Five-minute quiet cadence + four-minute management pass + one minute for
 // dispatch/transport. This is a continuity inference, not a polling SLA.

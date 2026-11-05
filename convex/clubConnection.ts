@@ -2,6 +2,7 @@ import { readCollectionSubject, readManagedIntegration } from "./_groupObservati
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { requireControlProof } from "./_externalControl";
 import { reconcileStoppedIntegration } from "./groupObservations";
+import { vrchatCalendarEnabled } from "./eventSyncKinds/vrchatCalendar";
 import { assertAutomaticOperationAllowed } from "./_communityTelemetry";
 import { v } from "convex/values";
 import {
@@ -90,7 +91,7 @@ export const get = query({
       enabledFeatures,
       namedMembershipCollectionEnabled: integration.namedMembershipCollectionEnabled ?? true,
       authority,
-      features: FEATURES.map((feature) => {
+      features: FEATURES.filter((feature) => feature !== "calendar" || vrchatCalendarEnabled()).map((feature) => {
         const missingPermissions = FEATURE_BASELINE[feature].filter(
           (p) =>
             !authority?.permissions.includes("*") &&

@@ -426,7 +426,7 @@ Important future-aware extensions:
 - private operator command roster that shows current slot, next slot, scheduled times, overrun state, performer readiness, source status, and manual actions without leaking operational status to public pages
 - stream/watch link modeling
 - set/performance artifacts that can attach an external or hosted recording to a specific event slot
-- calendar import, export, and sync, preserving static `.ics` export, later Google Calendar sync, and reviewed Google Calendar import; see `docs/planning/calendar-integration.md`
+- calendar import, export, and sync, preserving static `.ics` export and Google Calendar import and export through the `google_calendar` connector; see `docs/planning/calendar-integration.md`
 
 Event operations direction:
 

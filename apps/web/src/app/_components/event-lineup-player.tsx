@@ -8,7 +8,7 @@ import { EventLineupSession, type LineupEvent, type LineupSnapshot } from "@/lib
 import { isInScheduledWatchWindow, useCurrentTimestamp } from "./event-watch-surface";
 import { WatchPlayPoster } from "./vrcdn-stream-player";
 
-export function EventLineupPlayer({ event, playbackRequest }: { event: LineupEvent; playbackRequest?: PlaybackRequest }) {
+export function EventLineupPlayer({ event, playbackRequest }: { event: LineupEvent; playbackRequest?: Extract<PlaybackRequest,{eventId:string}> }) {
   const owner = useEventPlayback();
   if (owner && playbackRequest) return <EventPlaybackInline owner={owner} request={playbackRequest} />;
   return <StandaloneEventLineupPlayer event={event} />;

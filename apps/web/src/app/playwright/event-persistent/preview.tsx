@@ -12,7 +12,7 @@ function Fixture({ owner, event = "a", kind = "direct", view }: { owner: EventPl
   const state = useEventPlaybackSnapshot(owner);
   const generation = owner.generation;
   const href = `/playwright/event-persistent?event=${event}&kind=${kind}`;
-  const request = useMemo<PlaybackRequest>(() => {
+  const request = useMemo<Extract<PlaybackRequest,{eventId:string}>>(() => {
     const identity = { eventId: event, eventSlug: event, title: event === "a" ? "Harbor Sessions" : "Afterglow", href, startAt };
     const stream = { streamId: "synthetic", pcUrl: "https://stream.vrcdn.live/live/synthetic.live.flv", questUrl: "https://stream.vrcdn.live/live/synthetic.live.ts" };
     if (kind === "sequence") return { ...identity, kind: "performer_sequence", event: { title: identity.title, startAt, slots: [

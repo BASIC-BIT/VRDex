@@ -2,6 +2,8 @@ import Link from "next/link";
 
 import { EventDiscordExportPanel } from "../_components/event-discord-export-panel";
 import { EventEditorForm, type EditableEvent } from "./event-editor-form";
+import { EventSeriesEditor } from "./event-series-controls";
+import { seriesEditable } from "@/lib/event-series-editor";
 import { buttonVariants } from "@/components/ui/button";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
@@ -12,6 +14,8 @@ export function EventEditorPage({
   savedTimezonePreference = null,
   discordPostText,
   event,
+  recurringEnabled = false,
+  scope,
 }: {
   communityName: string;
   communitySlug: string;
@@ -19,8 +23,23 @@ export function EventEditorPage({
   savedTimezonePreference?: string | null;
   discordPostText?: string | null;
   event?: EditableEvent;
+  recurringEnabled?: boolean;
+  scope?: string;
 }) {
   const routePath = event === undefined ? undefined : `/${communitySlug}/events/${event.slug}`;
+  const series = scope === "series" && event?.series && seriesEditable(event.series, recurringEnabled) ? event.series : undefined;
+  const heading = <header className="pt-2">
+    {event === undefined ? (
+      <Link className="text-sm font-medium text-muted underline-offset-4 hover:underline" href={`/${communitySlug}`}>
+        {communityName}
+      </Link>
+    ) : (
+      <p className="text-sm font-medium text-muted">Edit event</p>
+    )}
+    <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">
+      {series?.title ?? event?.title ?? "Add event"}
+    </h1>
+  </header>;
 
   return (
     <div className="ph-no-capture" data-ph-no-capture>
@@ -37,19 +56,9 @@ export function EventEditorPage({
             ) : null}
           </PageNav>
 
-          <EventEditorForm heading={<header className="pt-2">
-            {event === undefined ? (
-              <Link className="text-sm font-medium text-muted underline-offset-4 hover:underline" href={`/${communitySlug}`}>
-                {communityName}
-              </Link>
-            ) : (
-              <p className="text-sm font-medium text-muted">Edit event</p>
-            )}
-            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">
-              {event?.title ?? "Add event"}
-            </h1>
-          </header>} communitySlug={communitySlug} communityName={communityName} demoMode={demoMode} event={event} savedTimezonePreference={savedTimezonePreference} />
-          {discordPostText ? <EventDiscordExportPanel text={discordPostText} /> : null}
+          {series && event?.slug ? <EventSeriesEditor communitySlug={communitySlug} eventSlug={event.slug} heading={heading} series={series} />
+            : <EventEditorForm key={event?.overrides?.join()} heading={heading} communitySlug={communitySlug} communityName={communityName} demoMode={demoMode} event={event} savedTimezonePreference={savedTimezonePreference} />}
+          {discordPostText && !series ? <EventDiscordExportPanel text={discordPostText} /> : null}
         </PageContainer>
       </PageShell>
     </div>

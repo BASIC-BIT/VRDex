@@ -13,6 +13,7 @@ import {
   getPlaywrightDiscoveryFixture,
   getPlaywrightProfileLookupFixture,
   getPlaywrightPublicEventFixture,
+  getPlaywrightPublicEventSeriesFixture,
   getPlaywrightPublicProfileFixture,
   getPlaywrightPublicShortLinkFixture,
   getPlaywrightPublicWorldFixture,
@@ -239,6 +240,35 @@ export async function fetchPublicEventBySlug(slug: string) {
     const message = error instanceof Error ? error.message : String(error);
 
     console.error(`Server-side Convex event fetch failed: ${message}`);
+
+    return {
+      kind: "error" as const,
+    };
+  }
+}
+
+export async function fetchPublicEventSeries(seriesId: string) {
+  const fixtureSeries = getPlaywrightPublicEventSeriesFixture(seriesId);
+
+  if (fixtureSeries !== null) {
+    return { kind: "live" as const, series: fixtureSeries };
+  }
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const };
+  }
+
+  try {
+    const series = await fetchQuery(api.eventSeries.getPublic, { seriesId });
+
+    return {
+      kind: "live" as const,
+      series,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    console.error(`Server-side Convex event series fetch failed: ${message}`);
 
     return {
       kind: "error" as const,
@@ -709,6 +739,16 @@ function emptyDiscoveryData() {
     terms: [],
     eventSchedule: [],
   };
+}
+
+export async function fetchRecurringEventsEnabled(): Promise<boolean> {
+  try {
+    return await fetchQuery(api.eventSeries.isEnabled, {});
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Server-side Convex recurring events flag fetch failed: ${message}`);
+    return false;
+  }
 }
 
 export async function fetchEditableEventBySlug(slug: string) {

@@ -1,13 +1,14 @@
 import type { ClubPermission } from "./_clubModel";
 
-export type ClubIntegrationFeature = "analytics" | "membership_management" | "posts" | "instances";
+export type ClubIntegrationFeature = "analytics" | "membership_management" | "posts" | "instances" | "calendar";
 export type ClubOperation =
   | { kind: "approve_request" | "reject_request" | "invite_member" | "cancel_member_invite" | "remove_member" | "ban_member" | "unban_member"; targetUserId: string }
   | { kind: "assign_role" | "remove_role"; targetUserId: string; roleId: string }
   | { kind: "publish_post" | "edit_post" | "delete_post" }
   | { kind: "create_instance"; access: "members" | "plus" | "public"; ageGated?: boolean; roleRestricted?: boolean; calendarLinked?: boolean; groupVisibility?: "private" | "public" }
   | { kind: "close_instance" }
-  | { kind: "invite_to_instance"; targetUserId: string; friendship: "friend" | "not_friend" | "unknown" };
+  | { kind: "invite_to_instance"; targetUserId: string; friendship: "friend" | "not_friend" | "unknown" }
+  | { kind: "create_calendar_event" | "update_calendar_event" | "delete_calendar_event" | "list_calendar_events" };
 
 /** Own-member evidence must come from the authenticated worker, never the caller or permission catalog. */
 export type ProviderAuthority = {
@@ -60,6 +61,10 @@ export function clubOperationRequirement(operation: ClubOperation): OperationReq
       if (operation.calendarLinked) providerPermissions.push("group-instance-calendar-link");
       return { feature: "instances", permission: "manage_instances", providerPermissions };
     }
+    case "create_calendar_event": case "update_calendar_event": case "delete_calendar_event":
+      return { feature: "calendar", permission: "manage_events", providerPermissions: ["group-calendar-manage"] };
+    case "list_calendar_events":
+      return { feature: "calendar", permission: "manage_events", providerPermissions: [] };
   }
 }
 

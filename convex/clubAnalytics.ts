@@ -1,5 +1,5 @@
 import { isManagedIntegrationSession, readIntegrationRollups, readManagedIntegration } from "./_groupObservationPolicy";
-import { membershipCoverage } from "./_collectionCoverage";
+import { membershipCoverage, readPopulationGaps } from "./_collectionCoverage";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import {
@@ -16,9 +16,11 @@ import {
 } from "./_clubAccess";
 import { CLUB_CATEGORIES, clubCategory, type ClubCategory } from "./_clubModel";
 import {
+  markPopulationBreaks,
+  MAX_OBSERVED_GAP_MS,
+  type SeriesPoint,
   summarizeSeries,
   summarizeSeriesSegment,
-  type SeriesPoint,
 } from "./_clubAnalyticsMath";
 import { CURRENT_FRESHNESS_MS } from "./_communityTelemetry";
 
@@ -28,6 +30,7 @@ const point = v.object({
   at: v.number(),
   value: v.number(),
   coverage: v.string(),
+  breakBefore: v.optional(v.boolean()),
 });
 const summary = v.object({
   peak: v.union(v.number(), v.null()),
@@ -383,18 +386,16 @@ export const getBucket = query({
           q
             .eq("integrationId", integrationId)
             .gte("observedAt", endAt)
-            .lte("observedAt", endAt + 300_000),
+            .lte("observedAt", endAt + MAX_OBSERVED_GAP_MS),
         )
         .first();
       if (rows.length > 5000) complete = false;
-      else
-        population = summarizeSeries(
-          [...(before ? [before] : []), ...rows, ...(after ? [after] : [])].map(
-            populationPoint,
-          ),
-          args.startAt,
-          endAt,
-        );
+      else {
+        const points = await projectPopulationPoints(ctx, integrationId, state.epoch,
+          [...(before ? [before] : []), ...rows, ...(after ? [after] : [])].map(populationPoint));
+        if (!points) complete = false;
+        else population = summarizeSeries(points, args.startAt, endAt);
+      }
     }
     if (state.allowed("group_size") || state.allowed("membership_movement")) {
       const before = await ctx.db
@@ -547,15 +548,15 @@ export const getSeries = query({
           q
             .eq("integrationId", integrationId)
             .gte("observedAt", endAt)
-            .lte("observedAt", endAt + 300_000),
+            .lte("observedAt", endAt + MAX_OBSERVED_GAP_MS),
         )
         .first();
       return {
-        page: result.page.map(populationPoint),
+        page: requirePopulationPoints(await projectPopulationPoints(ctx, integrationId, state.epoch, result.page.map(populationPoint))),
         isDone: result.isDone,
         continueCursor: result.continueCursor,
         before: before ? populationPoint(before) : null,
-        after: after ? populationPoint(after) : null,
+        after: after ? requirePopulationPoints(await projectPopulationPoints(ctx, integrationId, state.epoch, [populationPoint(after)]))[0]! : null,
       };
     }
     const result = await ctx.db
@@ -754,15 +755,15 @@ export const getInstanceSeries = query({
         q
           .eq("sessionId", session._id)
           .gte("observedAt", endAt)
-          .lte("observedAt", endAt + 300_000),
+          .lte("observedAt", endAt + MAX_OBSERVED_GAP_MS),
       )
       .first();
     return {
-      page: result.page.map(instancePoint),
+      page: requirePopulationPoints(await projectPopulationPoints(ctx, session.integrationId, Math.max(state.epoch, session.openedAt), result.page.map(instancePoint), session._id)),
       isDone: result.isDone,
       continueCursor: result.continueCursor,
       before: before ? instancePoint(before) : null,
-      after: after ? instancePoint(after) : null,
+      after: after ? requirePopulationPoints(await projectPopulationPoints(ctx, session.integrationId, Math.max(state.epoch, session.openedAt), [instancePoint(after)], session._id))[0]! : null,
     };
   },
 });
@@ -796,7 +797,8 @@ export const getInstanceSummaryPage = query({
       args.sessionId,
     );
     const startAt = Math.max(state.epoch, session.openedAt, args.startAt);
-    const endAt = Math.min(args.endAt, session.closedAt ?? args.endAt);
+    const historyEndAt = Math.max(session.lastObservedAt + 1, session.closedAt ?? 0);
+    const endAt = Math.min(args.endAt, historyEndAt);
     const opts = checkedPagination(args.paginationOpts);
     if (endAt <= startAt) return { page: [], isDone: true, continueCursor: "" };
     const result = await ctx.db
@@ -831,16 +833,17 @@ export const getInstanceSummaryPage = query({
             .gte("observedAt", endAt)
             .lte(
               "observedAt",
-              Math.min(endAt + 300_000, session.closedAt ?? endAt + 300_000),
+              Math.min(endAt + MAX_OBSERVED_GAP_MS, historyEndAt),
             ),
         )
         .first();
       if (after) points.push(instancePoint(after));
     }
+    const projected = requirePopulationPoints(await projectPopulationPoints(ctx, session.integrationId, Math.max(state.epoch, session.openedAt), points, session._id));
     // Boundary samples close real observed intervals, never an invented tail.
     return {
       page: points.length
-        ? [summarizeSeriesSegment(points, startAt, endAt)]
+        ? [summarizeSeriesSegment(projected, startAt, endAt)]
         : [],
       isDone: result.isDone,
       continueCursor: result.continueCursor,
@@ -1047,3 +1050,23 @@ export const resetPersonalPreferences = mutation({
     return null;
   },
 });
+
+function requirePopulationPoints(points: SeriesPoint[] | null): SeriesPoint[] {
+  if (!points) throw new Error("STATISTICS_RANGE_LIMIT: population coverage exceeds the read limit.");
+  return points;
+}
+async function projectPopulationPoints(ctx: QueryCtx, integrationId: Id<"communityVrchatIntegrations">,
+  epoch: number, points: SeriesPoint[], sessionId?: Id<"instanceSessions">): Promise<SeriesPoint[] | null> {
+  if (!points.length) return [];
+  const sorted = [...points].sort((a, b) => a.at - b.at);
+  const first = sorted[0]!, last = sorted[sorted.length - 1]!;
+  const floor = Math.max(epoch, first.at - MAX_OBSERVED_GAP_MS);
+  const before = sessionId
+    ? await ctx.db.query("instancePopulationObservations").withIndex("by_sessionId_observedAt", q => q.eq("sessionId", sessionId).gte("observedAt", floor).lt("observedAt", first.at)).order("desc").first()
+    : await ctx.db.query("communityPopulationObservations").withIndex("by_integrationId_observedAt", q => q.eq("integrationId", integrationId).gte("observedAt", floor).lt("observedAt", first.at)).order("desc").first();
+  const coverage = await readPopulationGaps(ctx, { integrationId, epochStartedAt: epoch,
+    startAt: before?.observedAt ?? first.at, endAt: last.at });
+  if (!coverage.complete) return null;
+  const predecessor: SeriesPoint[] = before ? [{ at: before.observedAt, value: 0, coverage: "unknown" }] : [];
+  return markPopulationBreaks([...predecessor, ...sorted], coverage.gaps).slice(predecessor.length);
+}

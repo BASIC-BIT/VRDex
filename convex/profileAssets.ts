@@ -2070,7 +2070,11 @@ export const getPublicAssetForStorage = query({
       return null;
     }
 
+    const kit = await getPublicProfileMediaKit(ctx.db, profile, { surface: "profile_page" });
+    const selected = kit.compactDisplay === "logo" ? kit.primaryLogo : kit.profileImage;
     return {
+      revision: String(Math.floor(asset.updatedAt)),
+      nowPlayingEligible: selected?.assetId === asset._id,
       profileType: profile.profileType,
       slug: profile.slug,
       displayName: profile.displayName,

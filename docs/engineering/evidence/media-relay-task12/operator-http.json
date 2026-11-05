@@ -1,0 +1,77 @@
+{
+  "transport": "actual anonymous local Convex, pinned precompiled-2026-09-28-5c7cb5b",
+  "results": [
+    {
+      "path": "health:status",
+      "identity": "anonymous",
+      "status": 200,
+      "body": {
+        "status": "success",
+        "value": {
+          "backend": "convex",
+          "note": "Initial Convex backend bootstrap is active.",
+          "project": "vrdex",
+          "scope": "bootstrap",
+          "status": "ok"
+        }
+      }
+    },
+    {
+      "path": "mediaRelayOperations:setRelayEnabled",
+      "identity": "anonymous",
+      "status": 200,
+      "body": {
+        "status": "error",
+        "errorMessage": "[Request ID: fc1e76d5eeba2a7d] Server Error\nCould not find public function for 'mediaRelayOperations:setRelayEnabled'.\n"
+      }
+    },
+    {
+      "path": "mediaRelayOperations:setRelayEnabled",
+      "identity": "worker",
+      "status": 200,
+      "body": {
+        "status": "error",
+        "errorMessage": "[Request ID: c96bb69f5b7b9eab] Server Error\nCould not find public function for 'mediaRelayOperations:setRelayEnabled'.\n"
+      }
+    },
+    {
+      "path": "mediaRelayOperations:setRelayEnabled",
+      "identity": "gateway",
+      "status": 200,
+      "body": {
+        "status": "error",
+        "errorMessage": "[Request ID: bf829d8ac679681d] Server Error\nCould not find public function for 'mediaRelayOperations:setRelayEnabled'.\n"
+      }
+    },
+    {
+      "path": "mediaRelayOperations:drainWorker",
+      "identity": "anonymous",
+      "status": 200,
+      "body": {
+        "status": "error",
+        "errorMessage": "[Request ID: dfa4f5d666590dbc] Server Error\nCould not find public function for 'mediaRelayOperations:drainWorker'.\n"
+      }
+    },
+    {
+      "path": "mediaRelayOperations:drainWorker",
+      "identity": "worker",
+      "status": 200,
+      "body": {
+        "status": "error",
+        "errorMessage": "[Request ID: 02a9397d179e9dea] Server Error\nCould not find public function for 'mediaRelayOperations:drainWorker'.\n"
+      }
+    },
+    {
+      "path": "mediaRelayOperations:drainWorker",
+      "identity": "gateway",
+      "status": 200,
+      "body": {
+        "status": "error",
+        "errorMessage": "[Request ID: 0f71ee9ea99b8f08] Server Error\nCould not find public function for 'mediaRelayOperations:drainWorker'.\n"
+      }
+    }
+  ],
+  "operatorTableBefore": [],
+  "operatorTableAfter": [],
+  "adminDisablePositiveControl": "enabled=false, drainingWorkers=[]"
+}

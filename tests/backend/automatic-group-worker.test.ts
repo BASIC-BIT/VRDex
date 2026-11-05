@@ -255,10 +255,10 @@ for (const lostReply of [false, true]) for (const removed of [false, true]) it(`
   });
   const reserve = (automaticRequest: string) => h.t.mutation(ref("communityTelemetry:reserveRequestBudget"), { ...h.lease, automaticRequest, requestCount: 1, now: h.now });
   let member = false, joins = 0;
-  const provider = new VrchatClient({ authCookie: "test-cookie", userAgent: "test/1" });
+  const provider = new VrchatClient({ userId: "usr_bot", authCookie: "test-cookie", userAgent: "test/1", clock: () => h.now });
   provider.getGroup = async () => ({ membershipStatus: member ? "member" : "none", joinPolicy: "free", groupVisibility: "public", memberCount: 42 });
   provider.joinGroup = async () => { joins++; member = true; if (lostReply) throw new Error("join reply lost"); };
-  provider.request = async () => [];
+  provider.request = async () => ({ fetchedAt: new Date(h.now).toISOString(), instances: [] });
   const connect = () => provider.connectGroup("grp_test", { admissionMode: "automatic", authorizeRequest: async (operation: string) => (await reserve(operation)).granted });
   if (lostReply) await assert.rejects(connect(), /reply lost/);
   else assert.equal((await connect())?.state, "active");
@@ -305,7 +305,7 @@ for (const transition of ["stop before join", "rollback before join", "stop befo
     return ctx.db.insert("collectorFleetSettings", { key: "global", killSwitchEnabled: false, globalRequestsPerMinute: 30, automaticEnrollmentEnabled: true, automaticEnrollmentLimit: 1, automaticEnrollmentScope: { kind: "pilot", vrchatGroupId: "grp_test" }, updatedAt: h.now });
   });
   const sent: string[] = [];
-  const provider = new VrchatClient({ authCookie: "test-cookie", userAgent: "test/1" });
+  const provider = new VrchatClient({ userId: "usr_bot", authCookie: "test-cookie", userAgent: "test/1", clock: () => h.now });
   provider.getGroup = async () => {
     sent.push("metadata");
     if (transition === "rollback before join") await h.t.run(ctx => ctx.db.patch(fleetId, { automaticEnrollmentEnabled: false }));

@@ -8,6 +8,7 @@ import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
+import { connectorsEnabled } from "./_eventConnectors";
 import { requireVerifiedActiveBrowserSession } from "./_claimSession";
 import {
   activeClubRoles,
@@ -167,6 +168,7 @@ const workspaceReturn = v.union(
     integration: v.union(v.null(), integrationDoc),
     connectionState: v.union(v.null(), v.string()),
     readableCategories: v.array(clubCategory),
+    eventConnectorsEnabled: v.optional(v.boolean()),
   }),
 );
 const staffInvitationView = v.object({
@@ -359,6 +361,7 @@ export const getWorkspace = query({
       readableCategories: CLUB_CATEGORIES.filter((c) =>
         canReadCategory(actor, visibility, c),
       ),
+      eventConnectorsEnabled: connectorsEnabled(),
     };
   },
 });

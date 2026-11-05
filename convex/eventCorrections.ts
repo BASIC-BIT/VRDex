@@ -9,14 +9,16 @@ import type { AuthSubject } from "./_communityAuthority";
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import { sanitizeEventIntakePatch } from "./_eventIntake";
 import { eventContributionFingerprint, preflightEventContribution } from "./_eventContributionPreflight";
-import { eventDateForInstant, requireDateOnlyEventsEnabled } from "./_eventSchedule";
-import { resolveEventLocalTime, type EventIntakePatch, type EventIntakeLocalTime } from "../packages/api-contracts/src/event-intake";
+import { eventDateForInstant, eventLocalTime, requireDateOnlyEventsEnabled } from "./_eventSchedule";
+import type { EventIntakePatch } from "../packages/api-contracts/src/event-intake";
 import { replaceEventLineup } from "./_eventLineup";
 import { contributorStaffLock } from "./_eventContributorLock";
 import { syncClubEventOperations } from "./_clubOperationEvents";
 import { reindexEventSearchDocument } from "./_searchDocuments";
+import { enqueueEventSync } from "./_eventSync";
 import { canReadProfile } from "./_profilePermissions";
 import { getEventBySlug } from "./_eventSlugs";
+import { recordOccurrenceOverrides } from "./_eventSeries";
 import { canUpdateEvent, eventParticipantRoleLabels, linkedPublishedEventWorld, managedCommunitiesForBrowser, reconcileEventMediaScheduleChange, recordEventAuditEvent, replaceEventWorldLink, retireConfirmedEventInstanceAssociations, settleEventMediaForCancellation, syncPreservedEventAssociations } from "./events";
 
 export const REMOVED_EVENT_SUPPRESSION_MS = 30 * 86_400_000;
@@ -31,19 +33,11 @@ async function ownEvent(db: DatabaseReader, actorUserId: Id<"users">, eventId: I
 }
 
 /** Reconstruct from canonical data, not the expiring private source draft. */
-async function correctionFields(db: DatabaseReader, event: Doc<"events">): Promise<EventIntakePatch> {
+export async function correctionFields(db: DatabaseReader, event: Doc<"events">): Promise<EventIntakePatch> {
   const community = event.communityProfileId ? await db.get(event.communityProfileId) : null;
   const date = event.eventDate ?? eventDateForInstant(event.startAt!, event.timezone);
   const timezone = event.timezone ?? "UTC";
-  const local = (instant?: number): EventIntakeLocalTime | undefined => {
-    if (instant === undefined) return undefined;
-    const localDate = eventDateForInstant(instant, timezone);
-    const time = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(instant);
-    const value: EventIntakeLocalTime = { time, dayOffset: (Date.parse(localDate) - Date.parse(date)) / 86_400_000 };
-    const choices = resolveEventLocalTime(date, value, timezone);
-    if (choices.length > 1) value.occurrence = choices[0] === instant ? "earlier" : "later";
-    return value;
-  };
+  const local = (instant?: number) => instant === undefined ? undefined : eventLocalTime(instant, date, timezone);
   const [world, slots, untimed] = await Promise.all([
     linkedPublishedEventWorld(db, event._id, true),
     db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", event._id)).take(81),
@@ -122,9 +116,12 @@ export async function updateActorContribution(ctx: MutationCtx, actorUserId: Id<
   if (event.startAt !== undefined && updated.startAt === undefined) {
     await retireConfirmedEventInstanceAssociations(db, event._id, now);
   }
+  const worldChanged = patch.worldSlug !== undefined && (await linkedPublishedEventWorld(db, event._id, true))?.slug !== checked.world?.slug;
   if (patch.worldSlug !== undefined) await replaceEventWorldLink(db, updated, checked.world, now, { confirmationState: "unconfirmed" });
+  if (event.seriesId !== undefined) await recordOccurrenceOverrides(db, event, updated, worldChanged);
   await refreshProjections(db, updated, now, checked.lineup.flatMap(entry => entry.roleLabel ? [entry.roleLabel] : []));
   await recordEventAuditEvent(db, { eventId: event._id, actorUserId, actor, actorSurface: actor ? "browser" : actorSurface, action: "updated", changedFields: Object.keys(patch), now });
+  await enqueueEventSync(db, ctx.scheduler, event._id, "upsert");
   return { eventId: event._id, updatedAt: now, contributionVersion: updated.contributionVersion };
 }
 
@@ -138,6 +135,7 @@ export async function retractActorContribution(ctx: MutationCtx, actorUserId: Id
   await settleEventMediaForCancellation(db, event, actor, now);
   await refreshProjections(db, (await db.get(eventId))!, now);
   await recordEventAuditEvent(db, { eventId, actorUserId, actor, actorSurface: actor ? "browser" : actorSurface, action: "retracted", changedFields: ["publicationState"], now });
+  await enqueueEventSync(db, ctx.scheduler, eventId, "delete");
   return { eventId, changed: true };
 }
 
@@ -221,6 +219,7 @@ export const removeContributedEvent = mutation({ args: { eventId: v.id("events")
   await ctx.db.insert("eventContributionSuppressions", { fingerprint, eventId: event._id, createdAt: now, expiresAt: now + REMOVED_EVENT_SUPPRESSION_MS });
   await refreshProjections(ctx.db, (await ctx.db.get(event._id))!, now);
   await recordEventAuditEvent(ctx.db, { eventId: event._id, actor: subject, actorSurface: "browser", action: "suppressed", changedFields: ["publicationState", "moderationRemovedAt"], reason, now });
+  await enqueueEventSync(ctx.db, ctx.scheduler, event._id, "delete");
   return { eventId: event._id, changed: true };
 } });
 

@@ -1,0 +1,113 @@
+{
+  "after": {
+    "gateway": {
+      "admissionPerMinute": 10,
+      "controlUrl": "https://control.invalid",
+      "credentialRef": "arn:aws:secretsmanager:us-east-1:123456789012:secret:gateway-abcdef",
+      "demandTable": "vrdex-media-relay",
+      "enabled": true,
+      "gatewayConcurrency": 2,
+      "globalSourceCap": 2,
+      "origins": [
+        "https://app.invalid"
+      ],
+      "region": "us-east-1",
+      "releaseEvidence": "synthetic-only-not-release",
+      "signingKeyRef": "arn:aws:secretsmanager:us-east-1:123456789012:secret:signer-abcdef",
+      "trafficGiBPerMonth": 1,
+      "version": 1
+    },
+    "workers": {
+      "0": {
+        "admissionPerMinute": 10,
+        "binding": {
+          "allocation": {
+            "cpuUnits": 1024,
+            "evidenceId": "synthetic-only",
+            "memoryMiB": 2048
+          },
+          "draining": false,
+          "maxSources": 2,
+          "workerEpoch": 1,
+          "workerId": "slot-0"
+        },
+        "controlUrl": "https://control.invalid",
+        "credentialRef": "arn:aws:secretsmanager:us-east-1:123456789012:secret:worker-abcdef",
+        "demandTable": "vrdex-media-relay",
+        "enabled": true,
+        "gatewayConcurrency": 2,
+        "globalSourceCap": 2,
+        "origins": [
+          "https://app.invalid"
+        ],
+        "region": "us-east-1",
+        "releaseEvidence": "synthetic-only-not-release",
+        "signingKeyRef": "arn:aws:secretsmanager:us-east-1:123456789012:secret:signer-abcdef",
+        "trafficGiBPerMonth": 1,
+        "version": 1
+      },
+      "1": {
+        "admissionPerMinute": 10,
+        "binding": {
+          "allocation": {
+            "cpuUnits": 1024,
+            "evidenceId": "synthetic-only",
+            "memoryMiB": 2048
+          },
+          "draining": false,
+          "maxSources": 2,
+          "workerEpoch": 1,
+          "workerId": "slot-1"
+        },
+        "controlUrl": "https://control.invalid",
+        "credentialRef": "arn:aws:secretsmanager:us-east-1:123456789012:secret:worker-abcdef",
+        "demandTable": "vrdex-media-relay",
+        "enabled": true,
+        "gatewayConcurrency": 2,
+        "globalSourceCap": 2,
+        "origins": [
+          "https://app.invalid"
+        ],
+        "region": "us-east-1",
+        "releaseEvidence": "synthetic-only-not-release",
+        "signingKeyRef": "arn:aws:secretsmanager:us-east-1:123456789012:secret:signer-abcdef",
+        "trafficGiBPerMonth": 1,
+        "version": 1
+      }
+    }
+  },
+  "after_unknown": {
+    "gateway": {
+      "bucket": true,
+      "distributionOrigin": true,
+      "origins": [
+        false
+      ],
+      "signingKeyId": true
+    },
+    "workers": {
+      "0": {
+        "binding": {
+          "allocation": {}
+        },
+        "bucket": true,
+        "distributionOrigin": true,
+        "origins": [
+          false
+        ],
+        "signingKeyId": true
+      },
+      "1": {
+        "binding": {
+          "allocation": {}
+        },
+        "bucket": true,
+        "distributionOrigin": true,
+        "origins": [
+          false
+        ],
+        "signingKeyId": true
+      }
+    }
+  }
+}

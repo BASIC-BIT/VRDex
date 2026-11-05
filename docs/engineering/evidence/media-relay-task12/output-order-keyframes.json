@@ -1,0 +1,542 @@
+{
+  "reordered-output-proof": {
+    "test": "reordered real packager output is rejected and a current discontinuity decodes",
+    "status": "passed",
+    "testDurationMs": 42087,
+    "evidence": {
+      "injected": {
+        "at": 1793255971615,
+        "attempt": "attempt-1-tqwxPy",
+        "kind": "reordered-output",
+        "newer": 6,
+        "older": 5,
+        "rejection": "Error: Snapshot out of order"
+      },
+      "epoch": 1,
+      "snapshot": {
+        "discontinuitySequence": 2,
+        "epoch": 1,
+        "generatedAt": 1793255987757,
+        "rendition": "video",
+        "segments": [
+          {
+            "discontinuity": true,
+            "durationSeconds": 2.021411,
+            "objectKey": "vrcdn/Alpha/1/epochs/1/attempt-1-FHZAXG/video-7.ts",
+            "programDateTime": 1793255976477,
+            "sequence": 7
+          },
+          {
+            "discontinuity": false,
+            "durationSeconds": 2,
+            "objectKey": "vrcdn/Alpha/1/epochs/1/attempt-1-FHZAXG/video-8.ts",
+            "programDateTime": 1793255978499,
+            "sequence": 8
+          },
+          {
+            "discontinuity": false,
+            "durationSeconds": 2,
+            "objectKey": "vrcdn/Alpha/1/epochs/1/attempt-1-FHZAXG/video-9.ts",
+            "programDateTime": 1793255980499,
+            "sequence": 9
+          },
+          {
+            "discontinuity": false,
+            "durationSeconds": 2,
+            "objectKey": "vrcdn/Alpha/1/epochs/1/attempt-1-FHZAXG/video-10.ts",
+            "programDateTime": 1793255982499,
+            "sequence": 10
+          },
+          {
+            "discontinuity": false,
+            "durationSeconds": 2,
+            "objectKey": "vrcdn/Alpha/1/epochs/1/attempt-1-FHZAXG/video-11.ts",
+            "programDateTime": 1793255984499,
+            "sequence": 11
+          },
+          {
+            "discontinuity": false,
+            "durationSeconds": 2,
+            "objectKey": "vrcdn/Alpha/1/epochs/1/attempt-1-FHZAXG/video-12.ts",
+            "programDateTime": 1793255986499,
+            "sequence": 12
+          }
+        ],
+        "sequence": 7,
+        "streamKey": "vrcdn/Alpha/1",
+        "targetDurationSeconds": 3
+      },
+      "decodedAfterRecovery": 8.610526
+    }
+  },
+  "late-keyframe-proof": {
+    "test": "late keyframes keep partial windows unplayable and terminate within recovery budget",
+    "status": "passed",
+    "testDurationMs": 33646,
+    "evidence": {
+      "elapsed": 30142,
+      "observations": [
+        {
+          "at": 1793256067682,
+          "state": "queued",
+          "admission": "preparing",
+          "gateway": 503
+        },
+        {
+          "at": 1793256068198,
+          "state": "queued",
+          "admission": "preparing",
+          "gateway": 503
+        },
+        {
+          "at": 1793256068713,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256069226,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256069739,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256070253,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256070765,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256071278,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256071798,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256072311,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256072825,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256073338,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256073850,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256074364,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256074878,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256075392,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256075906,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256076417,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256076931,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256077442,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256077962,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256078477,
+          "state": "starting",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256078993,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256079505,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256080018,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256080531,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256081046,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256081562,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256082075,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256082587,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256083103,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256083617,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256084129,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256084642,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256085172,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256085685,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256086203,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256086725,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256087248,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256087783,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256088299,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256088817,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256089332,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256089843,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256090355,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256090870,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256091383,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256091895,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256092407,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256092923,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256093433,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256093945,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256094456,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256094970,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256095483,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256095996,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256096508,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256097021,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256097535,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256098051,
+          "state": "recovering",
+          "admission": "preparing",
+          "gateway": 503,
+          "progressAt": 0
+        },
+        {
+          "at": 1793256098563,
+          "state": "unavailable",
+          "admission": "unavailable",
+          "gateway": 503,
+          "progressAt": 0
+        }
+      ],
+      "partial": [
+        {
+          "at": 1793256078536,
+          "duration": 10.021411,
+          "first": 0,
+          "last": 0,
+          "rendition": "video",
+          "target": 11
+        },
+        {
+          "at": 1793256088380,
+          "duration": 20.021411,
+          "first": 0,
+          "last": 1,
+          "rendition": "video",
+          "target": 11
+        },
+        {
+          "at": 1793256098370,
+          "duration": 30.021411,
+          "first": 0,
+          "last": 2,
+          "rendition": "video",
+          "target": 11
+        }
+      ],
+      "perturbations": [
+        {
+          "at": 1793256066566,
+          "fps": 25,
+          "gopFrames": 250,
+          "kind": "late-keyframe"
+        }
+      ],
+      "connections": 0
+    }
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "worker": {
+    "sha256": "d8d16656961dbe6362d510c553143e12c286f4ae0af763148635f2560844887f",
+    "repositorySources": {
+      "packages/media-relay/src/policy.ts": "a057179f68ab4dd141720b9ea777b3be353cb157ff1586a5529a279dc8bc4b29",
+      "packages/media-relay/src/contracts.ts": "87ec8a52dcb28623a39f544ec32cf424b6afbb25405858ebc24e2a86b3ba2985",
+      "packages/media-relay/src/worker/deployment.ts": "bcceb5c89fdfa3d1a07f9650db2174e2d21a60a6d263769fd26daa03a067000a",
+      "packages/media-relay/src/providers/config.ts": "1122d91d1e8edf3ae0fdf80678bf7128e288851f8a069970b15191f9eacdd39a",
+      "packages/media-relay/src/providers/transport.ts": "77f4441a25a614b847df4e6cb931c810beef99ed7b5abf91e71133be7b1543c3",
+      "packages/media-relay/src/providers/secrets.ts": "c3fe2249b657660fe48e8e09fa0b6cfd94b1199f3211092f2f93cf1ced726619",
+      "packages/media-relay/src/providers/convex-control.ts": "f83ef1dbf29ba2f9ae281f46f1961e3b25b92ddc7e65cdd035193fb8aefc424f",
+      "packages/media-relay/src/providers/aws-storage.ts": "541e78f30e0c8d509cca707bf78a89b8abecd419f47c81742430489f86c09194",
+      "packages/media-relay/src/providers/aws-demand.ts": "96e74b92c46642d4216571288f237fa9d4e6252a99b6657ab7f02f4074a2c8e3",
+      "packages/media-relay/src/gateway/demand.ts": "116608ddfb4efdfc260dd3b2ce0c41016e9cc1a63554fe3d2d2ce01fadc2784e",
+      "workers/restream/broadcast-profiles.mjs": "e709adef57cbf613aa46f2e76b9b2322080d2573699aef621196f8829ac48be6",
+      "workers/restream/worker-allocation.mjs": "e5296d3d040c4ba2022219a8e4f3f5e5d7d2069023c0dd8bab3c1b89a557eed4",
+      "workers/restream/resource-sampler.mjs": "b3dc71b75056672c4f562d521ad424235067acce82e129e79f576514bc93c3ca",
+      "packages/media-relay/src/worker/lease.ts": "08592046a62c0749bad110652407a6513626caab911c679c97a70d5255fe5c52",
+      "workers/restream/source-relay.mjs": "9e386fe9ec3ed23fd4b4e23c673e8fe053a7e613b1f92613a412074268f11c45",
+      "packages/media-relay/src/worker/packager.ts": "86b98a480c1c2ab28a8b3cc26bbdf46c5c67a66ee070ce412b594825c49ed844",
+      "packages/media-relay/src/worker/publisher.ts": "1d9dac7ab3fbc8ff104bd9204432aff70b7122329f10bfbaeac81159ce2f1325",
+      "packages/media-relay/src/worker/registry.ts": "94cfbca96e6723e211da54af55599e55f04b5f4d06b1bfcf62fde07eb9e1a6e9",
+      "packages/media-relay/src/worker/main.ts": "52f1d2cb9c48b179087730540b8baab0aed030da238c9007b002eef50a55e191",
+      "packages/media-relay/src/worker/entrypoint.ts": "78b6f3ea6e85561212305f3b2d45ffe7a50f14236287a1f182975ddf22e5056a"
+    }
+  },
+  "gateway": {
+    "sha256": "76b1ad086dc15c163dbd82b21206acd1c16c27fca14ed9fbd94dcdcfc7dbdd52",
+    "repositorySources": {
+      "packages/media-relay/src/policy.ts": "a057179f68ab4dd141720b9ea777b3be353cb157ff1586a5529a279dc8bc4b29",
+      "packages/media-relay/src/contracts.ts": "87ec8a52dcb28623a39f544ec32cf424b6afbb25405858ebc24e2a86b3ba2985",
+      "packages/media-relay/src/worker/deployment.ts": "bcceb5c89fdfa3d1a07f9650db2174e2d21a60a6d263769fd26daa03a067000a",
+      "packages/media-relay/src/providers/config.ts": "1122d91d1e8edf3ae0fdf80678bf7128e288851f8a069970b15191f9eacdd39a",
+      "packages/media-relay/src/providers/transport.ts": "77f4441a25a614b847df4e6cb931c810beef99ed7b5abf91e71133be7b1543c3",
+      "packages/media-relay/src/providers/secrets.ts": "c3fe2249b657660fe48e8e09fa0b6cfd94b1199f3211092f2f93cf1ced726619",
+      "packages/media-relay/src/providers/convex-control.ts": "f83ef1dbf29ba2f9ae281f46f1961e3b25b92ddc7e65cdd035193fb8aefc424f",
+      "packages/media-relay/src/providers/aws-storage.ts": "541e78f30e0c8d509cca707bf78a89b8abecd419f47c81742430489f86c09194",
+      "packages/media-relay/src/providers/aws-demand.ts": "96e74b92c46642d4216571288f237fa9d4e6252a99b6657ab7f02f4074a2c8e3",
+      "packages/media-relay/src/gateway/demand.ts": "116608ddfb4efdfc260dd3b2ce0c41016e9cc1a63554fe3d2d2ce01fadc2784e",
+      "packages/media-relay/src/gateway/playlist.ts": "5ca01aedae2bc886a79f83cb084638244193fb16dbffd1a72ba4793c1abb8058",
+      "packages/media-relay/src/gateway/handler.ts": "5fbeac4f9be4c1f6ee74413eae1e1e43cd728080f1d54e6b7cf63c2da64a5021",
+      "packages/media-relay/src/gateway/signing.ts": "57d715fde66a2477caa3d4697ae2c93ba77bf0cc48531ac858835795202c8a0b",
+      "packages/media-relay/src/gateway/entrypoint.ts": "6e28c2e33018c446b02e640b13b646de0c9b979ed22c56706ceb47f854ab7ba8"
+    }
+  },
+  "gatewayZip": {
+    "sha256": "FokViZ80PqgbrzzDOEzXSQozj2GzWhmbgP4GAwfL2FA="
+  },
+  "imageId": "sha256:c5a07f0c3b88d23c4501fd0ca2e5fab007fffa3c82bdceaf1f6217281467b8b7",
+  "smoke": {
+    "proof": "actual-image",
+    "scratch": {
+      "path": "/var/lib/media-relay",
+      "uid": 1000,
+      "mode": "750"
+    },
+    "maximumSources": 2,
+    "committedSnapshots": 28,
+    "objects": 57,
+    "allocation": {
+      "cpuUnits": 1024,
+      "memoryMiB": 2048,
+      "evidenceId": "synthetic-image-only"
+    },
+    "resources": {
+      "sampleSequence": 2,
+      "windowMs": 1239.952395,
+      "sampleAgeMs": 1000.6313839999998,
+      "cpuUsagePercent": 47.04680618000661,
+      "memoryUsedBytes": 73584640
+    },
+    "drain": true,
+    "term": true,
+    "killedChild": true,
+    "reapedChildren": 3
+  }
+}

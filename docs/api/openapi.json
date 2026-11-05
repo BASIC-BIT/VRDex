@@ -12624,6 +12624,63 @@
               ],
               "additionalProperties": {}
             }
+          },
+          "repeat": {
+            "description": "Repeat this event as a series. Requires timezone; weekday must be the local weekday of startAt.",
+            "type": "object",
+            "properties": {
+              "frequency": {
+                "type": "string",
+                "enum": [
+                  "weekly",
+                  "biweekly",
+                  "monthly_weekday"
+                ]
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "ordinal": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 1
+                  },
+                  {
+                    "type": "number",
+                    "const": 2
+                  },
+                  {
+                    "type": "number",
+                    "const": 3
+                  },
+                  {
+                    "type": "number",
+                    "const": 4
+                  },
+                  {
+                    "type": "number",
+                    "const": -1
+                  }
+                ]
+              },
+              "endsOn": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 520
+              }
+            },
+            "required": [
+              "frequency",
+              "weekday"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -18061,6 +18118,10 @@
                   "additionalProperties": {}
                 }
               },
+              "seriesId": {
+                "type": "string",
+                "minLength": 1
+              },
               "slots": {
                 "type": "array",
                 "items": {
@@ -19084,6 +19145,10 @@
                   "additionalProperties": {}
                 }
               },
+              "seriesId": {
+                "type": "string",
+                "minLength": 1
+              },
               "slots": {
                 "type": "array",
                 "items": {
@@ -19412,6 +19477,10 @@
             "minLength": 1
           },
           "shortLinkPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "seriesId": {
             "type": "string",
             "minLength": 1
           }

@@ -263,6 +263,12 @@ it("accepts an update slug only when list_events returned it in this run", async
   const listed = await extractEventIntake({ draftId: "draft", sourceText: "Friday moves to 22:00", context: discord }, { ...base, list_events: async (n: number) => { limit = n; return rows; }, fetchImplementation: async () => ++turn === 1 ? toolCall("list_events", { limit: 40 }) : response(update) });
   assert.equal(limit, 40);
   assert.deepEqual(listed.decision, { kind: "update", slug: "friday-night" });
+  const held = { ...rows[0], slug: "draft:k57abc" };
+  let step = 0, read: unknown;
+  const script = [toolCall("list_events", { limit: 5 }, "a"), toolCall("get_event", { slug: held.slug }, "b"), response({ ...blank(), decision: { kind: "update", slug: held.slug } })];
+  const flyer = await extractEventIntake({ draftId: "draft", sourceText: "flyer", context: discord }, { ...base, list_events: async () => [held], get_event: async (slug: string) => { read = slug; return { title: "Friday Night" }; }, fetchImplementation: async () => script[step++] });
+  assert.equal(read, held.slug);
+  assert.deepEqual(flyer.decision, { kind: "update", slug: held.slug });
 });
 it("keeps not_event with run context", async () => {
   const result = await extractEventIntake({ draftId: "draft", sourceText: "anyone around tonight?", context: discord }, { ...base, fetchImplementation: async () => response({ ...blank(), decision: { kind: "not_event", reason: "chatter" } }) });
@@ -304,13 +310,13 @@ it("reports one generation per model turn and ends once with cost", async () => 
   const { log, sink } = capture(); let turn = 0;
   const final = { status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(blank()) }] }] };
   const call = { status: "completed", output: [{ type: "function_call", name: "search_people", call_id: "a", arguments: JSON.stringify({ query: "DJ", limit: 1 }) }] };
-  await extractEventIntake({ draftId: "draft", sourceText: "Night", posterAssetId: "poster" }, { ...base, model: "gpt-5.6-luna", sink, readPoster: async () => "data:image/png;base64,AAAA", fetchImplementation: async () => usage(++turn === 1 ? call : final) });
+  await extractEventIntake({ draftId: "draft", sourceText: "Night", posterAssetId: "poster" }, { ...base, model: "gpt-6-luna", sink, readPoster: async () => "data:image/png;base64,AAAA", fetchImplementation: async () => usage(++turn === 1 ? call : final) });
   assert.deepEqual(log.metas, [{ trigger: "web", actorUserId: "actor", draftId: "draft" }]);
-  assert.deepEqual(log.generations.map(g => [g.turn, g.model, g.inputTokens, g.outputTokens]), [[1, "gpt-5.6-luna", 1000, 200], [2, "gpt-5.6-luna", 1000, 200]]);
+  assert.deepEqual(log.generations.map(g => [g.turn, g.model, g.inputTokens, g.outputTokens]), [[1, "gpt-6-luna", 1000, 200], [2, "gpt-6-luna", 1000, 200]]);
   assert.ok(log.generations.every(g => typeof g.latencyMs === "number"));
   assert.ok(!JSON.stringify(log.generations).includes("base64,"));
   assert.equal(log.ends.length, 1);
-  const price = EVENT_INTAKE_MODEL_PRICES["gpt-5.6-luna"]!;
+  const price = EVENT_INTAKE_MODEL_PRICES["gpt-6-luna"]!;
   assert.deepEqual({ ...log.ends[0], durationMs: 0 }, { reason: "success", decision: { kind: "new" }, turns: 2, toolCalls: 1, durationMs: 0, inputTokens: 2000, outputTokens: 400, costUsd: (2000 * price.inputPerMillion + 400 * price.outputPerMillion) / 1_000_000 });
 });
 it("reports null cost for an unpriced model, omits decision on failure, and survives a broken sink", async () => {
@@ -346,4 +352,13 @@ it("returns the candidate when a sink end never settles", async () => {
   const stalled = { start: () => ({ generation() {}, end: () => new Promise<void>(() => {}) }) };
   const result = await extractEventIntake({ draftId: "draft", sourceText: "Night" }, { ...base, sink: stalled, fetchImplementation: async () => response({ ...blank(), event: { ...blank().event, title: "Night" } }) });
   assert.equal(result.event.title, "Night");
+});
+it("adds the new-posts evidence rule to Discord runs only and leaves web and MCP prompts byte-identical", async () => {
+  const prompts: string[] = [];
+  const fetchImplementation = (async (_url: unknown, init: RequestInit) => { prompts.push(JSON.parse(String(init.body)).instructions); return response(blank()); }) as typeof fetch;
+  for (const context of [undefined, { trigger: "mcp" as const, communitySlug: "club" }, discord]) await extractEventIntake({ draftId: "draft", sourceText: "Friday", context }, { ...base, fetchImplementation });
+  const digest = (text: string) => createHash("sha256").update(text).digest("hex");
+  assert.deepEqual(prompts.slice(0, 2).map(digest), ["fc97bbd5936af7fcba57777bd69819d9be7ca931fd31a2f2149c1e40fc8bc963", "3aeadd96c77528cc955ba2d56e5e75f64022fbf0334bcc54f2ac8389ffa21f06"]);
+  assert.ok(prompts[2].startsWith(prompts[1]));
+  assert.match(prompts[2].slice(prompts[1].length), /explicit only from the new or changed posts/);
 });
