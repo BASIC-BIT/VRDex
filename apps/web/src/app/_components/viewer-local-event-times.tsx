@@ -9,6 +9,7 @@ type ViewerLocalEventTimesProps = {
   timestamp: number;
   className?: string;
   timeZone?: string;
+  hour12?: boolean;
   showOffset?: boolean;
   showTimeZone?: boolean;
 };
@@ -18,6 +19,7 @@ type ViewerLocalEventTimeRangeProps = {
   endAt?: number;
   startAt: number;
   timeZone?: string;
+  hour12?: boolean;
   showOffset?: boolean;
   showTimeZone?: boolean;
 };
@@ -83,12 +85,14 @@ export function ViewerLocalEventDateTime({
   scheduleKind,
   timeZone: explicitTimeZone,
   showTimeZone = true,
+  hour12,
 }: {
   className?: string;
   timestamp?: number;
   eventDate?: string;
   scheduleKind?: "timed" | "date_only";
   timeZone?: string;
+  hour12?: boolean;
   showTimeZone?: boolean;
 }) {
   const timeZone = useViewerTimeZone(explicitTimeZone);
@@ -107,9 +111,11 @@ export function ViewerLocalEventDateTime({
       {formatTimestamp(
         timestamp,
         timeZone,
-        showTimeZone
-          ? dateTimeOptions
-          : { ...dateTimeOptions, timeZoneName: undefined },
+        {
+          ...dateTimeOptions,
+          hour12,
+          timeZoneName: showTimeZone ? dateTimeOptions.timeZoneName : undefined,
+        },
       )}
     </time>
   );
@@ -121,6 +127,7 @@ export function ViewerLocalEventTime({
   timeZone: explicitTimeZone,
   showOffset = false,
   showTimeZone = true,
+  hour12,
 }: ViewerLocalEventTimesProps) {
   const timeZone = useViewerTimeZone(explicitTimeZone);
 
@@ -129,9 +136,11 @@ export function ViewerLocalEventTime({
       {formatTimestamp(
         timestamp,
         timeZone,
-        showOffset && showTimeZone
-          ? { ...timeOptions, timeZoneName: "shortOffset" }
-          : timeOptions,
+        {
+          ...timeOptions,
+          hour12,
+          timeZoneName: showOffset && showTimeZone ? "shortOffset" : undefined,
+        },
       )}
     </time>
   );
@@ -144,6 +153,7 @@ export function ViewerLocalEventTimeRange({
   timeZone,
   showOffset,
   showTimeZone,
+  hour12,
 }: ViewerLocalEventTimeRangeProps) {
   return (
     <span className={cn(className)}>
@@ -152,6 +162,7 @@ export function ViewerLocalEventTimeRange({
         timeZone={timeZone}
         showOffset={showOffset}
         showTimeZone={showTimeZone}
+        hour12={hour12}
       />
       {endAt === undefined ? null : (
         <>
@@ -161,6 +172,7 @@ export function ViewerLocalEventTimeRange({
             timeZone={timeZone}
             showOffset={showOffset}
             showTimeZone={showTimeZone}
+            hour12={hour12}
           />
         </>
       )}

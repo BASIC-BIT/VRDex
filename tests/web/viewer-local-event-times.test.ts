@@ -22,7 +22,7 @@ function render(component: string, props: Record<string, unknown>): string {
     {
       cwd: path.resolve("apps/web"),
       encoding: "utf8",
-      env: { ...process.env, TSX_TSCONFIG_PATH: "tsconfig.json" },
+      env: { ...process.env, TZ: "UTC", TSX_TSCONFIG_PATH: "tsconfig.json" },
     },
   );
 }
@@ -102,3 +102,17 @@ it("inspector opts out of zone labels without fixing a DST offset for either ins
     />Nov 1, 1:15 AM</,
   );
 });
+
+for (const timeZone of ["UTC", "Invalid/Zone"]) {
+  it(`honors an explicit 24-hour viewer format in ${timeZone}`, () => {
+    const hour12 = new Intl.DateTimeFormat("en-GB", { hour: "numeric" }).resolvedOptions().hour12;
+    assert.equal(hour12, false);
+    const timestamp = Date.parse("2026-11-01T21:45:00Z");
+    const html = render("ViewerLocalEventTimeRange", {
+      startAt: timestamp, endAt: timestamp + 30 * 60_000, timeZone, hour12, showTimeZone: false,
+    });
+    assert.match(html, />21:45<\/time> - <time[^>]+>22:15<\/time>/);
+    assert.match(render("ViewerLocalEventDateTime", { timestamp, timeZone, hour12, showTimeZone: false }), />Nov 1, 21:45</);
+    assert.doesNotMatch(html, /AM|PM/);
+  });
+}

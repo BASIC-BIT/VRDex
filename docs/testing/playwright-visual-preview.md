@@ -461,7 +461,7 @@ including a retry that returns zero after the first deletion's response was lost
 date navigation and Back restoration, plus event and selected-set details with a
 New York URL timezone in a UTC browser. Its rollback case uses the same guarded
 fixture creator with a November 1, 2026 start instant; it checks both occurrences
-of 1:30 AM and a set crossing the offset change. The inspector has one timezone/hour-format indicator. Each set instant converts
+of 1:30 AM and a set crossing the offset change. The inspector has one timezone/hour-format indicator. Its event and set times use the same browser-derived 12/24-hour preference as the toolbar, including `en-GB` coverage. Each set instant converts
 independently across DST; repeated offsets are omitted from performer rows.
 
 The logo's run-specific HTTPS `.invalid` URL passes through the real canonical

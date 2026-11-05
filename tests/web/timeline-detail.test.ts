@@ -343,10 +343,10 @@ it("compact inspector preserves authored names and meaningful roles while omitti
     const { renderToStaticMarkup } = require("react-dom/server");
     const { EventDetailContent } = require("./src/app/_components/timeline/event-detail-content.tsx");
     process.stdout.write(renderToStaticMarkup(createElement(EventDetailContent, {
-      event: ${JSON.stringify(event("night"))}, timeZone: "UTC",
+      event: ${JSON.stringify({ ...event("night"), startAt: Date.parse("2026-11-01T21:00:00Z"), endAt: Date.parse("2026-11-01T23:00:00Z") })}, timeZone: "UTC", hour12: false,
       preferences: { version: 1, plan: [], favoriteProfileIds: [] }, onPreferenceAction() {},
       rows: [
-        { kind: "slot", key: "dj", position: 0, displayLabel: "Authored guest", roleLabel: "DJ", startAt: 1 },
+        { kind: "slot", key: "dj", position: 0, displayLabel: "Authored guest", roleLabel: "DJ", startAt: Date.parse("2026-11-01T21:45:00Z"), endAt: Date.parse("2026-11-01T22:15:00Z") },
         { kind: "lineup", key: "host", position: 1, displayLabel: "Manual host", roleLabel: "Host" },
       ],
     })));
@@ -358,6 +358,11 @@ it("compact inspector preserves authored names and meaningful roles while omitti
       env: { ...process.env, TSX_TSCONFIG_PATH: "tsconfig.json" },
     },
   );
+  assert.match(markup, /UTC . 24h/);
+  assert.match(markup, />Nov 1, 21:00</);
+  assert.match(markup, />Nov 1, 23:00</);
+  assert.match(markup, />21:45<\/time> - <time[^>]+>22:15<\/time>/);
+  assert.doesNotMatch(markup, /aria-label="Timezone and hour format"| AM| PM/);
   assert.match(markup, />Authored guest</);
   assert.match(markup, />Manual host</);
   assert.match(markup, />Host</);

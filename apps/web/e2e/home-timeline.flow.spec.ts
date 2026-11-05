@@ -573,7 +573,7 @@ test.describe("continuous schedule @flow @fixture", () => {
     ).toHaveCount(0);
     await expect(panel.getByText("DJ", { exact: true })).toHaveCount(0);
     await expect(
-      panel.getByLabel("Timezone and hour format", { exact: true }),
+        panel.getByText(/ (12|24)h$/, { exact: true }),
     ).toHaveText("UTC · 12h");
     if (isMobile) {
       expect((await panel.boundingBox())?.height).toBeLessThanOrEqual(

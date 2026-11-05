@@ -184,6 +184,27 @@ test.describe("timeline time regressions @flow @fixture", () => {
       }
     });
   });
+  test.describe("24-hour viewer", () => {
+    test.use({ locale: "en-GB" });
+    test("toolbar and inspector share the viewer hour format", async ({ page, timelineFixture }, info) => {
+      await page.goto(`/?at=${TIMELINE_NOW}&tz=UTC`);
+      await expect(page.getByLabel("Hour format", { exact: true }).locator("..")).toHaveText("24h");
+      await page.getByRole("button", { name: "Open Aurora at ORBIT: Interstellar Bassline Orchestra", exact: true }).click();
+      const panel = page.getByRole("region", { name: "Event details", exact: true });
+      await expect(panel.getByText(/UTC . 24h/, { exact: true })).toBeVisible();
+      await expect(panel.locator('[data-selected="true"]')).toHaveAttribute("data-slot-id", timelineFixture.slotIds[6]);
+      const times = await panel.locator("time").evaluateAll(elements => elements.map(element => ({ instant: element.getAttribute("datetime"), label: element.textContent })));
+      expect(times.length).toBeGreaterThanOrEqual(4);
+      for (const time of times) {
+        const options: Intl.DateTimeFormatOptions = { timeZone: "UTC", hour: "numeric", minute: "2-digit", hour12: false };
+        if (!time.instant) throw new Error("Inspector time lacks its instant");
+        const expected = new Intl.DateTimeFormat("en", options).format(new Date(time.instant));
+        expect(time.label).toContain(expected);
+        expect(time.label).not.toMatch(/AM|PM/);
+      }
+      await page.screenshot({ path: info.outputPath("inspector-24-hour.png") });
+    });
+  });
   test.describe("DST rollback", () => {
     test.use({ timelineStartAt: Date.UTC(2026, 10, 1, 5, 30) });
     test("dateMarkersFollowLocalDstCalendarDay", async ({ page, timelineFixture }) => {
@@ -215,7 +236,7 @@ test.describe("timeline time regressions @flow @fixture", () => {
         exact: true,
       });
       await expect(
-        panel.getByLabel("Timezone and hour format", { exact: true }),
+        panel.getByText(/ (12|24)h$/, { exact: true }),
       ).toHaveText("America/New York · 12h");
       await expect(panel.getByText(/GMT|EDT|EST/)).toHaveCount(0);
       const selected = panel.locator('[data-selected="true"]');

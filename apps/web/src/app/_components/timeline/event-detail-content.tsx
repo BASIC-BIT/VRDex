@@ -73,6 +73,7 @@ export function EventDetailContent({
   host,
   slotId,
   timeZone,
+  hour12 = true,
   ...preferences
 }: {
   event: CanonicalEvent;
@@ -80,6 +81,7 @@ export function EventDetailContent({
   host?: TimelineEventIdentity["host"];
   slotId?: string;
   timeZone: string;
+  hour12?: boolean;
 } & DetailPreferenceProps) {
   const selected = useRef<HTMLLIElement | null>(null);
   const selectedIndex = rows.findIndex((row) => row.key === slotId);
@@ -121,6 +123,7 @@ export function EventDetailContent({
         <p className={styles.time}>
           <ViewerLocalEventDateTime
             timeZone={timeZone}
+            hour12={hour12}
             showTimeZone={false}
             timestamp={event.startAt}
             eventDate={event.eventDate}
@@ -133,6 +136,7 @@ export function EventDetailContent({
               <ViewerLocalEventDateTime
                 timestamp={event.endAt}
                 timeZone={timeZone}
+                hour12={hour12}
                 showTimeZone={false}
               />
             </>
@@ -140,8 +144,8 @@ export function EventDetailContent({
             " · Time TBA"
           ) : null}
         </p>
-        <p className={styles.meta} aria-label="Timezone and hour format">
-          {timeZone.replaceAll("_", " ")} · 12h
+        <p className={styles.meta}>
+          {timeZone.replaceAll("_", " ")} · {hour12 ? "12h" : "24h"}
         </p>
         {event.venueLabel ? <p>{event.venueLabel}</p> : null}
         {event.worlds.map((world) => (
@@ -181,6 +185,7 @@ export function EventDetailContent({
                   {row.startAt !== undefined ? (
                     <ViewerLocalEventTimeRange
                       timeZone={timeZone}
+                      hour12={hour12}
                       showTimeZone={false}
                       startAt={row.startAt}
                       endAt={row.endAt}

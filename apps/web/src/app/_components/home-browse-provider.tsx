@@ -77,7 +77,7 @@ export function HomeBrowseProvider({ children }: { children: ReactNode }) {
   const value = useMemo<HomeBrowse>(() => ({ ...runtime, selection, selectEvent, closeEvent, onPreferenceAction, setDisplayTimeZone, registerBeforeTimeZoneChange }), [runtime, selection, selectEvent, closeEvent, onPreferenceAction, setDisplayTimeZone, registerBeforeTimeZoneChange]);
   return <HomeBrowseContext.Provider value={value}>
     {children}
-    {runtime.kind === "ready" && <EventDetailPanel selection={selection} timeZone={runtime.timeZone} onClose={closeEvent} preferences={preference.preferences} onPreferenceAction={onPreferenceAction} />}
+    {runtime.kind === "ready" && <EventDetailPanel selection={selection} timeZone={runtime.timeZone} hour12={runtime.hour12} onClose={closeEvent} preferences={preference.preferences} onPreferenceAction={onPreferenceAction} />}
     {limit && <span className={styles.actionStatus} role="status">Limit reached</span>}
   </HomeBrowseContext.Provider>;
 }
