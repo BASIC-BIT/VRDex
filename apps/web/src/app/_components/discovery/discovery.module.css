@@ -1,28 +1,35 @@
 .discovery {
+  position: relative;
   border-top: 1px solid var(--border);
-  margin-top: 1.5rem;
-  padding-top: 1.8rem;
-  padding-bottom: 2.5rem;
+  margin-top: 1.25rem;
+  padding: 1.25rem 0 2.5rem;
   min-width: 0;
 }
 .heading {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.1rem;
 }
 .heading h2 {
   font-size: 1.5rem;
   font-weight: 600;
   letter-spacing: -0.035em;
+  margin-right: auto;
 }
 .browse {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   color: var(--muted);
   font-size: 0.8rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
 }
 .browse:hover {
-  color: var(--accent);
+  color: var(--foreground);
+  background: var(--surface-elevated);
 }
 .groups {
   display: grid;
@@ -43,8 +50,12 @@
   gap: 1rem;
   align-items: start;
 }
+.cards > div,
 .card {
   min-width: 0;
+}
+.card {
+  animation: arrive 140ms ease-out;
 }
 .artwork,
 .clubArtwork {
@@ -77,97 +88,91 @@
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
-.save,
-.favorite {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  flex-shrink: 0;
-  border-radius: var(--radius-control);
-  cursor: pointer;
-}
 .save {
   position: absolute;
   right: 0.65rem;
   bottom: 0.65rem;
-  color: #e4d7ff;
-  background: #302640;
-  border: 1px solid #70588e;
   opacity: 0;
   transition: opacity 120ms ease;
+  background: color-mix(in srgb, var(--surface-strong) 90%, transparent);
 }
 .card:hover .save,
 .card:focus-within .save,
-.save[data-saved="true"] {
+.save[data-state="saved"] {
   opacity: 1;
 }
-.save:hover {
-  background: #443359;
-}
 .favorite {
-  border: 1px solid transparent;
-  color: var(--muted);
   margin-left: auto;
+  flex-shrink: 0;
 }
-.favorite:hover {
-  background: var(--surface-elevated);
-  color: var(--warning);
+.eventMetadata {
+  min-height: 128px;
+  padding-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
-.favorite[aria-pressed="true"] {
-  color: var(--warning);
-}
-.favorite[aria-pressed="true"] svg,
-.performers [data-favorite="true"] svg {
-  fill: currentColor;
-}
-.date {
-  color: var(--muted);
-  font-size: 0.72rem;
-  line-height: 1.5;
-  margin-top: 0.8rem;
+.clubMetadata {
+  min-height: 72px;
+  padding-top: 0.75rem;
 }
 .name {
   font-size: 1rem;
   font-weight: 600;
   line-height: 1.4;
-  margin-top: 0.35rem;
   overflow-wrap: anywhere;
 }
 .name a:hover,
 .host:hover,
 .performers a:hover,
-.genres a:hover {
+.lineup:hover {
   color: var(--accent);
 }
+.date,
 .host {
-  display: inline-block;
   color: var(--muted);
   font-size: 0.72rem;
   line-height: 1.5;
-  margin-top: 0.25rem;
+}
+.date {
+  margin-top: 0.3rem;
+  overflow-wrap: anywhere;
+}
+.favoriteSummary {
+  min-height: 1.65rem;
+  padding-top: 0.3rem;
 }
 .performers {
-  display: grid;
-  gap: 0.2rem;
-  margin: 0.65rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.65rem;
+  margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   line-height: 1.5;
 }
 .performers a {
   display: inline-flex;
   gap: 0.3rem;
   align-items: center;
-}
-.performers [data-favorite="true"] {
+  overflow-wrap: anywhere;
   color: var(--warning);
 }
-.performerGenres {
+.performers svg {
+  fill: currentColor;
+  flex-shrink: 0;
+}
+.lineup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  margin-top: auto;
+  padding-top: 0.25rem;
+  cursor: pointer;
 }
 .genres {
   display: flex;
@@ -179,6 +184,7 @@
   color: var(--muted);
   font-size: 0.72rem;
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 .clubArtwork {
   display: flex;
@@ -189,6 +195,7 @@
     var(--surface-elevated),
     var(--canvas-muted)
   );
+  container-type: inline-size;
 }
 .clubArtwork::after {
   content: "";
@@ -208,41 +215,114 @@
   height: 100%;
 }
 .clubLogo {
-  width: 68%;
-  height: 45%;
-  font-size: 2.5rem;
+  width: 100%;
+  height: 100%;
   z-index: 1;
   background: transparent;
+}
+.clubLogo:has(img) {
+  width: 68%;
+  height: 45%;
 }
 .contained {
   object-fit: contain;
 }
-.clubLink > .name {
-  margin-top: 0.85rem;
+.clubTypography {
+  display: block;
+  width: 100%;
+  padding: 10%;
+  text-align: center;
+  font-size: clamp(1.25rem, 12cqi, 2.7rem);
+  font-weight: 650;
+  line-height: 1.12;
+  letter-spacing: -0.04em;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+.clubName {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 .clubFooter {
   display: flex;
   gap: 0.4rem;
   align-items: start;
-  margin-top: 0.55rem;
+  margin-top: 0.3rem;
 }
 .status {
   color: var(--muted);
   font-size: 0.85rem;
   padding: 1.5rem 0;
 }
-.status button {
+.loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.loading svg {
+  animation: spin 900ms linear infinite;
+}
+.skeleton {
+  background: var(--surface-strong);
+}
+.skeletonLine {
+  display: block;
+  height: 0.6rem;
+  width: 75%;
+  margin: 0.35rem 0;
+  border-radius: 2px;
+  background: var(--surface-strong);
+}
+.skeletonLine + .skeletonLine {
+  width: 45%;
+}
+.failure {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.failure button {
   color: var(--accent);
   margin-left: 0.65rem;
   cursor: pointer;
 }
+@keyframes arrive {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 @media (max-width: 760px) {
   .groups {
     grid-template-columns: minmax(0, 1fr);
-    gap: 2rem;
+    gap: 1.5rem;
   }
   .cards {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: min(78vw, 340px);
     gap: 0.8rem;
+    overflow-x: auto;
+    padding: 3px 3px 8px;
+    margin: -3px;
+    scroll-snap-type: x proximity;
+  }
+  .cards > div {
+    scroll-snap-align: start;
+  }
+  .clubMetadata {
+    min-height: 80px;
   }
   .name {
     font-size: 0.95rem;
@@ -256,5 +336,9 @@
 @media (prefers-reduced-motion: reduce) {
   .save {
     transition: none;
+  }
+  .card,
+  .loading svg {
+    animation: none;
   }
 }

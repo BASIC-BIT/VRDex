@@ -31,3 +31,8 @@ export type DiscoveryEventRequest = {
   direction: "asc" | "desc";
   cursor?: string;
 };
+
+export type FavoriteLineupArgs = { eventIds: string[]; favoriteProfileIds: string[] };
+export type FavoriteLineupResult = {
+  items: Array<{ eventId: string; performers: Array<Pick<DiscoveryProfileSignal, "id" | "slug" | "displayName">> }>;
+};

@@ -1,7 +1,6 @@
 export type TimelineNavigation = {
   anchor: number | null;
   timeZone: string | null;
-  view: "timeline" | "agenda";
   favoritesOnly: boolean;
 };
 type SearchParams = { get(name: string): string | null; toString(): string };
@@ -33,7 +32,6 @@ export function readTimelineNavigation(searchParams: SearchParams): TimelineNavi
   return {
     anchor: readAnchor(searchParams.get("at")),
     timeZone: readTimeZone(searchParams.get("tz")),
-    view: searchParams.get("scheduleView") === "agenda" ? "agenda" : "timeline",
     favoritesOnly: searchParams.get("favorites") === "1",
   };
 }
@@ -49,8 +47,7 @@ export function timelineNavigationHref({ pathname, searchParams, state }: {
   else params.set("at", String(anchor));
   if (state.timeZone === null) params.delete("tz");
   else params.set("tz", state.timeZone);
-  if (state.view === "timeline") params.delete("scheduleView");
-  else params.set("scheduleView", state.view);
+  params.delete("scheduleView");
   if (state.favoritesOnly) params.set("favorites", "1");
   else params.delete("favorites");
   const query = params.toString();

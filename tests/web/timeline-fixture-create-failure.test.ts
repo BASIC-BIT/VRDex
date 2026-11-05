@@ -74,7 +74,7 @@ it("an ambiguous create keeps the lease blocked when cleanup precedes its late c
         join(directory, "playwright.config.mjs"),
       ],
       {
-        env: { ...process.env, PLAYWRIGHT_CONVEX_URL: backend },
+        env: { ...process.env, PLAYWRIGHT_CONVEX_URL: backend, VRDEX_HOME_FIXTURE_MANIFEST_DIR: join(directory, "manifests") },
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
@@ -87,6 +87,8 @@ it("an ambiguous create keeps the lease blocked when cleanup precedes its late c
     });
     assert.deepEqual(await once(child, "exit"), [1, null], output);
     assert.match(createRun ?? "", /^playwright-timeline-/);
+    assert.match(output, /apiRequestContext.post/);
+    assert.match(output, /Timeline fixture cleanup also failed/);
     assert.equal(cleanupObserved, 0);
     assert.equal(records, 8);
     await assert.rejects(
@@ -116,7 +118,7 @@ for (const committed of [false, true]) {
       for await (const _chunk of request) void _chunk;
       if (request.method === "POST") {
         response.setHeader("content-type", "application/json");
-        response.end(JSON.stringify({ eventIds: [], profileIds: [], slotIds: [] }));
+        response.end(JSON.stringify({ eventIds: [], profileIds: [], slotIds: [], lineupEntryIds: [] }));
       } else {
         assert.equal(request.method, "DELETE");
         if (++deletes === 1) {
@@ -143,7 +145,7 @@ for (const committed of [false, true]) {
         test('cleanup reset', async ({ timelineFixture }) => { void timelineFixture; });
       `);
       const child = spawn(process.execPath, [resolve("apps/web/node_modules/@playwright/test/cli.js"), "test", "--config", join(directory, "playwright.config.mjs")], {
-        env: { ...process.env, PLAYWRIGHT_CONVEX_URL: backend }, stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, PLAYWRIGHT_CONVEX_URL: backend, VRDEX_HOME_FIXTURE_MANIFEST_DIR: join(directory, "manifests") }, stdio: ["ignore", "pipe", "pipe"],
       });
       let output = "";
       child.stdout.on("data", chunk => { output += String(chunk); });

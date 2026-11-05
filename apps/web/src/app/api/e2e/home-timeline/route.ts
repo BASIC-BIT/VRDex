@@ -71,9 +71,13 @@ async function handle(
     "scenario" in body &&
     body.scenario !== "prefetch" &&
     body.scenario !== "detail" &&
+    body.scenario !== "detail-visual" &&
     body.scenario !== "discovery" &&
     body.scenario !== "discovery-dense" &&
     body.scenario !== "discovery-sparse" &&
+    body.scenario !== "discovery-clubs" &&
+    body.scenario !== "discovery-roster" &&
+    body.scenario !== "short-sets" &&
     body.scenario !== "timeline-visual"
   )
     return NextResponse.json(
@@ -88,10 +92,14 @@ async function handle(
       ...("scenario" in body &&
       (body.scenario === "prefetch" ||
         body.scenario === "detail" ||
+        body.scenario === "detail-visual" ||
         body.scenario === "discovery" ||
         body.scenario === "discovery-dense" ||
         body.scenario === "discovery-sparse" ||
-        body.scenario === "timeline-visual")
+        body.scenario === "discovery-clubs" ||
+        body.scenario === "discovery-roster" ||
+        body.scenario === "timeline-visual" ||
+        body.scenario === "short-sets")
         ? { scenario: body.scenario }
         : {}),
     }),

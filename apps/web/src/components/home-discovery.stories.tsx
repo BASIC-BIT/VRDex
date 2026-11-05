@@ -102,6 +102,8 @@ const available: Available = {
   clubs,
   eventSignals,
   favoriteProfiles: [],
+  eligibleEventIds: events.map((event) => event.id),
+  eligibleClubIds: clubs.map((club) => club.id),
   coverage,
   refreshing: false,
 };
@@ -110,13 +112,17 @@ const meta = {
   component: HomeDiscoveryView,
   decorators: [
     (Story) => (
-      <main className="mx-auto max-w-7xl p-5">
+      <main className="mx-auto w-full max-w-7xl p-5">
         <Story />
       </main>
     ),
   ],
   args: {
     snapshot: available,
+    favoriteLineup: {
+      kind: "available",
+      items: [{ eventId: "orbit", performers: eventSignals[0].performers }],
+    },
     preferences: {
       version: 1,
       plan: [],
@@ -134,7 +140,10 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Mixed: Story = {};
 export const ColdStart: Story = {
-  args: { preferences: { version: 1, plan: [], favoriteProfileIds: [] } },
+  args: {
+    snapshot: { kind: "loading" },
+    preferences: { version: 1, plan: [], favoriteProfileIds: [] },
+  },
 };
 export const Sparse: Story = {
   args: {
@@ -216,6 +225,46 @@ export const LongCustomLabels: Story = {
             { ...genre, displayLabel: "Deep journeys across the spectrum" },
           ],
         })),
+      })),
+    },
+  },
+};
+
+export const WarmRefresh: Story = {
+  args: { snapshot: { ...available, refreshing: true } },
+};
+export const LongFavoriteLineup: Story = {
+  args: {
+    favoriteLineup: {
+      kind: "available",
+      items: [
+        {
+          eventId: "orbit",
+          performers: Array.from({ length: 12 }, (_, i) => ({
+            id: `person-${i}`,
+            slug: `person-${i}`,
+            displayName: `Favorite performer ${i + 1}`,
+          })),
+        },
+      ],
+    },
+    snapshot: {
+      ...available,
+      clubs: clubs.map((club) => ({
+        ...club,
+        logoImageUrl: undefined,
+        displayName: "After-hours / 夢: A Very Long Collective & Friends!!!",
+      })),
+    },
+  },
+};
+export const BrokenArtwork: Story = {
+  args: {
+    snapshot: {
+      ...available,
+      clubs: clubs.map((club) => ({
+        ...club,
+        logoImageUrl: "https://example.invalid/broken.png",
       })),
     },
   },

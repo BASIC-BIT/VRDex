@@ -210,14 +210,17 @@ it("the bounded prefetch scenario authors earlier and long ongoing events under 
   }
 });
 
-it("detail scenario owns and exactly cleans dense slots, hidden person and untimed lineup", async()=>{
+for (const scenario of ["detail", "detail-visual"] as const)
+it(`${scenario} owns and exactly cleans dense slots, hidden person and untimed lineup`, async()=>{
   const original={...process.env};
   try {
     Object.assign(process.env,{CONVEX_CLOUD_URL:"http://127.0.0.1:3210",VRDEX_ENABLE_E2E_HELPERS:"true",VRDEX_E2E_CONVEX_SECRET:"test-secret",VERCEL_ENV:"development"});
     const t=convexTest({schema,modules});
     const args={secret:"test-secret",runId:"playwright-timeline-detail000",startAt:Date.UTC(2026,9,26,21)};
-    const result=await t.mutation(api.e2eHomeTimeline.create,{...args,scenario:"detail"});
-    assert.equal(result.slotIds.length,87);assert.equal(result.profileIds.length,3);
+    await assert.rejects(t.mutation(api.e2eHomeTimeline.create,{...args,scenario,secret:"wrong"}));
+    const result=await t.mutation(api.e2eHomeTimeline.create,{...args,scenario});
+    assert.equal(result.slotIds.length, scenario === "detail" ? 87 : 89);assert.equal(result.profileIds.length, scenario === "detail" ? 3 : 6);
+    assert.equal(result.lineupEntryIds.length, 2);
     const row=await t.run(ctx=>ctx.db.get(result.eventIds[3]));
     assert.equal(row?.posterImageUrl,"/api/e2e/fixture-assets/fixture-orbit-timeline-poster");
     const canonical = await t.run(async ({db})=>getPublicEventBySlug(db,await db.get(result.eventIds[3])));
@@ -227,7 +230,57 @@ it("detail scenario owns and exactly cleans dense slots, hidden person and untim
     do {const page=await t.query(api.eventTimeline.listPublicRoster,{eventId:result.eventIds[3],range:{startAt:0,endAt:1,timeZone:"UTC"},detail:true,cursor});if(page.detail?.kind === "available") rows.push(...page.detail.rows);cursor=page.cursor??undefined;}while(cursor);
     assert.equal(rows.filter(row=>row.kind === "slot").length,81);
     assert.equal(rows.filter(row=>row.kind === "lineup").length,2);
+    assert.equal(rows.find(row=>row.displayLabel === "Manual guest")?.roleLabel,"Host");
     assert.ok(!JSON.stringify(rows).includes("SECRET")); assert.ok(!JSON.stringify(rows).includes(result.profileIds[2]));
-    assert.deepEqual(await t.mutation(api.e2eHomeTimeline.cleanup,{secret:args.secret,runId:args.runId}),{events:8,profiles:3,slots:87,lineupEntries:2});
+    assert.deepEqual(await t.mutation(api.e2eHomeTimeline.cleanup,{secret:args.secret,runId:args.runId}),scenario === "detail" ? {events:8,profiles:3,slots:87,lineupEntries:2} : {events:10,profiles:6,slots:89,lineupEntries:2});
   }finally{process.env=original;}
+});
+
+it("short-set fixtures author exact 30/15-minute intervals and preserve owned cleanup counts", async () => {
+  const original = { ...process.env };
+  try {
+    Object.assign(process.env, {
+      CONVEX_CLOUD_URL: "http://127.0.0.1:3210",
+      VRDEX_ENABLE_E2E_HELPERS: "true",
+      VRDEX_E2E_CONVEX_SECRET: "test-secret",
+      NODE_ENV: "production",
+      VERCEL_ENV: "development",
+    });
+    const t = convexTest({ schema, modules });
+    const startAt = Date.UTC(2026, 9, 26, 21);
+    const args = {
+      secret: "test-secret",
+      runId: "playwright-timeline-shortset1",
+      startAt,
+      scenario: "short-sets" as const,
+    };
+    await assert.rejects(
+      t.mutation(api.e2eHomeTimeline.create, { ...args, secret: "wrong" }),
+    );
+    const fixture = await t.mutation(api.e2eHomeTimeline.create, args);
+    assert.equal(fixture.eventIds.length, 8);
+    assert.equal(fixture.slotIds.length, 8);
+    assert.equal(fixture.profileIds.length, 2);
+    const short = await t.run(async (ctx) =>
+      Promise.all(fixture.slotIds.slice(6).map((id) => ctx.db.get(id))),
+    );
+    assert.deepEqual(
+      short.map((slot) => [slot?.startAt, slot?.endAt]),
+      [
+        [startAt + 3_600_000, startAt + 5_400_000],
+        [startAt + 5_400_000, startAt + 6_300_000],
+      ],
+    );
+    const ordinary = await t.run((ctx) => ctx.db.get(fixture.slotIds[0]));
+    assert.equal((ordinary?.endAt ?? 0) - (ordinary?.startAt ?? 0), 3_600_000);
+    assert.deepEqual(
+      await t.mutation(api.e2eHomeTimeline.cleanup, {
+        secret: args.secret,
+        runId: args.runId,
+      }),
+      { events: 8, profiles: 2, slots: 8 },
+    );
+  } finally {
+    process.env = original;
+  }
 });

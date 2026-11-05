@@ -4,7 +4,7 @@
   right: 1.5rem;
   bottom: 1.5rem;
   width: min(420px, calc(100vw - 3rem));
-  max-height: min(760px, calc(100dvh - 3rem));
+  height: min(760px, calc(100dvh - 3rem));
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-strong, var(--border));
@@ -22,8 +22,9 @@
   border-bottom: 1px solid var(--border);
   flex: none;
 }
-.header .expand {
-  display: none;
+.fullPage {
+  min-width: 40px;
+  min-height: 40px;
 }
 .scroll {
   overflow-y: auto;
@@ -32,14 +33,15 @@
   scrollbar-gutter: stable;
 }
 .poster {
-  padding: 0.8rem 0.8rem 0;
+  height: 260px;
+  flex: none;
+  padding: 0.8rem;
   background: var(--canvas-muted);
 }
 .poster img {
   display: block;
   width: 100%;
-  height: auto;
-  max-height: 360px;
+  height: 100%;
   object-fit: contain;
 }
 .content {
@@ -77,10 +79,6 @@
   flex-wrap: wrap;
   align-items: center;
 }
-.actions button,
-.actions a {
-  font-size: 0.72rem;
-}
 .lineup {
   list-style: none;
   margin: 0.4rem 0 0;
@@ -88,9 +86,11 @@
   border-top: 1px solid var(--border);
 }
 .lineup li {
-  padding: 0.85rem 0.3rem;
+  padding: 0.4rem 0.3rem;
   display: grid;
-  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35rem;
   border-bottom: 1px solid var(--border);
 }
 .lineup li[data-selected="true"] {
@@ -99,15 +99,23 @@
   padding-left: 0.7rem;
 }
 .rowIdentity {
+  min-width: 0;
   display: flex;
-  gap: 0.35rem 0.65rem;
   flex-wrap: wrap;
+  gap: 0.15rem 0.5rem;
   align-items: baseline;
   font-size: 0.9rem;
 }
-.rowIdentity a {
+.rowIdentity a,
+.rowIdentity > span:first-child {
   font-weight: 550;
   overflow-wrap: anywhere;
+}
+.rowIdentity > :first-child {
+  flex-basis: 100%;
+}
+.lineup .actions {
+  flex-wrap: nowrap;
 }
 .notice {
   padding: 1rem;
@@ -126,17 +134,7 @@
     border-radius: 10px 10px 0 0;
     padding-bottom: env(safe-area-inset-bottom);
   }
-  .panel[data-expanded="true"] {
-    height: calc(100dvh - 1rem);
-    max-height: calc(100dvh - 1rem);
-  }
-  .header {
-    justify-content: space-between;
-  }
-  .header .expand {
-    display: inline-flex;
-  }
-  .poster img {
-    max-height: 260px;
+  .poster {
+    height: 180px;
   }
 }

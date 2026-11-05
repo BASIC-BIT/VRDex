@@ -1,8 +1,9 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
+import { isPublicEventPerformer } from "./_eventPublic";
 import { dateOnlyEventsEnabled } from "./_eventSchedule";
 import { DISCOVERY_PAGE_SIZE, DISCOVERY_ROSTER_SIZE, discoveryBatch, discoveryBounds, discoveryContinuation, discoveryCursor, discoveryProfile, discoveryReads, discoveryRequestScope } from "./_homeDiscovery";
-import type { DiscoveryEventCandidate, DiscoveryEventSignal, DiscoveryPage, DiscoveryProfileSignal } from "./_homeDiscoveryTypes";
+import type { DiscoveryEventCandidate, DiscoveryEventSignal, DiscoveryPage, DiscoveryProfileSignal, FavoriteLineupResult } from "./_homeDiscoveryTypes";
 
 const direction = v.union(v.literal("asc"), v.literal("desc"));
 export const listEvents = query({
@@ -97,6 +98,43 @@ export const profileSignals = query({
       const profile = id === null ? null : await ctx.db.get(id);
       const signal = profile === null ? null : await discoveryProfile(ctx.db, profile);
       if (signal !== null) items.push(signal);
+    }
+    return { items };
+  },
+});
+
+/** Complete selected-card membership, independent of the bounded ranking sample. */
+export const favoriteLineup = query({
+  args: { eventIds: v.array(v.string()), favoriteProfileIds: v.array(v.string()) },
+  handler: async (ctx, args): Promise<FavoriteLineupResult> => {
+    // Validate raw input before deduplication so repeated IDs cannot bypass limits.
+    if (args.eventIds.length > 2 || args.favoriteProfileIds.length > 25) throw new Error("Too many favorite lineup IDs");
+    const reads = discoveryReads(ctx.db);
+    const items: FavoriteLineupResult["items"] = [];
+    for (const raw of new Set(args.eventIds)) {
+      const eventId = ctx.db.normalizeId("events", raw);
+      const event = eventId === null ? null : await ctx.db.get(eventId);
+      if (event === null || await reads.candidate(event) === null) continue;
+      const performers: FavoriteLineupResult["items"][number]["performers"] = [];
+      for (const rawProfileId of new Set(args.favoriteProfileIds)) {
+        const personProfileId = ctx.db.normalizeId("profiles", rawProfileId);
+        const person = personProfileId === null ? null : await reads.profile(personProfileId);
+        if (!isPublicEventPerformer(person)) continue;
+        // Exact-key existence reads cover all public detail roles without scanning
+        // rosters. Date-only detail deliberately excludes authored timed slots.
+        const [slot, lineup, participant] = await Promise.all([
+          event.scheduleKind === "date_only" ? null : ctx.db.query("eventSlots")
+            .withIndex("by_eventId_personProfileId_reviewState", q => q.eq("eventId", event._id).eq("personProfileId", person._id).eq("reviewState", "confirmed")).first(),
+          ctx.db.query("eventLineupEntries")
+            .withIndex("by_eventId_personProfileId", q => q.eq("eventId", event._id).eq("personProfileId", person._id)).first(),
+          ctx.db.query("eventParticipants")
+            .withIndex("by_eventId_personProfileId_confirmationState", q => q.eq("eventId", event._id).eq("personProfileId", person._id).eq("confirmationState", "confirmed")).first(),
+        ]);
+        if (slot !== null || lineup !== null || participant !== null) {
+          performers.push({ id: person._id, slug: person.slug, displayName: person.displayName });
+        }
+      }
+      items.push({ eventId: event._id, performers });
     }
     return { items };
   },

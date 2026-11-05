@@ -6,12 +6,17 @@ Broader direction from the July 9, 2026 product-design pass. The approved
 [October 26 Home/search first slice](../superpowers/specs/2026-10-26-homepage-search-first-slice-design.md)
 supersedes the former root-lookup decision. The approved
 [Home timeline slice](../superpowers/specs/2026-10-26-home-timeline-design.md)
-adds the continuous Schedule, Agenda, event details, browser-local My night and
+adds the continuous Schedule, event details, browser-local My night and
 private DJ/club favorites. This slice is implemented locally; publication and CI
 are tracked in its [execution plan](../superpowers/plans/2026-10-26-home-timeline.md).
 The approved [October 28 Home discovery design](../superpowers/specs/2026-10-28-home-discovery-design.md)
 adds poster-led recommendations below Schedule, with two events and two similarly
 sized clubs when eligible candidates are available.
+The approved [October 29 Home polish](../superpowers/specs/2026-10-29-home-polish-design.md)
+removes Agenda, compacts My night, separates interest from favorites and reserves
+initial Home geometry. Discovery shows complete favorite-person matches for its
+two selected events and full-name club fallback artwork. Profile genres may
+inform ranking; event/set labels do not inherit performer genres.
 
 This document captures homepage, discovery, event-calendar, privacy,
 personalization, and design-system implications that should not live only in
@@ -107,7 +112,7 @@ Locked decision:
   approved `DJs, clubs & events` heading. It submits to standard `/search` and
   shows at most five public preview options in an overlay.
 - The richer event-oriented surface remains at `/discovery`, reachable through
-  Home navigation. Home adds a continuous Schedule below search, with Agenda,
+  Home navigation. Home adds a continuous Schedule below search, with
   nonmodal details, browser-local My night and private favorites.
 - Nonempty old `/?q=...` bookmarks keep the legacy DJ lookup destination.
   Empty or whitespace-only root queries render public Home without lookup data.
@@ -124,8 +129,9 @@ Current recommendation:
 - Discovery dates have no seven-day cutoff. Poster availability, timestamp
   proximity and event counts are not recommendation scores. Clubs use their
   own public genres and can appear without a next event.
-- Timeline and accessible Agenda share current public records and authored set
-  times. Missing endpoints never become invented intervals.
+- Timeline shows current public records and authored set times. Date-only and
+  open-end records use authored markers. Missing endpoints never become invented
+  intervals. Legacy Agenda URLs remain usable.
 - The schedule can link to a full-screen or full-page focused view.
 - Community, world, and people modules should feel connected to real activity,
   not randomly advertised.

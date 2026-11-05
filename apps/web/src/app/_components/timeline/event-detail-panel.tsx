@@ -1,6 +1,8 @@
 "use client";
-import { useEffect, useEffectEvent, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useEffectEvent } from "react";
+import { ExternalLink } from "lucide-react";
+import { publicEventPath } from "@/lib/event-path";
+import { Button, buttonVariants } from "@/components/ui/button";
 import type { TimelineSelection } from "../home-browse-provider";
 import { useEventDetail } from "./use-event-detail";
 import { useEventRoster } from "./use-event-roster";
@@ -12,21 +14,20 @@ import styles from "./event-detail.module.css";
 export function EventDetailPanel({
   selection,
   timeZone,
+  hour12,
   onClose,
   ...preferences
 }: {
   selection: TimelineSelection | null;
   timeZone: string;
+  hour12: boolean;
   onClose(): void;
 } & DetailPreferenceProps) {
   const detail = useEventDetail({ slug: selection?.slug ?? null });
   const event = detail.kind === "available" ? detail.event : null;
   const roster = useEventRoster(event, selection?.slotId);
-  const [expanded, setExpanded] = useState(false);
-  const dismiss = () => {
-    setExpanded(false);
-    onClose();
-  };
+  const dismiss = onClose;
+  const href = event ? publicEventPath(event) : null;
   const close = useEffectEvent(dismiss);
   const unavailable =
     detail.kind === "unavailable" ||
@@ -56,21 +57,18 @@ export function EventDetailPanel({
       ? roster.selected
       : undefined;
   return (
-    <section
-      className={styles.panel}
-      aria-label="Event details"
-      data-expanded={expanded}
-    >
+    <section className={styles.panel} aria-label="Event details">
       <div className={styles.header}>
-        <Button
-          className={styles.expand}
-          size="sm"
-          variant="ghost"
-          onClick={() => setExpanded((value) => !value)}
-          aria-expanded={expanded}
-        >
-          {expanded ? "Collapse" : "Expand"}
-        </Button>
+        {href ? (
+          <a
+            href={href}
+            aria-label="Open full event page"
+            title="Open full event page"
+            className={`${buttonVariants({ size: "sm", variant: "ghost" })} ${styles.fullPage}`}
+          >
+            <ExternalLink size={18} aria-hidden="true" />
+          </a>
+        ) : null}
         <Button size="sm" variant="ghost" onClick={dismiss}>
           Close
         </Button>
@@ -115,6 +113,7 @@ export function EventDetailPanel({
           <EventDetailContent
             event={event}
             timeZone={timeZone}
+            hour12={hour12}
             rows={selected ? [selected, ...rows] : rows}
             host={
               roster.state.kind === "available" ? roster.state.host : undefined
