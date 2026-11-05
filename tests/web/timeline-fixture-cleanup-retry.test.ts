@@ -63,6 +63,10 @@ for (const scenario of ["default", "detail"] as const) {
             records = 8;
             response.end(
               JSON.stringify({
+                lineupEntryIds: Array.from(
+                  { length: scenario === "detail" ? 2 : 0 },
+                  (_, index) => `lineup-entry-${index}`,
+                ),
                 eventIds: Array.from(
                   { length: counts.events },
                   (_, index) => `event-${index}`,
@@ -167,6 +171,7 @@ for (const scenario of ["default", "detail"] as const) {
               env: {
                 ...process.env,
                 PLAYWRIGHT_CONVEX_URL: backend,
+                VRDEX_HOME_FIXTURE_MANIFEST_DIR: join(directory, "manifests"),
                 VRDEX_E2E_BROWSER_TOKEN: "cleanup-retry-test-token",
               },
               stdio: ["ignore", "pipe", "pipe"],

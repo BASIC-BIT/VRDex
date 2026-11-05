@@ -44,6 +44,8 @@ forms, status displays, and schedule rows.
 - Prefer semantic color roles such as `background`, `surface`, `surface-strong`,
   `accent`, `danger`, `success`, `warning`, `muted`, `subtle`, and `border`
   over raw color literals.
+- Favorites reuse `warning`. Interested controls and saved-event surfaces use
+  `interest` and `interest-border`, with separate dark and light mappings.
 - Treat reference values, semantic tokens, Tailwind aliases, and component
   recipes as separate layers. Feature code consumes semantic roles only.
 - Keep provider brand colors and owner-authored entity media narrowly scoped;

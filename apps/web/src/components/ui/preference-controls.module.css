@@ -22,14 +22,14 @@
   outline-offset: 2px;
 }
 .favorite {
-  --control-color: #f2c56b;
+  --control-color: var(--warning);
   color: var(--muted);
 }
 .favorite[aria-pressed="true"] {
   color: var(--control-color);
 }
 .interest {
-  --control-color: #bfa0ec;
+  --control-color: var(--interest);
   color: var(--control-color);
 }
 .control:hover:not(:disabled),

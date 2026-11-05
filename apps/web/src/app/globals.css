@@ -120,6 +120,18 @@
   initial-value: #fff0bd;
 }
 
+@property --interest {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #bfa0ec;
+}
+
+@property --interest-border {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #9474bd;
+}
+
 @property --info {
   syntax: "<color>";
   inherits: true;
@@ -184,6 +196,8 @@
   --success-strong: #d6ffe4;
   --warning: #ffd47a;
   --warning-strong: #fff0bd;
+  --interest: #bfa0ec;
+  --interest-border: #9474bd;
   --info: #8ed8ff;
   --info-strong: #d6f2ff;
   --border: rgba(229, 235, 244, 0.14);
@@ -217,6 +231,8 @@
   --success-strong: #0b4f2a;
   --warning: #8b5d08;
   --warning-strong: #5f3d02;
+  --interest: #7040aa;
+  --interest-border: #8052b8;
   --info: #0874a6;
   --info-strong: #04567e;
   --border: rgba(15, 23, 42, 0.16);
@@ -253,6 +269,8 @@
   --color-success-strong: var(--success-strong);
   --color-warning: var(--warning);
   --color-warning-strong: var(--warning-strong);
+  --color-interest: var(--interest);
+  --color-interest-border: var(--interest-border);
   --color-info: var(--info);
   --color-info-strong: var(--info-strong);
   --color-border: var(--border);
@@ -352,7 +370,7 @@ body > .ph-no-capture {
   transition-property:
     --background, --foreground, --canvas, --canvas-muted, --surface, --surface-muted, --surface-strong,
     --surface-elevated, --muted, --subtle, --inverse, --accent, --accent-strong, --accent-muted, --danger,
-    --danger-strong, --success, --success-strong, --warning, --warning-strong, --info, --info-strong, --border,
+    --danger-strong, --success, --success-strong, --warning, --warning-strong, --interest, --interest-border, --info, --info-strong, --border,
     --border-strong, --focus, --media, --media-raised !important;
   transition-timing-function: ease-in-out !important;
 }
