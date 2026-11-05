@@ -619,7 +619,9 @@ test.describe("compact personal planning @flow @fixture", () => {
       const night = page.getByTestId("night-lanes");
       await expect(night.locator("[data-slot-id]")).not.toHaveCount(0);
       await expect(
-        night.getByText("Partial lineup", { exact: true }),
+        night
+          .getByText("Partial lineup", { exact: true })
+          .filter({ visible: true }),
       ).toBeVisible();
       await expect(night.getByRole("button", { name: "Open ORBIT: Interstellar Bassline Orchestra", exact: true })).toHaveAccessibleDescription(/Partial lineup/);
       const widths = await night
