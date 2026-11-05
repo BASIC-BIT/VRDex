@@ -166,7 +166,7 @@ test.describe("compact personal planning @flow @fixture", () => {
     expect(second.y - first.y).toBe(50);
     expect(publicBar.height).toBe(78);
     const title = await bars.first().locator("strong").boundingBox();
-    const label = await page
+    const label = await page.getByTestId("night-lanes")
       .getByRole("heading", { name: "My night", exact: true })
       .boundingBox();
     if (!title || !label) throw Error("Missing compact header");

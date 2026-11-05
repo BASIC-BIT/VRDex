@@ -804,7 +804,7 @@ test.describe("continuous schedule @flow @fixture", () => {
         })
         .tap();
       await expect(
-        page.getByRole("heading", { name: "My night", exact: true }),
+        page.getByTestId("night-lanes").getByRole("heading", { name: "My night", exact: true }),
       ).toBeVisible();
     }
   });

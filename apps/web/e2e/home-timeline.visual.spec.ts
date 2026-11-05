@@ -155,11 +155,11 @@ test.describe("Home schedule images @visual @snapshot @fixture", () => {
         .getByRole("button", { name: `Interested: ${title}`, exact: true })
         .click();
     }
-    await expect(
-      page
-        .getByRole("region", { name: "My night", exact: true })
-        .getByLabel("Overlap", { exact: true }),
-    ).toHaveCount(2);
+    const overlappingBars = page.getByTestId("night-lanes").locator("[data-night-reference]");
+    await expect(overlappingBars).toHaveCount(2);
+    for (const bar of await overlappingBars.all()) {
+      await expect(bar.getByRole("button", { name: /^Open/ }).first()).toHaveAccessibleDescription(/Overlap/);
+    }
 
     // Save controls can scroll the canvas into view. Capture a fixed useful
     // anchor through the same native navigation on both devices.
