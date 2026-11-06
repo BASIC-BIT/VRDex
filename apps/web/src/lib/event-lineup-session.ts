@@ -25,6 +25,6 @@ export function followingSlot(current: LineupSlot, slots: readonly LineupSlot[])
 export function nextSlot(current: LineupSlot, slots: readonly LineupSlot[], scheduleNow: number): LineupSlot | undefined {
   const candidate = followingSlot(current, slots);
   const index = slots.findIndex(slot => slot.key === current.key);
-  const effectiveEnd = inferLineupEnds(slots)[index + 1]?.endAt;
+  const effectiveEnd = inferLineupEnds(slots)[index + 1]?.endAt ?? slots[index + 2]?.startAt;
   return effectiveEnd !== undefined && scheduleNow >= effectiveEnd ? undefined : candidate;
 }

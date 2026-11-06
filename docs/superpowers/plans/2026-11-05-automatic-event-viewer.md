@@ -67,3 +67,9 @@ preparation window, and eight editor/lineup visual baselines changed with the
 watch control. The intake match-navigation test also failed; its cause is not
 established. These checks remain open. No merge or deployment is authorized by
 this follow-up.
+
+The player investigation also reproduced candidate expiry after an untimed barrier.
+The next timed start now bounds candidate selection without filling the unknown
+end or permitting progression across that barrier. The regression failed before
+the fix and passed afterward, with 64 focused playback tests passing. Browser
+and visual CI remain open; this does not establish phone acceptance.
