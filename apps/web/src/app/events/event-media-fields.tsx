@@ -21,28 +21,14 @@ export function EventWatchFields({ enabled, mode, onEnabledChange, onModeChange 
   onEnabledChange(next: boolean): void;
   onModeChange(next: WatchMode): void;
 }) {
-  return <>
-    <label className="flex gap-3 rounded-control border border-border bg-surface-strong p-4 text-sm leading-6">
-      <input
-        className="mt-1 h-4 w-4 flex-none accent-accent"
-        checked={enabled}
-        onChange={event => onEnabledChange(event.currentTarget.checked)}
-        name="watchSurfaceEnabled"
-        type="checkbox"
-      />
-      <span>
-        <span className="block font-medium text-foreground">Promote a watch surface during the event window</span>
-        <span className="mt-1 block text-xs leading-5 text-muted">
-          Keep this off unless stream capacity is ready for public viewers.
-        </span>
-      </span>
-    </label>
-    {enabled ? <Field>
-      Watch mode
-      <Select aria-label="Watch mode" onChange={event => onModeChange(event.currentTarget.value as WatchMode)} value={mode}>
-        <option value="event_stream">Event stream</option>
-        <option value="performer_sequence">Performer sequence</option>
-      </Select>
-    </Field> : null}
-  </>;
+  return <Field>
+    Watch mode
+    <Select aria-label="Watch mode" value={enabled && mode === "event_stream" ? "event_stream" : "automatic"} onChange={event => {
+      onEnabledChange(event.currentTarget.value === "event_stream");
+      onModeChange("event_stream");
+    }}>
+      <option value="automatic">Automatic</option>
+      <option value="event_stream">Event stream</option>
+    </Select>
+  </Field>;
 }

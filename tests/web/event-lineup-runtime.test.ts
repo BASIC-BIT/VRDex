@@ -80,7 +80,7 @@ async function runtimeFixture(slots: ConstructorParameters<typeof EventLineupSes
   rejectNext: () => void;
   allowNext: () => void;
   deferNext: () => (accepted: boolean) => void;
-  silence: () => void;
+  silence: (value?: boolean) => void;
   progress: (value: boolean, id?: string) => void;
   visibility: (value: string) => void;
 }) => Promise<void>) {
@@ -125,7 +125,7 @@ async function runtimeFixture(slots: ConstructorParameters<typeof EventLineupSes
       progress(value, id = "shared") { progress.set(id, value); },
       allowNext() { rejected = false; nextResult = undefined; },
       deferNext() { let finish!: (accepted: boolean) => void; nextResult = new Promise(resolve => { finish = resolve; }); return finish; },
-      rejectNext() { rejected = true; }, silence() { quiet = true; }, visibility(value) { document.visibilityState = value; },
+      rejectNext() { rejected = true; }, silence(value = true) { quiet = value; }, visibility(value) { document.visibilityState = value; },
     });
   } finally {
     session?.dispose(); mock.restoreAll();
@@ -319,7 +319,7 @@ test("prepared playback also receives bounded startup time without becoming read
   });
 });
 
-for (const mode of ["failure", "silence"] as const) test(`prepared next source never promotes before its boundary on current ${mode}`, async () => {
+for (const mode of ["failure", "silence"] as const) test(`brief evidence does not promote a prepared next source on current ${mode}`, async () => {
   await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, sources, step, progress, silence }) => {
     await step(at(20, 58), 400);
     if (mode === "failure") progress(false); else silence();
@@ -328,7 +328,7 @@ for (const mode of ["failure", "silence"] as const) test(`prepared next source n
     assert.equal(sources.find(source => source.id === "different")?.gain.gain.value, 0);
   });
 });
-test("uncalibrated progressing silence retains current playback after the boundary", async () => {
+test("less than fifteen seconds of silence retains current playback", async () => {
   await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, step, silence }) => {
     await step(at(20, 58), 400); silence(); await step(at(21), 10000);
     assert.equal(session.state.current, "a");
@@ -365,5 +365,37 @@ test("confirmed outage status remains visible through a cold reconnect until dec
     assert.equal(session.state.unavailable, true, "retry initialization is not recovered media");
     progress(true); await step(at(20), 400);
     assert.equal(session.state.unavailable, false);
+  });
+});
+
+test("client silence advances after fifteen seconds near the set end", async () => {
+  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, step, silence }) => {
+    await step(at(20, 56), 400); silence();
+    await step(at(20, 56), 14900); assert.equal(session.state.current, "a");
+    await step(at(20, 56), 300); assert.equal(session.state.current, "b");
+  });
+});
+test("client silence does not advance outside the five-minute end window", async () => {
+  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, step, silence }) => {
+    silence(); await step(at(20, 54), 16000); assert.equal(session.state.current, "a");
+    await step(at(21, 6), 16000); assert.equal(session.state.current, "a");
+  });
+});
+
+
+test("audible input resets the continuous silence interval even with viewer output muted", async () => {
+  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, step, silence }) => {
+    await step(at(20, 56), 400); session.setMuted(true); session.setVolume(0);
+    silence(); await step(at(20, 56), 14000);
+    silence(false); await step(at(20, 56), 100);
+    silence(); await step(at(20, 56), 14900); assert.equal(session.state.current, "a");
+    await step(at(20, 56), 300); assert.equal(session.state.current, "b");
+  });
+});
+
+test("untimed canonical barriers prevent preparation and identity catchup", async () => {
+  await runtimeFixture([{ ...repeated[0], endAt: undefined, followingBlocked: true }, repeated[1]], async ({ session, sources, step, silence }) => {
+    silence(); await step(at(21), 16000);
+    assert.equal(session.state.current, "a"); assert.equal(sources.length, 1);
   });
 });

@@ -51,7 +51,7 @@ export type PlaybackRequest =
             video?: string;
             collection?: string;
           }
-        | { kind: "performer_sequence"; event: LineupEvent }
+        | { kind: "performer_sequence"; event: LineupEvent; localOnly?: true }
       ));
 export type PlaybackStatus =
   | "idle"
@@ -99,7 +99,7 @@ export function playbackContextKey(request: PlaybackRequest): string {
 export function playbackSourceKey(request: PlaybackRequest): string {
   return JSON.stringify(
     request.kind === "performer_sequence"
-      ? [playbackContextKey(request), request.kind]
+      ? [playbackContextKey(request), request.kind, request.localOnly ?? false]
       : request.kind === "vrcdn"
         ? [
             playbackContextKey(request),

@@ -23,7 +23,7 @@ function setup() {
  const source = (id: string, kind: string) => ({streamId:id,pcUrl:`${base}/${kind}.live.ts?id=${id}`,questUrl:`${base}/${kind}.live.ts?id=${id}`});
  const a = {...previewEvent.slots[0],playbackKey:"a",startAt:900_000,endAt:1_240_000,displayLabel:"Aurora",performer:{slug:"aurora",displayName:"Aurora",trustLabel:"claimed_verified" as const,outboundLinks:[{source:"owner_authored" as const,type:"website" as const,label:"Public source",url:"https://example.com/public-source"}]},stream:source("current",params.get("kind") ?? "audible")};
  const b = {...a,playbackKey:"b",startAt:1_240_000,endAt:1_500_000,displayLabel:"Lumen",performer:{...a.performer,slug:"lumen",displayName:"Lumen"},stream:source("next","audible")};
- let event: PublicEvent | null = {...previewEvent,title:"Lineup live",startAt:900_000,endAt:1_500_000,doorsOpenAt:900_000,watchSurfaceEnabled:true,watchMode:"performer_sequence",slots:[a,b]};
+ let event: PublicEvent | null = {...previewEvent,title:"Lineup live",startAt:900_000,endAt:1_500_000,doorsOpenAt:900_000,watchSurfaceEnabled:!params.has("automatic"),watchMode:"performer_sequence",lineup:undefined,slots:params.has("automatic")?[{...a,endAt:undefined},{...b,endAt:undefined}]:[a,b]};
  const initial = event;
  const listeners = new Set<() => void>();
  const client = {watchQuery(query:FunctionReference<"query">) {

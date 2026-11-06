@@ -1,3 +1,4 @@
+import { inferLineupEnds } from "@vrdex/api-contracts";
 import type { PublicEvent } from "../app/_components/event-public-page";
 import type { PlaybackRequest } from "./event-playback-owner";
 import { parseVrcdnStreamLinks } from "../../../../convex/_vrcdnLinks";
@@ -9,7 +10,6 @@ export function eventPlaybackRequest(
 ): Extract<PlaybackRequest, { eventId: string }> | null {
   if (
     !event ||
-    !event.watchSurfaceEnabled ||
     event.status === "cancelled" ||
     event.scheduleKind === "date_only" ||
     event.startAt === undefined
@@ -24,25 +24,33 @@ export function eventPlaybackRequest(
     doorsOpenAt: event.doorsOpenAt,
     endAt: event.endAt,
   };
-  if (event.watchMode === "performer_sequence")
+  const automatic = !event.watchSurfaceEnabled && event.slots.some(slot => slot.stream && slot.playbackKey && Number.isFinite(slot.startAt));
+  if ((event.watchMode === "performer_sequence" && event.watchSurfaceEnabled) || automatic)
     return {
       ...identity,
       kind: "performer_sequence",
+      ...(automatic ? { localOnly: true as const } : {}),
       event: {
         title: event.title,
         startAt: event.startAt,
         doorsOpenAt: event.doorsOpenAt,
         endAt: event.endAt,
-        slots: event.slots.map((slot) => ({
-          key: slot.playbackKey ?? "",
-          startAt: slot.startAt,
-          endAt: slot.endAt,
-          performerId: slot.performer?.slug,
-          label: slot.displayLabel,
-          stream: slot.stream,
-        })),
+        slots: inferLineupEnds(event.slots.slice().sort((a, b) => a.position - b.position).map((slot) => {
+          const rowIndex = event.lineup?.findIndex(row => row.key === slot.playbackKey) ?? -1;
+          const followingBlocked = rowIndex >= 0 && rowIndex < (event.lineup?.length ?? 0) - 1 && event.lineup?.[rowIndex + 1].startAt === undefined;
+          return {
+            key: slot.playbackKey ?? "",
+            startAt: slot.startAt,
+            endAt: slot.endAt,
+            performerId: slot.performer?.slug,
+            label: slot.displayLabel,
+            stream: slot.stream,
+            followingBlocked,
+          };
+        }), event.endAt),
       },
     };
+  if (!event.watchSurfaceEnabled) return null;
   const rank = ["watch", "stream", "vrcdn"];
   const link = event.mediaLinks
     .filter((link) => rank.includes(link.type))

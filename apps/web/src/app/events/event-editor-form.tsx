@@ -1108,7 +1108,7 @@ function ConnectedEventEditorForm({
                 {!timeTba ? <EventSlotDuration value={duration} onCommit={minutes => applyTimingEdit(changeLineupDuration(timings, slot.id, minutes))} /> : null}
               </div>
               <SlotBroadcastInput personSlug={slot.personSlug} value={slot.broadcastInput} choices={slot.broadcastInputChoices} onChange={value=>updateSlotRows(rows=>rows.map(row=>row.id===slot.id?{...row,broadcastInput:value}:row))}/>
-              {watchSurfaceEnabled && watchMode === "performer_sequence" && (slot.personSlug.trim() || slot.selectedStreamId) ? <SlotStreamSelect
+              {(watchMode === "performer_sequence" || !watchSurfaceEnabled) && (slot.personSlug.trim() || slot.selectedStreamId) ? <SlotStreamSelect
                 row={slot}
                 invalid={status.kind === "error" && Boolean(slot.selectedStreamId) && status.streamSelections?.[slot.id] === slot.selectedStreamId}
                 onChange={value => updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, selectedStreamId: value || undefined } : row))}

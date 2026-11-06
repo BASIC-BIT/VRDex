@@ -158,3 +158,19 @@ test("profile EOF requires explicit fresh playback while event EOF remains pause
     assert.equal(owner.getSnapshot().unavailableReason,undefined);
   } finally {owner.close();fixture.restore();}
 });
+
+
+test("automatic community playback never opens a relay even when one is available", async () => {
+  const { createRetainedPlaybackAdapter } = await import("../../apps/web/src/lib/event-playback-adapters");
+  const previous = globalThis.document;
+  Object.defineProperty(globalThis, "document", { configurable: true, value: { addEventListener() {}, removeEventListener() {} } });
+  let calls = 0;
+  const unexpected = async () => { calls++; throw Error("Unexpected relay request"); };
+  const relay = { open: unexpected, get: unexpected, refresh: unexpected, restart: unexpected, release: unexpected };
+  const local: PlaybackRequest = { kind: "performer_sequence", localOnly: true, eventId: "community", eventSlug: "community", title: "Community", href: "/community", event: { title: "Community", startAt: 0, slots: [] } };
+  try {
+    const adapter = createRetainedPlaybackAdapter(local, {} as HTMLElement, () => {}, { mode: "audio", relay });
+    adapter.dispose();
+    assert.equal(calls, 0);
+  } finally { Object.defineProperty(globalThis, "document", { configurable: true, value: previous }); }
+});

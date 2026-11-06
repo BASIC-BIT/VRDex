@@ -1,3 +1,4 @@
+import { inferLineupEnds } from "@vrdex/api-contracts";
 import type { PlaybackMode, DjMetadata } from "@vrdex/media-relay";
 import type { AudioObservationSample } from "./event-audio-observation";
 import { createObservedVrcdnSource, type ObservedVrcdnSource } from "./vrcdn-observed-source";
@@ -30,6 +31,8 @@ type Connection = { slot: LineupSlot; source: LineupObservedSource; evidence: Re
 // Cold MSE/audio initialization can exceed the established-source failure window.
 // Bound initialization separately; readiness and handoff still require decoded progress.
 const STARTUP_ALLOWANCE_MS = 5000;
+const SILENCE_HANDOFF_MS = 15_000;
+const SILENCE_WINDOW_MS = 5 * 60_000;
 const failedConnection = (connection: Connection, at: number) =>
   connection.evidence.failureSince !== undefined && at - connection.evidence.failureSince >= 1000 &&
   (connection.progressed || at >= connection.startupDeadline);
@@ -66,6 +69,7 @@ export class EventLineupSession {
   private timer: ReturnType<typeof setInterval>;
   constructor(private event: LineupEvent, private mount: HTMLElement, private notify: (state: LineupSnapshot) => void,
     private createSource = createObservedVrcdnSource, private native?: NativeLineupOptions) {
+    this.event = { ...event, slots: inferLineupEnds(event.slots, event.endAt) };
     this.timer = setInterval(() => this.tick(), 100);
     document.addEventListener("visibilitychange", this.resetEvidence);
   }
@@ -105,11 +109,11 @@ export class EventLineupSession {
     return joinSlot(this.event.slots, Date.now()) as LineupSlot | undefined;
   }
   update(event: LineupEvent) {
-    this.event = event;
+    this.event = { ...event, slots: inferLineupEnds(event.slots, event.endAt) };
     // Every projection invalidates any prepared connection and its asynchronous callbacks.
     this.releaseNext();
     if (this.selected) {
-      const match = reconcileSlot(this.selected, event.slots);
+      const match = reconcileSlot(this.selected, this.event.slots);
       if (!match) {
         this.playRequest++;
         this.releaseCurrent(); this.releaseContinuation(); this.selected = undefined;
@@ -227,7 +231,19 @@ export class EventLineupSession {
   async refresh() { this.installPendingIdentity(); await this.current?.source.refresh?.(); }
   async setMode(mode: PlaybackMode) {
     this.mode = mode; this.playRequest++; this.releaseNext(); this.resetEvidence();
+    if (this.current) this.current.source.media.hidden = mode === "audio";
     return await this.current?.source.setMode?.(mode) ?? true;
+  }
+  private canHandoff(active: Connection, next: Connection, scheduleNow = Date.now(), observationNow = performance.now()) {
+    const endAt = active.slot.endAt ?? next.slot.startAt;
+    return shouldHandoff({ scheduleNow, observationNow,
+      eligibleAt: handoffBoundaryAt(active.slot, next.slot), following: this.state.following,
+      paused: this.state.paused, nextReady: next.source.ready(), evidence: active.evidence,
+      ...(!this.native ? { silenceDurationMs: SILENCE_HANDOFF_MS, silenceWindow: {
+        startAt: Math.max(active.slot.startAt, endAt - SILENCE_WINDOW_MS, next.slot.startAt - SILENCE_WINDOW_MS),
+        endAt: endAt + SILENCE_WINDOW_MS,
+      } } : {}),
+    });
   }
   private installPendingIdentity() {
     const pending = this.pendingIdentity;
@@ -264,7 +280,7 @@ export class EventLineupSession {
     const generation = this.nextGeneration, request = this.playRequest, attempt = ++this.nextPlayAttempt;
     const active = this.current;
     this.nextPlayPending = true;
-    if (gesture && (!active || !shouldHandoff({ scheduleNow: Date.now(), observationNow: performance.now(), eligibleAt: handoffBoundaryAt(active.slot, connection.slot), following: true, paused: false, nextReady: true, evidence: active.evidence }))) {
+    if (gesture && (!active || !this.canHandoff(active, connection))) {
       connection.source.setMuted(true);
       const accepted = await connection.source.play().catch(() => false);
       if (!this.disposed && attempt === this.nextPlayAttempt && generation === this.nextGeneration && request === this.playRequest && connection === this.next) {
@@ -289,7 +305,7 @@ export class EventLineupSession {
       this.state.nextPlaybackBlocked = true; this.emit(); return;
     }
     const stillCandidate = this.selected && nextSlot(this.selected, this.event.slots, Date.now());
-    if (!active || stillCandidate?.key !== connection.slot.key || !shouldHandoff({ scheduleNow: Date.now(), observationNow: performance.now(), eligibleAt: handoffBoundaryAt(active.slot, connection.slot), following: this.state.following, paused: this.state.paused, nextReady: connection.source.ready(), evidence: active.evidence })) {
+    if (!active || stillCandidate?.key !== connection.slot.key || !this.canHandoff(active, connection)) {
       connection.source.setMuted(true); active?.source.setMuted(this.state.muted);
       this.state.nextPlaybackBlocked = false; this.emit(); return;
     }
@@ -323,7 +339,7 @@ export class EventLineupSession {
       if (!acceptedSlot || (!prepared && acceptedSlot.key !== this.selected?.key)) { source.release(); return; }
       const connection = { slot: acceptedSlot, source, evidence: clearPlaybackEvidence(performance.now()), startupDeadline: performance.now() + STARTUP_ALLOWANCE_MS, progressed: false };
       if (prepared) { this.next = connection; source.media.hidden = true; source.setMuted(true); }
-      else { this.current = connection; source.setMuted(this.native ? this.state.muted : false); this.native?.onCurrent(source, acceptedSlot); }
+      else { this.current = connection; source.media.hidden = this.mode === "audio"; source.setMuted(this.native ? this.state.muted : false); this.native?.onCurrent(source, acceptedSlot); }
       source.setVolume(this.state.volume);
       if (!this.native) this.mount.append(source.media);
       void source.play().catch(() => false).then(accepted => {
@@ -367,7 +383,7 @@ export class EventLineupSession {
     }
     const active = this.current;
     const candidate = this.selected && this.state.following ? nextSlot(this.selected, this.event.slots, scheduleNow) : undefined;
-    const eligibleAt = this.selected && candidate ? handoffEligibleAt(this.selected, candidate) : Infinity;
+    const eligibleAt = this.selected && candidate ? this.native ? handoffEligibleAt(this.selected, candidate) : Math.max(this.selected.startAt, handoffBoundaryAt(this.selected, candidate) - SILENCE_WINDOW_MS) : Infinity;
     const eligible = visible && (!this.native || !!this.current) && scheduleNow >= eligibleAt && !!candidate?.stream && (!this.selected || !sameLineupSource(candidate, this.selected));
     if (!eligible && (this.next || this.nextPending)) this.releaseNext();
     for (const connection of [active, this.next]) {
@@ -379,17 +395,13 @@ export class EventLineupSession {
       this.state.connected = active.evidence.progressing;
       if (active.evidence.progressing) this.state.unavailable = false;
       else if (failedConnection(active, at)) this.state.unavailable = true;
-      // Silence handoff stays disabled until representative musical calibration.
-      if (this.next && (active.progressed || at >= active.startupDeadline) && !this.state.nextPlaybackBlocked && !this.nextPlayPending && shouldHandoff({ scheduleNow, observationNow: at,
-        eligibleAt: handoffBoundaryAt(active.slot, this.next.slot),
-        following: this.state.following, paused: this.state.paused, nextReady: this.next.source.ready(),
-        evidence: active.evidence })) {
+      if (this.next && (active.progressed || at >= active.startupDeadline) && !this.state.nextPlaybackBlocked && !this.nextPlayPending && this.canHandoff(active, this.next, scheduleNow, at)) {
         if (this.native) { void this.promoteNative(this.next); this.emit(); return; }
         active.source.setMuted(true); this.releaseCurrent();
         this.current = this.next; this.next = undefined; this.nextGeneration++;
         this.nextAttempt = 0; this.nextRetryAt = 0; this.nextPending = false;
         this.selected = this.current.slot; this.state.current = this.selected.key;
-        this.current.source.media.hidden = false; this.current.source.setMuted(false);
+        this.current.source.media.hidden = this.mode === "audio"; this.current.source.setMuted(false);
         this.resetEvidence(); this.emit(); return;
       }
     }
