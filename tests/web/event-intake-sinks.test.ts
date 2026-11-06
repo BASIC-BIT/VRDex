@@ -37,3 +37,28 @@ it("langfuse sink sends one ingestion batch with a trace and a generation per tu
     await offline.end(result);
   } finally { globalThis.fetch = original; }
 });
+
+it("langfuse records mandatory lineup lookups with query, public results and outcome", async () => {
+  const original = globalThis.fetch;
+  let payload = "";
+  globalThis.fetch = async (_url, init) => { payload = String(init?.body); return new Response(JSON.stringify({ successes: [], errors: [] }), { status: 207 }); };
+  try {
+    const run = createLangfuseSink({ publicKey: "pk-lf-test", secretKey: "sk-lf-test", baseUrl: "https://langfuse.test" }).start(meta);
+    run.lookup?.({ query: "nyak", phase: "prefix", results: [{ slug: "nyakuma", displayName: "Akuma" }], outcome: "ok", startedAt: 1000, endedAt: 1010 });
+    await run.end(result);
+    const batch = JSON.parse(payload).batch;
+    const lookup = batch.find((entry: { type: string }) => entry.type === "span-create");
+    assert.equal(lookup?.body.name, "lineup.search_people");
+    assert.deepEqual(lookup.body.input, { query: "nyak", phase: "prefix" });
+    assert.deepEqual(lookup.body.output, { results: [{ slug: "nyakuma", displayName: "Akuma" }], outcome: "ok" });
+    assert.equal(lookup.body.traceId, batch[0].body.id);
+  } finally { globalThis.fetch = original; }
+});
+
+it("composes lookup observers without letting a failing observer block another", async () => {
+  const seen: string[] = [];
+  const good = { start: () => ({ generation() {}, lookup: (lookup: { query: string }) => { seen.push(lookup.query); }, async end() {} }) };
+  const bad = { start: () => ({ generation() {}, lookup: () => { throw new Error("offline"); }, async end() {} }) };
+  composeSinks(bad, good).start(meta).lookup?.({ query: "G-Catz", phase: "exact", results: [], outcome: "ok", startedAt: 1, endedAt: 2 });
+  assert.deepEqual(seen, ["G-Catz"]);
+});
