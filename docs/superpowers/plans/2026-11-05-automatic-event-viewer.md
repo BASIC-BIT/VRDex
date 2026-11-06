@@ -51,3 +51,19 @@ encoder pipe, renderer anchoring and fake-AWS dispatch failures. This is not a
 green backend result. The opt-in FFmpeg loopback proof was updated but not run.
 Real DJ silence usefulness and deployed behavior remain unverified. Merge and
 deployment are outside this source-only completion.
+
+## Review follow-up, November 6
+
+A review regression distinguished joining from following: an unknown earlier end
+must not prevent a new viewer from joining a later timed set. Selection now uses
+the next timed start as a bound while preserving the unknown displayed end and
+untimed automatic-progression barrier. The regression was verified red/green;
+63 focused playback tests passed.
+
+Hosted backend, native/restream and ordinary source checks passed on the first
+head, resolving the local-platform uncertainty for that head. Browser CI still
+needs work: the live-lineup synthetic tests assume the former two-minute
+preparation window, and eight editor/lineup visual baselines changed with the
+watch control. The intake match-navigation test also failed; its cause is not
+established. These checks remain open. No merge or deployment is authorized by
+this follow-up.

@@ -70,7 +70,8 @@ export function joinSlot(
       return undefined;
     }
 
-    const effectiveEnd = slot.endAt;
+    // A join selects the scheduled performer; following still stops at untimed rows.
+    const effectiveEnd = slot.endAt ?? next?.startAt;
     const active =
       scheduleNow >= slot.startAt &&
       (effectiveEnd === undefined || scheduleNow < effectiveEnd);

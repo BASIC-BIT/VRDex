@@ -189,8 +189,9 @@ describe("handoff policy", () => {
 });
 
 
-  it("does not infer across a canonical untimed barrier", () => {
+  it("joins later scheduled performers while preserving an untimed progression barrier", () => {
     const slots = [{ key: "a", startAt: 1, followingBlocked: true }, { key: "b", startAt: 10, endAt: 20 }];
     assert.equal(joinSlot(slots, 9)?.endAt, undefined);
-    assert.equal(joinSlot(slots, 10), undefined);
+    assert.equal(joinSlot(slots, 10)?.key, "b");
+    assert.equal(joinSlot(slots, 15)?.key, "b");
   });
