@@ -3,6 +3,7 @@ import { parseMarkerMetadata } from "./event-marker-metadata.mjs";
 import { createInterface } from "node:readline";
 import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 import { decodeSourceAudio, SOURCE_FREQUENCIES, MARKER_SCHEMA } from "./event-source-markers.mjs";
 import { decodeMarkerVisuals } from "./event-marker-record.mjs";
 import { buildMarkerContexts } from "./event-marker-contexts.mjs";
@@ -272,6 +273,24 @@ export function observeSelectionMarkers(
     return result;
   };
   return input;
+}
+
+/** End the startup proof after its four-second selection watermark has completed.
+ * A rendered slate closes any lit visual and audio pulse before recording EOF. */
+export async function closeStartupMarkerRecording(renderer) {
+  const holdTick = renderer.getState().ticks;
+  const slateMs = ((holdTick + 1) * 1000) / renderer.profile.frameRate;
+  const deadline = performance.now() + 5000;
+  renderer.hold();
+  for (;;) {
+    const state = renderer.getState();
+    if (state.error) throw state.error;
+    if (state.ticks > holdTick && state.outputMs >= slateMs &&
+        state.renderedSourceId === undefined) break;
+    if (performance.now() >= deadline) throw Error("Startup marker slate was not rendered before deadline");
+    await sleep(20);
+  }
+  await renderer.stop();
 }
 
 /** @typedef {{width:number, height:number, maxSeconds:number, finalProbe?:typeof probe}} DecodeOptions

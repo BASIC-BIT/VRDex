@@ -1078,7 +1078,7 @@ test("real 60 to 30 startup proof binds complete pulses, PCM and submitted water
     await import("../../workers/restream/input-supervisor.mjs");
   const { createProgramRenderer } =
     await import("../../workers/restream/program-renderer.mjs");
-  const { observeSelectionMarkers, measureMediaMarkers } =
+  const { observeSelectionMarkers, measureMediaMarkers, closeStartupMarkerRecording } =
     await import("../../scripts/event-capacity-media.mjs");
   const directory = await mkdtemp("/tmp/event-startup-marker-"),
     owner = createProcessOwner(),
@@ -1166,7 +1166,8 @@ test("real 60 to 30 startup proof binds complete pulses, PCM and submitted water
   await sleep(6000);
   t.diagnostic(JSON.stringify({ takes, missingSamples, holes }));
   assert.equal(renderer.getState().error, undefined);
-  await renderer.stop();
+  // The four-second selection proof is already complete after six selected seconds.
+  await closeStartupMarkerRecording(renderer);
   assert.equal(overflow, false);
   assert(takes >= 170);
   await writeFile(output, Buffer.concat(chunks));
@@ -1175,7 +1176,8 @@ test("real 60 to 30 startup proof binds complete pulses, PCM and submitted water
     height: 480,
     windows: [],
     selections,
-    maxSeconds: 12,
+    // Byte cap covers the existing 8s setup plus the bounded 5s slate acknowledgement.
+    maxSeconds: 16,
   });
   assert.equal(facts.transitionMarkers.length, 1);
   assert(facts.markerCount >= 3);
