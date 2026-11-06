@@ -10,7 +10,7 @@ const BYTE_CAP = 128 * 1024;
 const ID = /^[a-f0-9]{64}$/;
 const LABEL = 'io.vrdex.native-ci';
 
-import { validateReceipt } from '../../scripts/event-marker-native132-receipt.mjs';
+import { validateReceipt, nativeFailureType } from '../../scripts/event-marker-native132-receipt.mjs';
 export { validateReceipt } from '../../scripts/event-marker-native132-receipt.mjs';
 
 // Failed receipts are diagnostic claims only. Copy reviewed values, never raw
@@ -41,7 +41,10 @@ function projectNegativeReceipt(result, names) {
         if (!row || !allowed.has(row.test) || seen.has(row.test) ||
             !['passed', 'failed', 'error', 'skipped', 'expected_failure', 'unexpected_success', 'todo'].includes(row.outcome)) return unavailable;
         seen.add(row.test);
-        if (row.outcome !== 'passed') failed.push({ suite, name: row.test, outcome: row.outcome });
+        if (row.outcome !== 'passed') {
+          const type = nativeFailureType(row.type);
+          failed.push({ suite, name: row.test, outcome: row.outcome, ...(type === undefined ? {} : { type }) });
+        }
       }
     }
     const diagnostic = { receipt: 'complete', failurePhase: receipt.failurePhase,
