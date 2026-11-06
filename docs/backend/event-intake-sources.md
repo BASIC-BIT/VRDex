@@ -170,6 +170,26 @@ with run context. Candidate slugs must appear in the corresponding actual lookup
 results, and an `update` slug only from `list_events`; any other update falls
 back to `new` with a question. Evidence records its text, poster, lookup,
 calculation or connector origin.
+After model extraction, a required read-only lineup pass looks up unresolved
+performer labels even if the model called no identity tools. It preserves links
+already grounded by the model's public search results. It processes at most eight
+unique normalized labels, with up to five public results per query and a
+three-second timeout per query. Repeated labels reuse the result. Additional
+labels and failed lookups retain their source text and receive review questions.
+
+A unique exact normalized display-name or slug match becomes a tentative link.
+Other names remain unlinked. For names of at least six normalized characters, a
+second query retrieves their first four characters and offers only candidates
+within one insertion, deletion or substitution of the full display name or slug.
+These typo candidates are saved as question alternatives for review, preserving
+the original label. This bounded retrieval does not correct arbitrary misspellings,
+including typos in those first four characters. Multiple exact or nearby candidates
+remain explicit alternatives; a missing name never becomes an invented identity.
+Mandatory lookups have separate `lineup.search_people` Langfuse spans containing
+the query, retrieval phase, public results and availability outcome. They do not
+consume or expand the five model-tool-call budget. Lookup and tracing failures
+cannot discard otherwise valid extracted event details.
+
 Tentative values, up to 40 private evidence entries, and unresolved questions
 survive draft resume without changing accepted fields. Editing source text or
 the poster clears those discovery results while retaining accepted fields.
