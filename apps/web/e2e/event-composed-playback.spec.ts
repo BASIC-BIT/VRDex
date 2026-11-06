@@ -24,6 +24,8 @@ for (const mode of ['sequence', 'event-stream']) test(`composed public page reta
     const video = page.locator('video:not([hidden])');
     await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).currentTime), { timeout: 20000 }).toBeGreaterThan(1);
     await expect(page.locator('video')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Audio only', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Video', exact: true })).toBeEnabled();
     expect(opened).toBe(1);
     const original = await video.elementHandle();
     const before = await video.evaluate(node => (node as HTMLVideoElement).currentTime);
@@ -36,6 +38,32 @@ for (const mode of ['sequence', 'event-stream']) test(`composed public page reta
     expect(await original!.evaluate(node => node.isConnected)).toBe(false);
     expect(opened).toBe(1);
   } finally { await page.goto('about:blank'); }
+});
+
+test('live MPEG-TS releases old buffers while current playback advances @fixture', async ({ page, baseURL }, info) => {
+  test.skip(process.env.EVENT_PLAYBACK_PROOF !== 'true', 'Opt-in real loopback MPEG-TS transport');
+  test.setTimeout(90000);
+  const { startProofServer } = await (new Function('url', 'return import(url)'))(pathToFileURL(path.resolve('../../scripts/event-playback-proof.mjs')).href);
+  const transport = await startProofServer();
+  try {
+    await page.goto(`${baseURL}/playwright/event-lineup-live?composed&transport=${encodeURIComponent(transport.url)}`);
+    const startedAt = performance.now();
+    await page.getByRole('button', { name: 'Play Lineup live', exact: true }).click();
+    const video = page.locator('video:not([hidden])');
+    await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).currentTime), { timeout: 20000 }).toBeGreaterThan(0);
+    const startupMs = performance.now() - startedAt;
+    await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).currentTime), { timeout: 55000 }).toBeGreaterThan(38);
+    const media = await video.evaluate(node => {
+      const video = node as HTMLVideoElement;
+      return { currentTime: video.currentTime, bufferedStart: video.buffered.start(0), bufferedEnd: video.buffered.end(video.buffered.length - 1), paused: video.paused };
+    });
+    expect(media.paused).toBe(false);
+    expect(media.bufferedStart).toBeGreaterThan(10);
+    expect(media.currentTime - media.bufferedStart).toBeLessThanOrEqual(31);
+    await info.attach('live-buffer.json', { body: JSON.stringify({ startupMs, ...media }), contentType: 'application/json' });
+    await page.getByRole('button', { name: 'Close event playback', exact: true }).click();
+    await expect.poll(async () => (await (await fetch(`${transport.url}/stats`)).json()).active).toBe(0);
+  } finally { await page.goto('about:blank'); await transport.close(); }
 });
 
 

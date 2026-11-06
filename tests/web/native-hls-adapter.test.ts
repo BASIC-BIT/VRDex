@@ -89,6 +89,7 @@ test("native mode switch pauses old source, retains nodes and grant, and paused 
       mount: f.mount,
       notify() {},
     });
+    assert.equal(adapter.supportsAudioOnly, true);
     assert.equal(f.nodes.filter((n) => n.src).length, 0);
     await adapter.play();
     assert.equal(f.nodes[0].src, grant.videoPlaylist);

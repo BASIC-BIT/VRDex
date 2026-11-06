@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { attachVrcdnTransport, releaseVrcdnTransport, type VrcdnTransport } from "../../apps/web/src/lib/vrcdn-transport";
+
+test("live transport bounds retained media without a startup stash", () => {
+ let config: Parameters<Parameters<typeof attachVrcdnTransport>[0]["createPlayer"]>[1];
+ const library = { createPlayer(_source: unknown, options: typeof config) {
+  config = options;
+  return { on() {}, attachMediaElement() {}, load() {} };
+ }, Events: { ERROR: "error", LOADING_COMPLETE: "complete" } } as unknown as Parameters<typeof attachVrcdnTransport>[0];
+ attachVrcdnTransport(library, {} as HTMLVideoElement, "url", { onError() {} });
+ assert.equal(config?.enableStashBuffer, false);
+ assert.equal(config?.autoCleanupSourceBuffer, true);
+ assert.equal(config?.autoCleanupMaxBackwardDuration, 30);
+ assert.equal(config?.autoCleanupMinBackwardDuration, 15);
+});
 test("transport cleanup attempts every release step when an earlier step throws",()=>{
  const calls:string[]=[];
  const player=Object.fromEntries(["pause","unload","detachMediaElement","destroy"].map(method=>[method,()=>{calls.push(method);if(method==="pause")throw new Error("already detached");}])) as unknown as VrcdnTransport;

@@ -105,7 +105,7 @@ export function EventCompactPlayer({ owner, state, mount }: { owner: EventPlayba
         {state.metadata?.displayName && <span className="text-sm font-medium">{state.metadata.displayName}</span>}
       </div>}
       {request && <>
-        {!fallback && <div className={`relative ${request.kind === "twitch" ? "h-[52px]" : "h-[100px]"} shrink-0`}><VrcdnPlayerControls mode={request.kind !== "twitch" ? state.mode : undefined} onModeChange={value => void owner.setMode(value)} pipSupported={pip.supported} pipActive={pip.active}
+        {!fallback && <div className={`relative ${request.kind === "twitch" ? "h-[52px]" : "h-[100px]"} shrink-0`}><VrcdnPlayerControls mode={request.kind !== "twitch" ? state.mode : undefined} audioAvailable={owner.supportsAudioOnly} onModeChange={value => void owner.setMode(value)} pipSupported={pip.supported} pipActive={pip.active}
           onTogglePip={() => { const media = owner.media; if (media instanceof HTMLVideoElement && state.mode === "video") void togglePictureInPicture(media).catch(() => {}); }}
           label={request.title} connected={state.status === "playing" && (request.kind !== "performer_sequence" || Boolean(state.lineup?.connected))} paused={state.status !== "playing" && state.status !== "loading"} fullscreen={fullscreen} volume={state.volume} muted={state.muted} volumeSettable={volumeSettable}
           onTogglePlay={() => state.status === "playing" || state.status === "loading" ? owner.pause() : void owner.play(request)}

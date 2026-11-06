@@ -158,6 +158,7 @@ export function createRelayPlaybackAdapter({
     return false;
   }
   return {
+    supportsAudioOnly: true,
     get media() { return native?.media; },
     play,
     async retry() {

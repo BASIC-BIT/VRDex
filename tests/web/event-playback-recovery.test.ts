@@ -22,7 +22,7 @@ function dom() {
 test("native browser pause, EOF, error and recovery update state; disposal removes listeners", async () => {
   const fixture = dom(); const owner = new EventPlaybackOwner((value, notify) => createEventPlaybackAdapter(value, fixture.mount, notify));
   try {
-    await owner.play(request); const video = fixture.nodes[0]; video.pause(); assert.equal(owner.getSnapshot().status, "paused");
+    await owner.play(request); assert.equal(owner.supportsAudioOnly, false); const video = fixture.nodes[0]; video.pause(); assert.equal(owner.getSnapshot().status, "paused");
     let stoppedOther = false; foregroundPlayback.acquire({}, () => { stoppedOther = true; });
     await video.play(); assert.equal(owner.getSnapshot().status, "playing"); assert.equal(stoppedOther, true);
     video.dispatchEvent(new Event("ended")); assert.equal(owner.getSnapshot().status, "paused");

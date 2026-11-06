@@ -131,6 +131,7 @@ export function createNativeLineupAdapter({ request, mount, notify, mode: initia
   });
   void session.setMode(initialMode);
   return {
+    supportsAudioOnly: true,
     get media() { return session.media; },
     async play() { await session.play(); return !session.state.paused; },
     async retry() { await session.play(); return !session.state.paused; },

@@ -5,6 +5,7 @@ import { Maximize, Minimize, Pause, Play, Volume2, VolumeX, PictureInPicture2 } 
 export type VrcdnPlayerControlsProps = {
   fullscreen: boolean;
   mode?: "video" | "audio";
+  audioAvailable?: boolean;
   onModeChange?: (mode: "video" | "audio") => void;
   pipSupported?: boolean;
   pipActive?: boolean;
@@ -54,7 +55,7 @@ const controlButton =
  */
 export function VrcdnPlayerControls({
   connected,
-  mode, onModeChange, pipSupported = false, pipActive = false, onTogglePip,
+  mode, audioAvailable = true, onModeChange, pipSupported = false, pipActive = false, onTogglePip,
   fullscreen,
   label,
   muted,
@@ -114,7 +115,7 @@ export function VrcdnPlayerControls({
       </div>
       {mode && onModeChange && <div className="flex min-h-11 items-center gap-1 border-t border-white/10">
         <div role="group" aria-label="Playback mode" className="flex flex-1 gap-1">
-          {(["video", "audio"] as const).map(value => <button key={value} type="button" aria-pressed={mode === value} className={`min-h-11 shrink-0 cursor-pointer whitespace-nowrap rounded-control px-3 text-sm ${mode === value ? "bg-white/15 text-white" : "text-white/65 hover:text-white"}`} onClick={() => onModeChange(value)}>{value === "video" ? "Video" : "Audio only"}</button>)}
+          {(["video", "audio"] as const).map(value => <button key={value} type="button" aria-pressed={mode === value} disabled={value === "audio" && !audioAvailable} title={value === "audio" && !audioAvailable ? "Unavailable" : undefined} className={`min-h-11 shrink-0 cursor-pointer whitespace-nowrap rounded-control px-3 text-sm disabled:cursor-default disabled:opacity-35 ${mode === value ? "bg-white/15 text-white" : "text-white/65 hover:text-white"}`} onClick={() => onModeChange(value)}>{value === "video" ? "Video" : "Audio only"}</button>)}
         </div>
         {pipSupported && <button type="button" aria-label={pipActive ? "Exit picture in picture" : "Picture in picture"} aria-pressed={pipActive} disabled={mode === "audio"} className={`${controlButton} disabled:cursor-default disabled:opacity-35`} onClick={onTogglePip}><PictureInPicture2 aria-hidden="true" className="size-5" /></button>}
       </div>}

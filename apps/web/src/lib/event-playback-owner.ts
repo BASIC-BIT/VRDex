@@ -71,6 +71,7 @@ export type PlaybackSnapshot = {
   metadata?: DjMetadata;
 };
 export type PlaybackAdapter = {
+  readonly supportsAudioOnly?: boolean;
   play(): Promise<boolean>;
   pause(): void;
   setVolume(value: number): void;
@@ -121,6 +122,7 @@ export function playbackSourceKey(request: PlaybackRequest): string {
 
 /** Owns one foreground transport. Route components supply intent, never media nodes. */
 export class EventPlaybackOwner {
+  get supportsAudioOnly() { return this.adapter?.supportsAudioOnly === true; }
   private state: PlaybackSnapshot = {
     status: "idle",
     mode: readPlaybackMode(playbackModeStorage()),
