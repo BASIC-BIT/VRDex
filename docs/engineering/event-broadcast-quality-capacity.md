@@ -75,6 +75,16 @@ the historical host pacing failure, resolve other host failures, or grant
 production capacity acceptance. Actual CI duration and native success still
 need fresh execution evidence.
 
+The 60-to-30 startup marker proof retains six seconds of selected PCM and its
+original four-second submitted selection watermark. It then holds and waits up
+to five seconds for output progress to acknowledge a rendered slate before
+stopping. The slate closes any lit marker at EOF without changing selection
+observations or A/V thresholds. Its 16-second decode byte cap covers the existing
+eight-second recording setup and bounded slate wait. The offline regression in
+`tests/scripts/event-startup-marker-stop.test.mjs` exercises lit EOF rejection,
+slate closure, unchanged watermarks, renderer errors and the deadline. Native
+media acceptance still comes from the required owner suite.
+
 ## Synthetic unit fixtures
 
 Backend and dispatcher unit tests bind explicit nonproduction resolvers through
