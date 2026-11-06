@@ -61,6 +61,15 @@ absence. Uncertain creation, deadline or cleanup outcomes fail. The summary
 records source revision, fresh image ID, runtime versions, counts, actual native
 exit, receipt verdict and cleanup; raw media artifacts are not uploaded.
 
+Failed receipts can also retain a diagnostic `type`. The owner summary reads
+the Node test failure's cause and retains only the reviewed constants
+`marker_visual_unmatched_eof`, `ERR_ASSERTION`, and `AssertionError`. The gate
+applies the same exact allowlist before projecting a failed outcome into
+`negativeDiagnostic`. Missing, unknown, oversized, and free-form values are
+omitted. Messages, stacks, and paths are never projected. These types are
+diagnostic claims only; native exit, byte limits, cleanup, and the strict
+positive receipt verifier still decide acceptance.
+
 The full host `pnpm verify:vrdex-mcp` → `pnpm test:scripts` chain and all other
 script coverage remain required. The timing file leaves the host glob through
 its directory move. Other native owner cases intentionally overlap host/backend

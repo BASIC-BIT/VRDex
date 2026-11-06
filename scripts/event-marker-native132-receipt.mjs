@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
 const BYTE_CAP=128*1024;
+// Only reviewed constants may leave a failed test as diagnostic types.
+export function nativeFailureType(value) {
+  return ['marker_visual_unmatched_eof', 'ERR_ASSERTION', 'AssertionError'].includes(value) ? value : undefined;
+}
 export function validateReceipt(raw, names) {
   assert.ok(Buffer.byteLength(raw) <= BYTE_CAP, 'receipt byte limit');
   const receipt = JSON.parse(raw); // Exactly one complete JSON document.

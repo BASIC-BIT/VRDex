@@ -322,3 +322,80 @@ test('negative projection rejects its own byte overflow without returning a part
   assert.deepEqual(result.negativeDiagnostic, { receipt: 'unavailable' });
   assert.equal(result.counts, null); assert.equal(result.cleanup, true); assert.equal(result.passed, false);
 });
+
+test('negative projection copies only reviewed error codes and never changes acceptance', async () => {
+  for (const [type, expected] of [
+    ['marker_visual_unmatched_eof', 'marker_visual_unmatched_eof'],
+    ['ERR_ASSERTION', 'ERR_ASSERTION'], ['AssertionError', 'AssertionError'],
+    [undefined, undefined], ['unknown_code', undefined], ['secret_path_stack', undefined],
+    ['x'.repeat(81), undefined], [null, undefined], [{ message: 'secret' }, undefined],
+  ]) {
+    const value = failedReceipt();
+    value.tests.owner.outcomes[0].type = type;
+    const fake = dockerFixture((args, result) => args[0] === 'start'
+      ? { ...result, code: 1, stdout: JSON.stringify(value) } : result);
+    const result = await runGate({ execute: fake.execute, names });
+    assert.deepEqual(result.negativeDiagnostic.failed, [{ suite: 'owner', name: names.node[0], outcome: 'failed',
+      ...(expected === undefined ? {} : { type: expected }) }]);
+    assert.equal(result.passed, false); assert.equal(result.nativeExit, 1);
+    assert.equal(result.counts, null); assert.equal(result.cleanup, true);
+  }
+});
+
+test('synthetic owner marker error survives the real receipt writer and gate without raw diagnostics', async () => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { spawnSync } = await import('node:child_process');
+  const { runTransportWorkload } = await import('../../scripts/event-twitch-input-proof.mjs');
+  const directory = await mkdtemp(join(tmpdir(), 'native-error-code-'));
+  try {
+    const fixture = join(directory, 'synthetic.mjs'), driver = join(directory, 'driver.mjs'), outputDir = join(directory, 'receipt');
+    await writeFile(fixture, `import test from 'node:test';\ntest(${JSON.stringify(names.node[0])}, () => { throw Error('marker_visual_unmatched_eof'); });\n`);
+    await writeFile(driver, `import { run } from 'node:test';\nimport { summarizeOwnerProof } from ${JSON.stringify(new URL('../../workers/restream/tests/owner_proof.mjs', import.meta.url).href)};\nconsole.log(JSON.stringify(await summarizeOwnerProof(run({ files: [${JSON.stringify(fixture)}], execArgv: [] }))));\n`);
+    const { NODE_TEST_CONTEXT, ...env } = process.env;
+    const child = spawnSync(process.execPath, [driver], { env, timeout: 10000, maxBuffer: 131072, encoding: 'utf8' });
+    assert.equal(child.status, 0); assert.equal(child.stderr, '');
+    const owner = JSON.parse(child.stdout);
+    assert.deepEqual(owner.outcomes, [{ test: names.node[0], outcome: 'failed', type: 'marker_visual_unmatched_eof' }]);
+    let calls = 0;
+    await assert.rejects(runTransportWorkload({ case: 'all', outputDir }, {
+      prelude: async () => {},
+      ownerFactory: () => ({
+        run: async () => Buffer.from(JSON.stringify(++calls === 1
+          ? { testsRun: 42, passed: true, outcomes: receipt().tests.outcomes } : owner)),
+        close: async () => ({ closed: true, liveChildren: 0, liveGroups: 0 }),
+      }),
+    }), /Transport contract failed/);
+    const raw = await readFile(join(outputDir, 'receipt.json'), 'utf8');
+    const fake = dockerFixture((args, result) => args[0] === 'start' ? { ...result, code: 1, stdout: raw } : result);
+    const result = await runGate({ execute: fake.execute, names });
+    assert.deepEqual(result.negativeDiagnostic.failed, [{ suite: 'owner', name: names.node[0], outcome: 'failed', type: 'marker_visual_unmatched_eof' }]);
+    assert.equal(result.passed, false); assert.equal(result.cleanup, true);
+    assert.equal(result.nativeExit, 1); assert.equal(result.counts, null);
+    assert.doesNotMatch(raw + JSON.stringify(result), /synthetic\.mjs|node:internal|stack|file:\/\//);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('owner summary omits unreviewed messages, successful types and skipped failure details', async () => {
+  const { summarizeOwnerProof } = await import('../../workers/restream/tests/owner_proof.mjs');
+  for (const [eventType, extra, cause, expected] of [
+    ['test:fail', {}, { code: 'ERR_ASSERTION', message: 'private raw message' }, 'ERR_ASSERTION'],
+    ['test:fail', {}, { message: 'unknown_code' }, undefined],
+    ['test:fail', {}, { message: 'marker_visual_unmatched_eof private raw message' }, undefined],
+    ['test:fail', {}, { message: 'x'.repeat(1000) }, undefined],
+    ['test:fail', {}, undefined, undefined],
+    ['test:pass', {}, { message: 'marker_visual_unmatched_eof' }, undefined],
+    ['test:fail', { skip: true }, { message: 'marker_visual_unmatched_eof' }, undefined],
+    ['test:fail', { todo: true }, { message: 'marker_visual_unmatched_eof' }, undefined],
+  ]) {
+    const result = await summarizeOwnerProof([{ type: eventType, data: { name: names.node[0], ...extra,
+      details: { error: { cause, stack: 'private raw stack' } } } }]);
+    assert.equal(result.outcomes[0].type, expected);
+    assert.equal(Object.hasOwn(result.outcomes[0], 'type'), expected !== undefined);
+    assert.equal(result.passed, false);
+    assert.doesNotMatch(JSON.stringify(result), /private raw|unknown_code/);
+  }
+});
