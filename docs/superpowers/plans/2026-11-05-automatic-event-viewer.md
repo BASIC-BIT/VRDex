@@ -73,3 +73,24 @@ The next timed start now bounds candidate selection without filling the unknown
 end or permitting progression across that barrier. The regression failed before
 the fix and passed afterward, with 64 focused playback tests passing. Browser
 and visual CI remain open; this does not establish phone acceptance.
+
+## Browser and visual recycle, November 6
+
+The fixture clock now starts before the five-minute preparation window. Its
+eligibility controls use that boundary, and composed navigation tests explicitly
+enter it before expecting a second connection. The retry-delay fixture arms its
+failure before promotion, since the following source may now prepare immediately.
+The production policy and assertions remain intact.
+
+All seven real-transport lineup cases passed across Chromium and Firefox, with
+the Firefox lifecycle verified in a focused rerun after its first local attempt
+recorded a development full reload that erased the session. Seven composed,
+silence-handoff, overlap and retry-delay cases also passed. The requested
+15-second silence experiment was exercised with actual decoded synthetic media.
+
+Visual review accepted eight Linux CI baseline updates. Six add the selected
+Stream controls for linked performers; two replace the promotion opt-in with
+Automatic mode. Desktop and mobile captures showed no introduced clipping or
+overlap. The earlier intake-navigation failure did not recur in the latest
+290-case browser flow run. Fresh exact-head CI and the post-window feedback
+audit remain required. Physical-phone and real-music acceptance remain unknown.

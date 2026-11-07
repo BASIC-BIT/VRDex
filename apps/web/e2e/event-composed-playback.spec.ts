@@ -23,6 +23,8 @@ for (const mode of ['sequence', 'automatic', 'event-stream']) test(`composed pub
     await page.getByRole('button', { name: 'Play Lineup live', exact: true }).click();
     const video = page.locator('video:not([hidden])');
     await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).currentTime), { timeout: 20000 }).toBeGreaterThan(1);
+    await expect(page.locator('video')).toHaveCount(1);
+    if (mode !== 'event-stream') await page.getByRole('button', { name: 'Eligible', exact: true }).click();
     const sourceCount = mode === 'event-stream' ? 1 : 2;
     await expect(page.locator('video')).toHaveCount(sourceCount);
     expect(opened).toBe(sourceCount);

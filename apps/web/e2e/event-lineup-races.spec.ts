@@ -284,10 +284,10 @@ test("@fixture each handoff resets the next candidate retry delay", async ({base
   await expect.poll(()=>page.locator("video:not([hidden])").evaluate(v=>(v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
   await page.getByRole("button",{name:"Eligible",exact:true}).click();
   await expect.poll(()=>page.locator("video[hidden]").evaluate(v=>(v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
+  await page.evaluate(()=>Object.assign(window,{rejectCandidate:true}));
   await page.getByRole("button",{name:"Boundary",exact:true}).click();
   await page.locator("video:not([hidden])").evaluate(v=>(v as HTMLVideoElement).pause());
   await expect(page.locator("[data-current]")).toHaveAttribute("data-current","b",{timeout:15000});
-  await page.evaluate(()=>Object.assign(window,{rejectCandidate:true}));
   await page.getByRole("button",{name:"Later eligible",exact:true}).click();
   await page.waitForFunction(()=>(window as unknown as {candidateAttempts:number[]}).candidateAttempts.length>=2);
   const attempts=await page.evaluate(()=>(window as unknown as {candidateAttempts:number[]}).candidateAttempts);

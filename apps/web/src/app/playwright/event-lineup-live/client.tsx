@@ -18,7 +18,7 @@ function setup() {
  const base = params.get("transport");
  if (!base || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) throw new Error("Loopback transport required");
  const realNow = Date.now;
- let scheduleNow = 1_000_000;
+ let scheduleNow = 920_000;
  Date.now = () => scheduleNow;
  const source = (id: string, kind: string) => ({streamId:id,pcUrl:`${base}/${kind}.live.ts?id=${id}`,questUrl:`${base}/${kind}.live.ts?id=${id}`});
  const a = {...previewEvent.slots[0],playbackKey:"a",startAt:900_000,endAt:1_240_000,displayLabel:"Aurora",performer:{slug:"aurora",displayName:"Aurora",trustLabel:"claimed_verified" as const,outboundLinks:[{source:"owner_authored" as const,type:"website" as const,label:"Public source",url:"https://example.com/public-source"}]},stream:source("current",params.get("kind") ?? "audible")};
@@ -75,7 +75,7 @@ export default function Fixture() {
  const [mounted,setMounted]=useState(true);
  const [baseline,setBaseline]=useState(false);
  return <main className="mx-auto max-w-3xl space-y-5 p-5"><h1>Lineup playback fixture</h1>
-  <div className="flex flex-wrap gap-3">{[["Before event",800_000],["Before window",1_000_000],["Just before eligible",1_119_999],["Exactly eligible",1_120_000],["Eligible",1_121_000],["Boundary",1_240_000],["Next slot",1_250_000],["Later eligible",1_381_000],["After end",1_600_000]].map(([label,at])=><button key={label} onClick={()=>fixture.setTime(Number(at))}>{label}</button>)}
+  <div className="flex flex-wrap gap-3">{[["Before event",800_000],["Before window",920_000],["Just before eligible",939_999],["Exactly eligible",940_000],["Eligible",941_000],["Boundary",1_240_000],["Next slot",1_250_000],["Later eligible",1_381_000],["After end",1_600_000]].map(([label,at])=><button key={label} onClick={()=>fixture.setTime(Number(at))}>{label}</button>)}
   {["third","swap-source","hide","cancel","unpublish","replace","duplicate","missing","overlap","event-stream"].map(action=><button key={action} onClick={()=>fixture.change(action)}>{action}</button>)}
   <button onClick={()=>{setMounted(false);setBaseline(false);}}>Unmount</button><button onClick={()=>{setMounted(false);setBaseline(true);}}>Profile player</button>
   </div>
