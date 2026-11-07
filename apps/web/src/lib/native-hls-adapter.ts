@@ -157,6 +157,7 @@ export function createNativeHlsAdapter({
     for (const player of players.values()) player.stopLoad();
   }
   return {
+    supportsAudioOnly: true,
     get media(): HTMLMediaElement { return nodes[mode]; },
     play,
     pause,

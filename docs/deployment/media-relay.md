@@ -204,7 +204,8 @@ connects to Web Audio. Switching unloads the inactive playlist, preserves the
 media nodes and grant, and closes PiP when selecting audio. Returning to video
 does not request PiP. Physical-phone behavior remains a release gate.
 
-Rollback to the disabled client retains the saved preference. Audio selection is
+Rollback to the disabled client retains the saved preference. Audio only controls
+are disabled for adapters without an audio rendition. Restored audio selection is
 blocked without loading full video; the viewer can deliberately select Video and
 Play to use legacy foreground playback. Legacy playback has no background support
 guarantee. Utility controls use existing approved labels. See the

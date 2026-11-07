@@ -182,6 +182,19 @@ not establish that this error is fixed.
 
 ## Transport cancellation ownership
 
+The shared MPEG-TS configuration disables the IO startup stash and cleans old
+SourceBuffer media once it exceeds 30 seconds behind playback, retaining 15
+seconds. This reduces startup buffering and decoded media retention for both
+standalone and retained players. It may expose network jitter sooner. The
+November 6 loopback proof verified continued playback and removal of old buffered
+media; it does not measure phone CPU or background playback.
+
+Audio-only availability belongs to the adapter. Native HLS and relay adapters
+declare a separate audio rendition; legacy MPEG-TS adapters do not. Retained
+controls disable Audio only for those legacy adapters while preserving Video
+recovery and saved preferences. Hiding local lineup video is not audio-only
+decoding. See the [investigation and live-index proposal](../planning/player-performance-and-live-index-2026-11-06.md).
+
 The shared transport uses mpegts.js 1.8.1's supported customLoader interface.
 `VrcdnFetchLoader` owns fetch, the response reader, and all cancellation promises.
 It keeps range/seek headers, configured headers, credentials, referrer policy,
