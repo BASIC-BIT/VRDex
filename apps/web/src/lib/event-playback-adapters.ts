@@ -62,6 +62,7 @@ export function createEventPlaybackAdapter(
       manual: (key) => session.manual(key),
       live: () => session.live(),
       retryNextPlayback: () => session.retryNextPlayback(),
+      setMode: mode => session.setMode(mode),
     };
   }
   const video = document.createElement("video");
@@ -177,6 +178,11 @@ export function createRetainedPlaybackAdapter(
   notify: AdapterNotify,
   { mode, relay }: { mode: PlaybackMode; relay?: RelayPlaybackClient },
 ): PlaybackAdapter {
+  if (request.kind === "performer_sequence" && request.localOnly) {
+    const adapter = createEventPlaybackAdapter(request, mount, notify);
+    void adapter.setMode?.(mode);
+    return adapter;
+  }
   if (relay && request.kind === "vrcdn" && request.transport !== "video")
     return createRelayPlaybackAdapter({
       request,

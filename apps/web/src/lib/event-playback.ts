@@ -1,3 +1,4 @@
+import { inferLineupEnds } from "@vrdex/api-contracts";
 import { AUDIO_OBSERVATION_FRESHNESS_MS } from "./event-audio-observation";
 
 export const HANDOFF_PREPARE_MS = 120_000;
@@ -13,6 +14,8 @@ export type PlaybackSlot = {
   key: string;
   startAt: number;
   endAt?: number;
+  /** Canonical untimed rows must survive the timed-only playback projection. */
+  followingBlocked?: boolean;
   stream?: PlaybackStream;
 };
 
@@ -38,13 +41,14 @@ export type HandoffInput = {
   nextReady: boolean;
   evidence: PlaybackEvidence;
   silenceDurationMs?: number;
+  silenceWindow?: { startAt: number; endAt: number };
 };
 
 function validTimestamp(value: number): boolean {
   return Number.isFinite(value);
 }
 
-/** Selects the single slot whose authored half-open interval contains scheduleNow. */
+/** Selects the single slot whose derived half-open interval contains scheduleNow. */
 export function joinSlot(
   slots: readonly PlaybackSlot[],
   scheduleNow: number,
@@ -52,9 +56,10 @@ export function joinSlot(
   if (!validTimestamp(scheduleNow)) return undefined;
 
   let match: PlaybackSlot | undefined;
-  for (let index = 0; index < slots.length; index += 1) {
-    const slot = slots[index];
-    const next = slots[index + 1];
+  const effective = inferLineupEnds(slots);
+  for (let index = 0; index < effective.length; index += 1) {
+    const slot = effective[index];
+    const next = effective[index + 1];
     if (
       !validTimestamp(slot.startAt) ||
       (slot.endAt !== undefined &&
@@ -65,6 +70,7 @@ export function joinSlot(
       return undefined;
     }
 
+    // A join selects the scheduled performer; following still stops at untimed rows.
     const effectiveEnd = slot.endAt ?? next?.startAt;
     const active =
       scheduleNow >= slot.startAt &&
@@ -104,6 +110,7 @@ export function shouldHandoff(input: HandoffInput): boolean {
     nextReady,
     evidence,
     silenceDurationMs,
+    silenceWindow,
   } = input;
   if (
     !following ||
@@ -111,7 +118,6 @@ export function shouldHandoff(input: HandoffInput): boolean {
     !nextReady ||
     !validTimestamp(scheduleNow) ||
     !validTimestamp(eligibleAt) ||
-    scheduleNow < eligibleAt ||
     !validTimestamp(observationNow) ||
     !validTimestamp(evidence.observedAt)
   ) {
@@ -126,13 +132,15 @@ export function shouldHandoff(input: HandoffInput): boolean {
       ? -1
       : evidence.observedAt - evidence.failureSince;
   const failureQualified =
-    validTimestamp(failureDuration) && failureDuration >= FAILURE_CONFIRMATION_MS;
+    scheduleNow >= eligibleAt && validTimestamp(failureDuration) && failureDuration >= FAILURE_CONFIRMATION_MS;
 
   const silenceDuration =
     evidence.silenceSince === undefined
       ? -1
       : evidence.observedAt - evidence.silenceSince;
   const silenceQualified =
+    scheduleNow >= (silenceWindow?.startAt ?? eligibleAt) &&
+    (!silenceWindow || (validTimestamp(silenceWindow.startAt) && validTimestamp(silenceWindow.endAt) && scheduleNow <= silenceWindow.endAt && scheduleNow - silenceWindow.startAt >= (silenceDurationMs ?? 0))) &&
     typeof silenceDurationMs === "number" &&
     Number.isFinite(silenceDurationMs) &&
     silenceDurationMs >= 0 &&

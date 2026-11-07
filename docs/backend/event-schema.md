@@ -737,9 +737,9 @@ Future smart labeling, remembered vocabularies, URL-derived icons, and platform-
 
 ## Public Watch Surface
 
-Public event pages promote one primary watch source above the normal link list only when `events.watchSurfaceEnabled` is true and the event is inside its scheduled watch window. Outside that window, or when the event-level setting is off, watch links stay in the normal link list.
+Public event pages promote an explicitly configured event stream when `events.watchSurfaceEnabled` is true and the event is inside its scheduled watch window. With that setting off, timed public lineups automatically provide the local browser viewer when a performer has an available public stream. Other watch links stay in the normal link list.
 
-Current recommendation: new event drafts default `watchSurfaceEnabled` to false and require an event-level opt-in. Community or person-level defaults should wait until the relevant ownership/settings surfaces exist.
+New event drafts default `watchSurfaceEnabled` to false, selecting Automatic in the editor. An event-level opt-in selects Event stream instead. Automatic performer viewing does not start a broadcast or open relay grants.
 
 Ready or active event-media outputs are projected into the same public media-link list as event-authored links. This lets operator-owned VRCDN outputs feed the public watch surface without duplicating the output URL in `events.mediaLinks`, but the event-level setting still controls whether those links are promoted. Draft, disabled, failed, ended, or errored media programs remain private.
 

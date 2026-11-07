@@ -47,6 +47,17 @@ test("a missing next end uses the following start without limiting the current s
   assert.equal(nextSlot(current, [current, candidate], 22 * 60)?.key, "b");
 });
 
+test("an untimed barrier preserves candidate expiry without inventing its end", () => {
+  const current = { key: "a", startAt: 10, endAt: 20, stream };
+  const candidate = { key: "b", startAt: 20, followingBlocked: true, stream };
+  const later = { key: "c", startAt: 40, endAt: 50, stream };
+  const slots = [current, candidate, later];
+  assert.equal(nextSlot(current, slots, 39), candidate);
+  assert.equal(nextSlot(current, slots, 40), undefined);
+  assert.equal(nextSlot(candidate, slots, 45), undefined);
+  assert.equal("endAt" in candidate, false);
+});
+
 test("later ambiguity does not block an earlier unambiguous transition", () => {
   const b = { key: "b", startAt: 1000, endAt: 2000, stream };
   const c = { key: "c", startAt: 2000, endAt: 3000, stream };

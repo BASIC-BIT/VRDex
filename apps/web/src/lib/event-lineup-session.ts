@@ -1,3 +1,4 @@
+import { inferLineupEnds } from "@vrdex/api-contracts";
 import type { PlaybackSlot } from "./event-playback";
 export type LineupSlot = PlaybackSlot & { performerId?: string; label?: string };
 export function sameLineupSource(a: LineupSlot, b: LineupSlot): boolean {
@@ -13,6 +14,7 @@ export function reconcileSlot(previous: LineupSlot, slots: readonly LineupSlot[]
   return matches.length === 1 ? matches[0] : undefined;
 }
 export function followingSlot(current: LineupSlot, slots: readonly LineupSlot[]): LineupSlot | undefined {
+  if (current.followingBlocked) return undefined;
   const index = slots.findIndex(slot => slot.key === current.key);
   if (index < 0 || slots.filter(slot => slot.key === current.key).length !== 1) return undefined;
   // Only the current transition matters, including same-start siblings on either side.
@@ -23,6 +25,6 @@ export function followingSlot(current: LineupSlot, slots: readonly LineupSlot[])
 export function nextSlot(current: LineupSlot, slots: readonly LineupSlot[], scheduleNow: number): LineupSlot | undefined {
   const candidate = followingSlot(current, slots);
   const index = slots.findIndex(slot => slot.key === current.key);
-  const effectiveEnd = candidate?.endAt ?? slots[index + 2]?.startAt;
+  const effectiveEnd = inferLineupEnds(slots)[index + 1]?.endAt ?? slots[index + 2]?.startAt;
   return effectiveEnd !== undefined && scheduleNow >= effectiveEnd ? undefined : candidate;
 }

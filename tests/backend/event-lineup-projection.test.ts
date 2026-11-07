@@ -170,3 +170,69 @@ it("refuses private person matches and withdraws their identity and portrait on 
   assert.equal(event.participants?.length, 0);
   await assert.rejects(t.run(async ({ db }) => replaceEventLineup(db, (await db.get(eventId))!, entries, now)), /public person/);
 });
+
+it("shares inferred ends across public lineup, slots and active preview without backfilling rows", async () => {
+  const { getPublicEventPreviews } = await import("../../convex/_eventPublic");
+  const { t, eventId, read } = await fixture();
+  const minute = 60_000;
+  await t.run(async ({ db }) => {
+    for (const position of [0, 1, 2]) await db.insert("eventSlots", {
+      eventId, position, startAt: now + position * 30 * minute, ...(position === 0 ? { endAt: now + 15 * minute } : {}),
+      displayLabel: `Set ${position}`, roleLabel: "DJ", sourceType: "community", sourceLabel: "Fixture", confidence: 1, reviewState: "confirmed", updatedAt: now,
+    });
+  });
+  const event = await read();
+  const expected = [now + 15 * minute, now + 60 * minute, now + 120 * minute];
+  assert.deepEqual(event.lineup.map(row => row.endAt), expected);
+  assert.deepEqual(event.slots.map(row => row.endAt), expected);
+  const previews = await t.run(async ({ db }) => getPublicEventPreviews(db, [(await db.get(eventId))!], { now: now + 45 * minute }));
+  assert.deepEqual(previews[0]?.nextSlots.map(row => row.endAt), expected.slice(1));
+  await t.run(async ({ db }) => {
+    const authored = await db.query("eventSlots").withIndex("by_eventId", q => q.eq("eventId", eventId)).collect();
+    assert.equal(authored.filter(row => row.endAt !== undefined).length, 1);
+  });
+});
+
+it("keeps untimed canonical rows as end-inference barriers in every public projection", async () => {
+  const { replaceEventLineup } = await import("../../convex/_eventLineup");
+  const { t, eventId, read } = await fixture();
+  await t.run(async ({ db }) => replaceEventLineup(db, (await db.get(eventId))!, [
+    { clientKey: "first", position: 0, performerLabel: "First", startAt: now },
+    { clientKey: "unknown", position: 1, performerLabel: "Unscheduled" },
+    { clientKey: "last", position: 2, performerLabel: "Last", startAt: now + 3_600_000 },
+  ], now));
+  const event = await read();
+  assert.deepEqual(event.lineup.map(row => row.endAt), [undefined, undefined, now + 7_200_000]);
+  assert.deepEqual(event.slots.map(row => row.endAt), [undefined, now + 7_200_000]);
+});
+
+it("does not infer reordered canonical starts by silently sorting them into chronology", async () => {
+  const { replaceEventLineup } = await import("../../convex/_eventLineup");
+  const { t, eventId, read } = await fixture();
+  await t.run(async ({ db }) => replaceEventLineup(db, (await db.get(eventId))!, [
+    { clientKey: "first", position: 0, performerLabel: "First", startAt: now },
+    { clientKey: "third", position: 1, performerLabel: "Third", startAt: now + 3_600_000 },
+    { clientKey: "second", position: 2, performerLabel: "Second", startAt: now + 1_800_000 },
+  ], now));
+  const event = await read();
+  assert.deepEqual(event.lineup.map(row => row.endAt), [undefined, undefined, undefined]);
+  assert.deepEqual(event.slots.map(row => row.endAt), [undefined, undefined, undefined]);
+});
+
+
+it("host and editor projections retain authored end omissions", async () => {
+  const { getEventForHost, getEventForEditor } = await import("../../convex/_eventPublic");
+  const { t, eventId, read } = await fixture();
+  await t.run(async ({ db }) => {
+    for (const position of [0, 1]) await db.insert("eventSlots", {
+      eventId, position, startAt: now + position * 3_600_000,
+      displayLabel: `Set ${position}`, roleLabel: "DJ", sourceType: "community", sourceLabel: "Fixture", confidence: 1, reviewState: "confirmed", updatedAt: now,
+    });
+    const event = (await db.get(eventId))!;
+    for (const projection of [await getEventForHost(db, event), await getEventForEditor(db, event)]) {
+      assert.deepEqual(projection?.lineup.map(row => row.endAt), [undefined, undefined]);
+      assert.deepEqual(projection?.slots.map(row => row.endAt), [undefined, undefined]);
+    }
+  });
+  assert.deepEqual((await read()).slots.map(row => row.endAt), [now + 3_600_000, now + 7_200_000]);
+});

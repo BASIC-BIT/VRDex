@@ -1,12 +1,10 @@
 # Event lineup player
 
-The event page supports an organizer-selected `event_stream` or
-`performer_sequence` mode. The latter starts with following enabled, but makes no
-media connection until the viewer presses Play. New-session controls appear only
-inside the existing doors-open/start/end watch window. The shared clock refreshes
-on its normal interval and when document visibility changes. An already-started
-session stays mounted after the window closes. It requires no media worker,
-relay, provider key, or paid entitlement.
+Timed public lineups with an available public performer stream are watchable
+without staff enabling performer sequence. The editor's Automatic choice uses
+this local browser viewer; Event stream retains the explicitly enabled event
+source. Automatic requests never open native relay grants or broadcasting tools.
+Existing enabled performer-sequence events remain compatible.
 
 ## Ownership and updates
 
@@ -14,8 +12,8 @@ relay, provider key, or paid entitlement.
 `events.getPublicBySlug` subscription has an authoritative result. That projection
 updates both the roster links and the watch component. The root playback owner
 retains active media across page navigation and independently revalidates its
-public projection. A null projection, cancellation, disabling watch or changing
-mode revokes that active request. There is no subscription per performer.
+public projection. A null projection, cancellation, removing playable sources or changing the
+request transport revokes or replaces that active request. There is no subscription per performer.
 
 `EventLineupSession` owns one current source and at most one prepared next source.
 A generation check runs before creating an asynchronous source and again before
@@ -41,6 +39,20 @@ uses different buffered-failure handling, with the existing `VrcdnPlayerControls
 and play poster. Transport setup failure releases partially attached players;
 teardown attempts every transport step even if an earlier step throws.
 
+## End inference
+
+Public lineup rows, timed slots, event previews and browser playback share
+`inferLineupEnds` from the API contracts package. Explicit ends stay unchanged,
+including authored gaps and overlaps. A missing end uses the immediate next
+unambiguous later start; the final timed row can use a valid later event end.
+Inference follows canonical lineup order. Untimed rows are barriers, and equal,
+locally out-of-order or nonfinite starts leave affected ends unknown. A later
+ambiguous section does not prevent an earlier ordered transition. Absolute
+instants carry overnight schedules across midnight without inventing a duration.
+
+These are derived display and runtime values. Authored rows and database values
+remain unchanged; the helper returns copies and performs no backfill.
+
 ## Following policy
 
 Wall time selects schedule candidates. Monotonic `performance.now()` timestamps
@@ -52,10 +64,11 @@ Only the immediate next slot can be prepared. Missing, freeform and unplayable
 slots are barriers. Out-of-order or simultaneous starts adjacent to the current or
 candidate slot block that transition, including a candidate with a same-time sibling.
 Ambiguity later in the lineup does not block an earlier unambiguous transition.
-Preparation begins at the later of current end and next start, minus 120 seconds.
-Automatic promotion waits until that later authored boundary, including overlaps;
-preparation never authorizes early promotion. A current source that fails before
-the boundary is retried while the next source remains muted.
+Native relay preparation begins 120 seconds before the later of current end and
+next start. Local browser preparation begins five minutes before that boundary.
+Failure promotion waits for the later boundary; local silence promotion uses the
+window described below. Preparation alone never authorizes promotion. A current
+source that fails before the boundary is retried while the next source stays muted.
 Joining during simultaneous active intervals still refuses an ambiguous selection.
 If current end is absent, next start provides the handoff boundary only.
 An immediate next slot whose effective interval has ended is no longer a
@@ -78,13 +91,21 @@ volume affect output gain, not silence measurements.
 UI subscribers receive a new snapshot only when a snapshot field changes.
 Media observation continues every 100 ms regardless of UI notifications.
 
-Automatic silence handoff is disabled under the October 2026 approved policy.
-The September synthetic -90 dBFS/1000ms experiment remains historical observation
-evidence, not representative musical calibration. Quiet or silent progressing
-current media continues even after its boundary. Established playback must stop
-progressing for at least 1000ms before failure qualifies. Healthy decoded progress
-cancels failure evidence, including buffered playback after transport failure or
-clean EOF. EOF alone neither releases playback nor advances the lineup.
+The November 6 local browser trial enables silence handoff after 15 continuous
+seconds below -60 dBFS, within five minutes before or after the inferred current
+set end. The window also cannot begin more than five minutes before the next
+set starts or before the current set starts. The next source must have decoded
+readiness, following must be active, and observation must remain fresh and in
+the foreground. Silence before the eligible window cannot shorten its required
+15 seconds. Pause, hidden documents, analysis suspension and audible input reset
+evidence. Viewer mute and volume do not affect it. These numerical defaults are
+a trial, not calibration against real DJ music.
+
+Native relay and broadcasting policies remain separate, with no silence trial
+added by this change. Established playback must stop progressing for at least
+1000ms before failure qualifies. Healthy decoded progress cancels failure
+evidence, including buffered playback after transport failure or clean EOF.
+EOF alone neither releases playback nor advances the lineup.
 
 A newly connected source has up to five seconds to begin decoded playback before
 reconnection. This prevents cold MSE/audio startup from being destroyed every

@@ -26,8 +26,8 @@ function sample(
 }
 
 describe("audio observation", () => {
-  it("uses the measured settings", () => {
-    assert.equal(AUDIO_SILENCE_THRESHOLD_DBFS, -90);
+  it("uses the trial settings", () => {
+    assert.equal(AUDIO_SILENCE_THRESHOLD_DBFS, -60);
     assert.equal(AUDIO_OBSERVATION_INTERVAL_MS, 100);
     assert.equal(AUDIO_OBSERVATION_FRESHNESS_MS, 500);
   });
@@ -57,7 +57,7 @@ describe("audio observation", () => {
     }
     assert.equal(evidence.silenceSince, 200);
     assert.equal(evidence.failureSince, undefined);
-    evidence = observeAudio(evidence, sample(1_200, { dbfs: -89.9 }));
+    evidence = observeAudio(evidence, sample(1_200, { dbfs: -59.9 }));
     assert.equal(evidence.silenceSince, undefined);
   });
 
