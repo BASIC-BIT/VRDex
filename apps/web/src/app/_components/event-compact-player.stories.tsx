@@ -7,6 +7,7 @@ import { EventCompactPlayer } from "./event-compact-player";
 function CompactFixture({ audio = false, profile = false }: { audio?: boolean; profile?: boolean }) {
   const mount = useRef<HTMLDivElement>(null);
   const [owner] = useState(() => new EventPlaybackOwner((_request, notify) => ({
+    supportsAudioOnly: true,
     play: async () => { notify({ metadata: { displayName: "DJ Aurora", artworkAssetId: null, artworkRevision: null } }); return true; }, setMode: async () => true, pause() {}, setVolume() {}, setMuted() {}, update() {}, dispose() {},
   })));
   const state = useEventPlaybackSnapshot(owner);
